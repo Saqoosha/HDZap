@@ -50,23 +50,24 @@ User taps LAP button
 User selects mode in ConnectionView:
 
 Mode 1 — Bind Phrase:
-  iPhone: uidFromBindPhrase(phrase)     ← MD5("-DMY_BINDING_PHRASE=\"phrase\"")
-  iPhone: sendUIDConfig(.bindPhrase)    ← [0x01][phrase bytes]
-  ESP32:  UIDConfigCallback receives
-  ESP32:  uid_from_bind_phrase(phrase)   ← same MD5, same UID
-  ESP32:  nvs_save_uid(), espnow_reinit()
+  iPhone: uidFromBindPhrase(phrase)           ← MD5("-DMY_BINDING_PHRASE=\"phrase\"")
+  iPhone: sendUIDConfig(.bindPhrase)          ← [0x01][phrase bytes, ≤63]
+  ESP32:  UIDConfigCallback stages new_uid    ← same MD5, same UID
+  ESP32 (main loop) applyStagedUid():
+        → nvs_store::saveUid (rollback on failure)
+        → espnow_reinit or espnow_init
 
 Mode 2 — Manual UID:
-  iPhone: parseUID("60:D2:53:8A:B2:9E")
-  iPhone: sendUIDConfig(.manualUID)     ← [0x02][6 bytes]
-  ESP32:  memcpy, nvs_save_uid(), espnow_reinit()
+  iPhone: parseUID → normalizeUID("60:D2:53:8A:B2:9E")
+  iPhone: sendUIDConfig(.manualUID)           ← [0x02][6 bytes]
+  ESP32:  UIDConfigCallback stages → main loop applies (as above)
 
 Mode 3 — New Pairing:
-  iPhone: sendUIDConfig(.newPairing)    ← [0x03]
-  ESP32:  esp_read_mac() → use own MAC as UID
-  ESP32:  nvs_save_uid(), espnow_reinit()
+  iPhone: sendUIDConfig(.newPairing)          ← [0x03]
+  ESP32:  esp_read_mac() → stage own MAC as UID
+  ESP32 (main loop) applyStagedUid() as above
   User:   puts goggle in bind mode
-  iPhone: sendBindCommand()             ← [0x01]
+  iPhone: sendBindCommand()                   ← [0x01]
   ESP32:  send_bind_packet() → MSPv2 MSP_ELRS_BIND to FF:FF:FF:FF:FF:FF (3x)
   Goggle: saves UID to EEPROM, reboots
 ```
@@ -76,13 +77,13 @@ Mode 3 — New Pairing:
 ### Module Dependency Graph
 
 ```
-main.cpp
-  ├── ble_service.h ──→ nvs_store.h (staged data only; main.cpp applies)
+main.cpp ──→ nvs_store.h (load/save UID) ──→ Preferences
+  ├── ble_service.h (stages data + flags only; main.cpp applies)
+  │     └→ espnow_link.h (uid_from_bind_phrase helper)
   ├── bind.h ──→ msp.h (MSP_ELRS_BIND)
   │             └→ espnow_link.h (broadcast helper)
   ├── lap_display.h ──→ osd.h ──→ msp.h (MSP_SET_OSD_ELEM)
   │                               └→ espnow_link.h (send)
-  ├── nvs_store.h ──→ Preferences (namespace "hdzero")
   └── stick_display.h ──→ M5Unified (LCD status display only)
 ```
 
@@ -130,39 +131,24 @@ HDZeroLapTimerApp
 
 ### State Management
 
-- `@Observable` macro (iOS 17+) on BluetoothManager and LapTimer
+- `@MainActor @Observable` on BluetoothManager and LapTimer (iOS 18+)
 - Injected via `.environment()` from app root
 - Views access via `@Environment(Type.self)`
 - No Combine, no ObservableObject — pure Observation framework
 
-### BLE State Machine
+### BLE State
 
-```
-                    ┌──────────┐
-          ┌────────→│  Idle    │←─────────┐
-          │         └────┬─────┘          │
-          │              │ startScan()    │ disconnect()
-          │              ▼                │
-          │         ┌──────────┐          │
-          │         │ Scanning │          │
-          │         └────┬─────┘          │
-          │              │ didDiscover    │
-          │              │ connect()      │
-          │              ▼                │
-          │         ┌──────────┐          │
-          │         │Connecting│          │
-          │         └────┬─────┘          │
-          │              │ didConnect     │
-          │              ▼                │
-          │         ┌──────────┐          │
-          │         │Connected │──────────┘
-          │         └────┬─────┘  (user disconnect)
-          │              │ didDisconnect (unexpected)
-          │              ▼
-          │         ┌──────────┐
-          └─────────│Reconnect │ (auto)
-                    └──────────┘
-```
+BluetoothManager owns three coupled values:
+
+- `isConnected: Bool`
+- `connectedPeripheral: CBPeripheral?`
+- `characteristics: [CBUUID: CBCharacteristic]`
+
+Unexpected disconnects call `centralManager.connect(peripheral)` with no
+explicit "reconnect" state — iOS retries in the background until either a
+`didConnect` fires or the user initiates a clean disconnect via
+`disconnect()` (which sets `userInitiatedDisconnect` so the next
+`didDisconnectPeripheral` skips auto-retry).
 
 ## Protocol Specifications
 

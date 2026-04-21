@@ -23,14 +23,15 @@ public:
         m_count = 0;
     }
 
-    void render() {
-        if (!m_osd) return;
-        m_osd->clear();
+    bool render() {
+        if (!m_osd) return false;
+        bool ok = m_osd->clear();
 
         if (m_count == 0) {
-            m_osd->writeString(0, 0, "NO LAPS");
-            m_osd->draw();
-            return;
+            ok = m_osd->writeString(0, 0, "NO LAPS") && ok;
+            ok = m_osd->draw() && ok;
+            if (!ok) Serial.println("lap_display: render incomplete");
+            return ok;
         }
 
         // Lap rows: most recent first, max MAX_LAP_ROWS visible
@@ -41,25 +42,23 @@ public:
             char timeBuf[16];
             formatTime(m_laps[i].timeMs, timeBuf);
             snprintf(line, sizeof(line), "LAP %02d      %s", m_laps[i].num, timeBuf);
-            m_osd->writeString(row, 0, line);
+            ok = m_osd->writeString(row, 0, line) && ok;
             row++;
         }
 
-        // Blank row separator
+        // Blank row separator (no packet — just visual gap)
         row++;
 
-        // Best lap
         uint8_t bestIdx = findBest();
         {
             char line[OSD_COLS + 1];
             char timeBuf[16];
             formatTime(m_laps[bestIdx].timeMs, timeBuf);
             snprintf(line, sizeof(line), "BEST  %02d    %s", m_laps[bestIdx].num, timeBuf);
-            m_osd->writeString(row, 0, line);
+            ok = m_osd->writeString(row, 0, line) && ok;
             row++;
         }
 
-        // Total time
         {
             uint32_t total = 0;
             for (uint8_t i = 0; i < m_count; i++) {
@@ -69,18 +68,24 @@ public:
             char timeBuf[16];
             formatTime(total, timeBuf);
             snprintf(line, sizeof(line), "TOTAL       %s", timeBuf);
-            m_osd->writeString(row, 0, line);
+            ok = m_osd->writeString(row, 0, line) && ok;
         }
 
-        m_osd->draw();
+        ok = m_osd->draw() && ok;
+        if (!ok) Serial.println("lap_display: render incomplete, OSD may be stale");
+        return ok;
     }
 
 private:
+    // "%02d" formatting + u8 BLE wire format cap lap number at 99.
     static constexpr uint8_t MAX_LAPS = 99;
     // ESP-NOW: safe to send up to 10 packets per OSD cycle (REPORT.md).
     // render() cycle = clear + MAX_LAP_ROWS + best + total + draw = MAX_LAP_ROWS + 4.
     // 6 rows => 10 packets, the stable ceiling.
     static constexpr uint8_t MAX_LAP_ROWS = 6;
+    static constexpr uint8_t ESPNOW_PACKET_BUDGET = 10;
+    static_assert(MAX_LAP_ROWS + 4 <= ESPNOW_PACKET_BUDGET,
+                  "LapDisplay render() must stay within ESP-NOW 10-packet budget");
 
     struct Lap {
         uint8_t num;

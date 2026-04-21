@@ -124,10 +124,22 @@ struct ConnectionView: View {
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.body.monospaced())
-                if !manualUIDText.isEmpty, case .failure(let err) = parseUID(manualUIDText) {
-                    Text(err.localizedDescription)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                if !manualUIDText.isEmpty {
+                    switch parseUID(manualUIDText) {
+                    case .failure(let err):
+                        Text(err.localizedDescription)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    case .success(let raw):
+                        let normalized = normalizeUID(raw)
+                        if normalized != raw {
+                            // Surface the silent bit0 clear so the user
+                            // understands what will actually be sent.
+                            Text("Normalized: \(formatUID(normalized))")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             case .newPairing:
                 Text("Put your goggles in bind mode, then tap Send Bind Packet.")
@@ -180,7 +192,7 @@ struct ConnectionView: View {
             mode = .bindPhrase(bindPhrase)
         case .manualUID:
             guard case .success(let uid) = parseUID(manualUIDText) else { return }
-            mode = .manualUID(uid)
+            mode = .manualUID(normalizeUID(uid))
         case .newPairing:
             mode = .newPairing
         }

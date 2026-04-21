@@ -22,11 +22,19 @@ static void applyStagedUid() {
     g_uid_config_requested = false;
     portEXIT_CRITICAL(&g_ble_mux);
 
+    // Persist before mutating runtime state. If NVS fails we abort so
+    // runtime and persistent UID stay in sync — a reboot reverting the
+    // goggle to an old UID would otherwise be a ghost bug.
+    uint8_t prev_uid[6];
+    memcpy(prev_uid, g_uid, 6);
     memcpy(g_uid, new_uid, 6);
     if (!nvs_store::saveUid(g_uid)) {
-        Serial.println("NVS save failed");
-        stickDisplay.showMessage("NVS SAVE FAIL", TFT_RED);
+        memcpy(g_uid, prev_uid, 6);
+        Serial.println("NVS save failed — UID change reverted");
+        stickDisplay.showMessage("NVS SAVE FAIL\nUID reverted", TFT_RED);
+        return;
     }
+
     if (espnow_ready) {
         if (!espnow_reinit(g_uid)) {
             espnow_ready = false;
@@ -36,6 +44,10 @@ static void applyStagedUid() {
     } else {
         // First successful UID lets us try init from scratch.
         espnow_ready = espnow_init(g_uid);
+        if (!espnow_ready) {
+            Serial.println("ESP-NOW init still failing after UID change");
+            stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
+        }
     }
     stickDisplay.showStatus(g_uid, g_ble_connected);
 }
@@ -48,9 +60,11 @@ void setup() {
 
     if (!nvs_store::loadUid(g_uid)) {
         esp_read_mac(g_uid, ESP_MAC_WIFI_STA);
-        g_uid[0] &= ~0x01; // Unicast MAC invariant.
         Serial.println("No saved UID, using MAC");
     }
+    // Enforce unicast MAC invariant after both the MAC fallback and NVS load —
+    // legacy or corrupted NVS values could arrive with bit0 set.
+    g_uid[0] &= ~0x01;
 
     Serial.printf("UID: %02X:%02X:%02X:%02X:%02X:%02X\n",
                   g_uid[0], g_uid[1], g_uid[2], g_uid[3], g_uid[4], g_uid[5]);
