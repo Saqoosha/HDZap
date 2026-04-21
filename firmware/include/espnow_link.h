@@ -50,12 +50,14 @@ inline bool espnow_init(uint8_t uid[6]) {
     WiFi.begin("_", "_", 1); // Force channel 1
     WiFi.disconnect();
     uint8_t primary = 0;
-    wifi_second_chan_t second;
+    wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
     if (esp_wifi_get_channel(&primary, &second) == ESP_OK && primary != 1) {
-        // peer.channel = 0 means "current channel" — if we're not actually
-        // on channel 1, every send will go out on a channel the goggle
-        // isn't listening to and nothing surfaces the mismatch at runtime.
-        Serial.printf("espnow_init: WiFi on channel %u, expected 1\n", primary);
+        // peer.channel = 0 means "current channel" — a post-WiFi.begin
+        // channel drift would silently send every packet to a channel
+        // the goggle isn't listening on. Force it back to 1 so the
+        // invariant the rest of the stack assumes actually holds.
+        Serial.printf("espnow_init: WiFi on channel %u, forcing to 1\n", primary);
+        esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
     }
 
     if (esp_wifi_set_mac(WIFI_IF_STA, uid) != ESP_OK) return false;
