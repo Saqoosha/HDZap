@@ -5,19 +5,27 @@
 #include <Preferences.h>
 
 // Persistent UID storage in ESP32 NVS.
-// Namespace "hdzero", keys "uid" (6 bytes) and "init" (sentinel byte).
-// `init` is written on every save so its absence alongside a missing `uid`
-// means this namespace truly has never been written — distinguishable from
-// a post-save corruption where the index page lost the uid pointer.
+// Namespace "hdzero", keys:
+//   - "init" : 1-byte sentinel written BEFORE the uid on every save.
+//   - "uid"  : 6 bytes.
+// Sentinel-first ordering means a save interrupted by power loss between
+// the two puts leaves sentinel-present + uid-missing, which loadUid
+// classifies as corruption. The alternative ordering (uid-first) would
+// make torn writes look like a normal load.
 namespace nvs_store {
 
 inline bool saveUid(const uint8_t uid[6]) {
     Preferences prefs;
     if (!prefs.begin("hdzero", false)) return false;
-    size_t written = prefs.putBytes("uid", uid, 6);
-    prefs.putUChar("init", 1);
+    size_t sentinelWritten = prefs.putUChar("init", 1);
+    size_t uidWritten = (sentinelWritten == 1) ? prefs.putBytes("uid", uid, 6) : 0;
     prefs.end();
-    return written == 6;
+    if (sentinelWritten != 1 || uidWritten != 6) {
+        Serial.printf("nvs_store: partial save (sentinel=%u, uid=%u)\n",
+                      (unsigned)sentinelWritten, (unsigned)uidWritten);
+        return false;
+    }
+    return true;
 }
 
 inline bool loadUid(uint8_t uid[6]) {
@@ -27,9 +35,9 @@ inline bool loadUid(uint8_t uid[6]) {
     bool hasSentinel = prefs.isKey("init");
     bool hasUid = prefs.isKey("uid");
     if (hasSentinel && !hasUid) {
-        // Sentinel written but uid missing — a successful saveUid writes
-        // both, so this only happens under NVS corruption.
-        Serial.println("nvs_store: sentinel present but uid key missing — possible NVS corruption");
+        // Sentinel was written but uid wasn't — torn write or flash corruption.
+        // Don't silently fall back to the factory MAC without surfacing this.
+        Serial.println("nvs_store: sentinel present but uid key missing — NVS corruption suspected");
         prefs.end();
         return false;
     }

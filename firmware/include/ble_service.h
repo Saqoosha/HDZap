@@ -22,14 +22,19 @@
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
 // Flags signal edges; scratch fields carry the payload.
 //
-// Mux-guarded (portMUX, main loop never sees a torn pair):
-//   g_staged_uid + g_uid_config_requested
-//   g_lap_num + g_lap_time_ms + g_lap_count + g_lap_received
+// Mux-guarded (portMUX; main loop never sees a torn pair):
+//   g_staged_uid + g_uid_config_requested     (UID config staging)
+//   g_lap_num + g_lap_time_ms + g_lap_count + g_lap_received  (lap frame)
 //
-// Bare-volatile single-flag (idempotent commands — rapid double-write
-// collapses into one edge, which is fine because the action just means
+// Bare-volatile single-flag — idempotent commands, rapid double-write
+// collapses into one edge (which is fine, the action just means
 // "do it once"):
 //   g_bind_requested, g_osd_clear_requested, g_osd_reset_laps_requested
+//
+// Bare-volatile state snapshot — written by ServerCallbacks (BLE task),
+// read for status-notify payload + main loop LCD update. Single byte, so
+// atomic; readers always see the latest posted value:
+//   g_ble_connected
 inline volatile bool g_bind_requested = false;
 inline volatile bool g_lap_received = false;
 inline volatile bool g_osd_clear_requested = false;
