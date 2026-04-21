@@ -140,13 +140,17 @@ void loop() {
         // Priority: radio dead > storage full > render dropped. ESPNOW
         // DOWN matters most because no laps reach the goggle; LAPS FULL
         // means storage is capped (lap is on the phone but not here);
-        // RENDER FAIL is a per-lap dispatch failure.
+        // RENDER FAIL is a per-lap dispatch failure. A successful lap
+        // clears any stale error from an earlier condition so the strip
+        // reflects the current reality, not history.
         if (!espnow_ready) {
             stickDisplay.showMessage("ESPNOW DOWN", TFT_RED);
         } else if (!stored) {
             stickDisplay.showMessage("LAPS FULL", TFT_ORANGE);
         } else if (!renderOk) {
             stickDisplay.showMessage("LAP RENDER FAIL", TFT_RED);
+        } else {
+            stickDisplay.clearMessage();
         }
     }
 

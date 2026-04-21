@@ -64,6 +64,11 @@ public:
     /// showLap redraws — crucial for surfacing radio / NVS failures that
     /// used to get wiped on the next BLE event.
     void showMessage(const char* msg, uint16_t color = TFT_CYAN) {
+        size_t len = strlen(msg);
+        if (len >= sizeof(m_msg)) {
+            Serial.printf("stick_display: showMessage truncated (%u -> %u)\n",
+                          (unsigned)len, (unsigned)(sizeof(m_msg) - 1));
+        }
         strncpy(m_msg, msg, sizeof(m_msg) - 1);
         m_msg[sizeof(m_msg) - 1] = 0;
         m_msgColor = color;
