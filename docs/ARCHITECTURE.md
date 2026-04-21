@@ -144,11 +144,20 @@ BluetoothManager owns three coupled values:
 - `connectedPeripheral: CBPeripheral?`
 - `characteristics: [CBUUID: CBCharacteristic]`
 
-Unexpected disconnects call `centralManager.connect(peripheral)` with no
-explicit "reconnect" state — iOS retries in the background until either a
-`didConnect` fires or the user initiates a clean disconnect via
-`disconnect()` (which sets `userInitiatedDisconnect` so the next
-`didDisconnectPeripheral` skips auto-retry).
+Three paths leave the connected state:
+
+1. **User-initiated** — `disconnect()` sets `userInitiatedDisconnect`, then
+   `didDisconnectPeripheral` clears `connectedPeripheral` and exits.
+2. **Unexpected drop** — `didDisconnectPeripheral` without the user flag
+   calls `centralManager.connect(peripheral)` again. iOS retries in the
+   background until either `didConnect` fires or the user reconnects.
+3. **Bluetooth-stack state change** — `centralManagerDidUpdateState` sees
+   `.poweredOff` / `.unauthorized` / `.resetting` / `.unsupported` while
+   `isConnected`. The cached peripheral is useless under all four, so the
+   connection is torn down (no auto-reconnect) and `lastError` explains
+   which state caused it. A subsequent `.poweredOn` requires the user to
+   re-tap Scan — transient `.resetting` is treated the same way for
+   simplicity.
 
 ## Protocol Specifications
 
