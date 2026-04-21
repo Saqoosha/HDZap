@@ -1,0 +1,26 @@
+# PlatformIO
+firmware/.pio/
+firmware/.pioenvs/
+firmware/.piolibdeps/
+firmware/.clang_complete
+firmware/.gcc-flags.json
+
+# Xcode
+app/HDZeroLapTimer.xcodeproj/
+app/build/
+app/DerivedData/
+app/*.xcworkspace
+app/xcuserdata/
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Misc
+*.log
