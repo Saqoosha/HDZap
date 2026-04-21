@@ -382,7 +382,7 @@ extension BluetoothManager: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         // Without this, a failed subscribe to the status characteristic
-        // leaves currentUID / lapCount永-nil and the user thinks the
+        // leaves currentUID / lapCount at nil and the user thinks the
         // firmware just isn't reporting. Surface the real cause.
         if let error {
             lastError = "\(characteristicName(characteristic.uuid)) subscribe failed: \(error.localizedDescription)"
