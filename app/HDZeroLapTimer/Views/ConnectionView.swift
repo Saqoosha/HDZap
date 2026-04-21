@@ -42,7 +42,7 @@ struct ConnectionView: View {
                 }
                 HStack {
                     Button(remaining > 0 ? "Next" : "Clear") { bluetooth.clearError() }
-                    if remaining > 0 {
+                    if remaining > 0 || dropped > 0 {
                         Spacer()
                         Button("Clear all", role: .destructive) {
                             bluetooth.clearAllErrors()

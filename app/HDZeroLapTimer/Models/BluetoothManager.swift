@@ -22,17 +22,22 @@ class BluetoothManager: NSObject {
     private(set) var connectedDeviceName: String?
     private(set) var currentUID: [UInt8]?
     private(set) var lapCount: UInt8 = 0
-    /// Recent errors, newest at index 0. Cap prevents unbounded growth but
-    /// also means old entries are dropped silently — `droppedErrorCount`
-    /// records how many so the UI can show a "… and N more" badge.
+    /// Recent errors, newest at index 0. Capped at `errorLogCapacity`;
+    /// overflows and consecutive-duplicate collapses both increment
+    /// `droppedErrorCount` so the UI can show "N more queued (+M dropped)"
+    /// rather than losing the signal silently.
     private(set) var errorLog: [String] = []
+    /// Errors that were dropped (either by overflow trimming or dedup
+    /// collapsing a repeat). Cleared when `clearError()` empties the log
+    /// or when `clearAllErrors()` is called explicitly.
     private(set) var droppedErrorCount = 0
 
-    /// Single-string view of the top of `errorLog`. Getter returns the most
-    /// recent entry; setter with a non-nil string records a new error;
-    /// setter with nil drops every entry (equivalent to `clearAllErrors()`).
-    /// Call sites that `set lastError = "…"` continue to work; `clearError()`
-    /// is the preferred Dismiss path and only drops one entry at a time.
+    /// Single-string view of the top of `errorLog` (newest entry).
+    /// - Getter returns `errorLog.first`.
+    /// - Setter with a non-nil String calls `recordError`.
+    /// - Setter with `nil` is shorthand for `clearAllErrors()`.
+    /// Prefer `clearError()` for user-dismissed banners (pops one); reserve
+    /// `clearAllErrors()` for explicit "Clear all" UX actions.
     var lastError: String? {
         get { errorLog.first }
         set {
@@ -55,28 +60,37 @@ class BluetoothManager: NSObject {
         centralManager = CBCentralManager(delegate: self, queue: nil)
     }
 
-    /// Dismiss the currently-displayed error. Other queued errors (if any)
-    /// remain visible on the next tick so a burst isn't lost on one tap.
+    /// Dismiss the currently-displayed error. Other queued errors stay
+    /// visible on the next tick so a burst isn't lost to one tap. When
+    /// the log drains to empty, `droppedErrorCount` also resets so a
+    /// stale "(+N dropped)" badge doesn't linger on the next new error.
     func clearError() {
         guard !errorLog.isEmpty else { return }
         errorLog.removeFirst()
+        if errorLog.isEmpty {
+            droppedErrorCount = 0
+        }
     }
 
-    /// Wipe the whole log, including queued older errors + dropped counter.
+    /// Wipe the whole log plus the dropped counter.
     func clearAllErrors() {
         errorLog.removeAll()
         droppedErrorCount = 0
     }
 
     private func recordError(_ message: String) {
-        // All state mutations must stay on the main queue because @Observable
-        // observers are notified synchronously on whichever thread writes —
-        // future BLE-queue changes would otherwise cause silent SwiftUI races.
+        // `@MainActor` on the class handles Swift callers; this runtime
+        // assertion catches @objc bridged entry via CBCentralManagerDelegate
+        // if its dispatch queue is ever changed away from main (today it's
+        // `queue: nil` which maps to the main queue).
         MainActor.assertIsolated()
-        // Collapse consecutive identical errors so an error storm (e.g. every
-        // lap write failing during a disconnect) doesn't flood the ring with
-        // duplicates.
-        if errorLog.first == message { return }
+        // Collapse consecutive identical errors so an error storm doesn't
+        // flood the ring — but count the collapsed ones so the user can
+        // still see "(+N dropped)" rather than a single error hiding many.
+        if errorLog.first == message {
+            droppedErrorCount += 1
+            return
+        }
         errorLog.insert(message, at: 0)
         let overflow = errorLog.count - Self.errorLogCapacity
         if overflow > 0 {
@@ -279,6 +293,13 @@ extension BluetoothManager: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error {
+            // Notify error means we can't trust the last published status
+            // frame any more — drop the derived fields so the UI doesn't
+            // keep rendering values the firmware may have already changed.
+            if characteristic.uuid == statusUUID {
+                currentUID = nil
+                lapCount = 0
+            }
             lastError = "\(characteristicName(characteristic.uuid)) notify error: \(error.localizedDescription)"
             return
         }
