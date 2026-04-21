@@ -32,9 +32,10 @@ inline void uid_from_bind_phrase(const char *phrase, uint8_t uid[6]) {
 }
 
 /// Initialize ESP-NOW with the given UID as both our MAC and the peer MAC.
-/// Safe to retry after a prior failure: if esp_now_init returns
-/// ESP_ERR_ESPNOW_INTERNAL (already initialized / partial teardown) we
-/// deinit and retry so add_peer starts with a clean peer table.
+/// Safe to retry after a prior failure: IDF only documents
+/// ESP_ERR_ESPNOW_INTERNAL as "Internal error" (no subtype breakdown), but
+/// empirically it shows up when esp_now_init is called on top of an
+/// already-initialized stack. deinit + retry recovers cleanly.
 inline bool espnow_init(uint8_t uid[6]) {
     WiFi.mode(WIFI_STA);
     WiFi.setTxPower(WIFI_POWER_19_5dBm);
@@ -79,9 +80,9 @@ inline bool espnow_init(uint8_t uid[6]) {
 /// Reinitialize ESP-NOW with a new UID at runtime.
 /// Snapshots every registered peer into a local array, then deletes them —
 /// mutating the peer list while iterating with esp_now_fetch_peer is not
-/// documented behaviour, and fetch_peer skips broadcast/multicast peers,
-/// so "delete shifts the head" is fragile regardless. After the peer
-/// table is empty we update the MAC and add the new peer.
+/// documented behaviour, and fetch_peer may skip broadcast/multicast
+/// peers, so "delete shifts the head" is fragile regardless. After the
+/// peer table is empty we update the MAC and add the new peer.
 inline bool espnow_reinit(uint8_t new_uid[6]) {
     new_uid[0] &= ~0x01; // unicast MAC invariant
 
