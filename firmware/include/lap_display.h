@@ -46,7 +46,9 @@ public:
             row++;
         }
 
-        // Blank row separator (no packet — just visual gap)
+        // Blank row between lap rows and best/total — no writeString, just
+        // a row-index skip, so it costs zero ESP-NOW packets (keeps the
+        // cycle inside the static_assert'd 10-packet budget).
         row++;
 
         uint8_t bestIdx = findBest();

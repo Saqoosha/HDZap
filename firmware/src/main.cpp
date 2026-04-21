@@ -22,9 +22,10 @@ static void applyStagedUid() {
     g_uid_config_requested = false;
     portEXIT_CRITICAL(&g_ble_mux);
 
-    // Persist before mutating runtime state. If NVS fails we abort so
-    // runtime and persistent UID stay in sync — a reboot reverting the
-    // goggle to an old UID would otherwise be a ghost bug.
+    // Persist first, then reconfigure the radio. If NVS save fails we roll
+    // g_uid back so runtime and persistent state stay in sync — otherwise a
+    // reboot would silently revert to the old UID and the goggle stops
+    // receiving for no user-visible reason.
     uint8_t prev_uid[6];
     memcpy(prev_uid, g_uid, 6);
     memcpy(g_uid, new_uid, 6);
@@ -42,7 +43,9 @@ static void applyStagedUid() {
             stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
         }
     } else {
-        // First successful UID lets us try init from scratch.
+        // Previous espnow_init failed (espnow_ready=false); retry from
+        // scratch with the new UID. espnow_init internally deinits first
+        // when it finds an already-initialized state.
         espnow_ready = espnow_init(g_uid);
         if (!espnow_ready) {
             Serial.println("ESP-NOW init still failing after UID change");

@@ -27,11 +27,14 @@ class LapTimer {
         isRunning = true
         startDate = Date()
         // 60 Hz matches typical display refresh and keeps ms-digit rendering smooth.
-        // Explicitly register on .common so the timer keeps firing during
-        // scroll / user interaction (default `.scheduledTimer` uses .default
-        // which pauses in tracking runloop modes).
+        // Register on .common so the timer keeps firing during scroll /
+        // tracking runloop modes (default `.scheduledTimer` uses .default,
+        // which pauses). Bounce into @MainActor via Task rather than
+        // MainActor.assumeIsolated — assumeIsolated traps on precondition
+        // failure if the callback ever runs off the main queue, and that
+        // failure mode would be silent under future concurrency changes.
         let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 guard let self, let startDate = self.startDate else { return }
                 self.elapsedTime = self.accumulatedTime + Date().timeIntervalSince(startDate)
             }

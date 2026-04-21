@@ -24,9 +24,7 @@ enum UIDParseError: Error, LocalizedError {
 func uidFromBindPhrase(_ phrase: String) -> [UInt8] {
     let input = "-DMY_BINDING_PHRASE=\"\(phrase)\""
     let digest = Insecure.MD5.hash(data: Data(input.utf8))
-    var uid = Array(digest.prefix(6))
-    uid[0] &= 0xFE // unicast MAC invariant (IEEE 802 bit0 = multicast)
-    return uid
+    return normalizeUID(Array(digest.prefix(6)))
 }
 
 func formatUID(_ uid: [UInt8]) -> String {
@@ -51,10 +49,15 @@ func parseUID(_ string: String) -> Result<[UInt8], UIDParseError> {
     return .success(uid)
 }
 
-/// Enforce unicast MAC invariant on a 6-byte UID. Bit 0 of the first byte
-/// must be zero or `esp_wifi_set_mac` on the firmware side will reject it.
+/// Enforce the unicast MAC invariant on a 6-byte UID: bit 0 of the first
+/// octet is the IEEE 802 multicast flag; `esp_wifi_set_mac` on the firmware
+/// rejects any MAC with it set.
+///
+/// Requires a 6-byte input — other lengths indicate a logic error at the
+/// caller (parseUID/uidFromBindPhrase both guarantee 6 bytes).
 func normalizeUID(_ uid: [UInt8]) -> [UInt8] {
+    precondition(uid.count == 6, "normalizeUID requires a 6-byte UID, got \(uid.count)")
     var out = uid
-    if !out.isEmpty { out[0] &= 0xFE }
+    out[0] &= 0xFE
     return out
 }
