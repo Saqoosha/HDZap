@@ -54,7 +54,8 @@ Mode 1 — Bind Phrase:
   iPhone: sendUIDConfig(.bindPhrase)          ← [0x01][phrase bytes, ≤63]
   ESP32:  UIDConfigCallback stages new_uid    ← same MD5, same UID
   ESP32 (main loop) applyStagedUid():
-        → nvs_store::saveUid (rollback on failure)
+        → nvs_store::saveUid (returns early on failure; g_uid untouched)
+        → commit g_uid under g_ble_mux
         → espnow_reinit or espnow_init
 
 Mode 2 — Manual UID:
