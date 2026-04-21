@@ -6,23 +6,31 @@
 
 // Persistent UID storage in ESP32 NVS.
 // Namespace "hdzero", keys:
-//   - "init" : 1-byte sentinel written BEFORE the uid on every save.
+//   - "init" : sentinel, removed before uid writes and rewritten after.
 //   - "uid"  : 6 bytes.
-// Sentinel-first ordering means a save interrupted by power loss between
-// the two puts leaves sentinel-present + uid-missing, which loadUid
-// classifies as corruption. The alternative ordering (uid-first) would
-// make torn writes look like a normal load.
+// Save order is [remove sentinel → write uid → write sentinel]. A power
+// loss at any point leaves a state loadUid can detect:
+//   remove OK, uid fail                     → sentinel-absent + stale uid
+//   remove OK, uid OK, sentinel fail        → sentinel-absent + new uid
+//   remove + uid + sentinel OK              → sentinel-present + new uid (good)
+// loadUid treats "uid present but sentinel absent" as corruption, which
+// catches torn writes on BOTH first save and re-save. A valid UID is
+// always accompanied by its sentinel.
 namespace nvs_store {
 
 inline bool saveUid(const uint8_t uid[6]) {
     Preferences prefs;
     if (!prefs.begin("hdzero", false)) return false;
-    size_t sentinelWritten = prefs.putUChar("init", 1);
-    size_t uidWritten = (sentinelWritten == 1) ? prefs.putBytes("uid", uid, 6) : 0;
+    // Drop the sentinel first so any subsequent torn write leaves the
+    // namespace in the "uid present, sentinel absent" state loadUid
+    // rejects — instead of leaving a stale valid-looking pair.
+    prefs.remove("init");
+    size_t uidWritten = prefs.putBytes("uid", uid, 6);
+    size_t sentinelWritten = (uidWritten == 6) ? prefs.putUChar("init", 1) : 0;
     prefs.end();
-    if (sentinelWritten != 1 || uidWritten != 6) {
-        Serial.printf("nvs_store: partial save (sentinel=%u, uid=%u)\n",
-                      (unsigned)sentinelWritten, (unsigned)uidWritten);
+    if (uidWritten != 6 || sentinelWritten != 1) {
+        Serial.printf("nvs_store: partial save (uid=%u, sentinel=%u)\n",
+                      (unsigned)uidWritten, (unsigned)sentinelWritten);
         return false;
     }
     return true;
@@ -34,16 +42,17 @@ inline bool loadUid(uint8_t uid[6]) {
     if (!prefs.begin("hdzero", true)) return false;
     bool hasSentinel = prefs.isKey("init");
     bool hasUid = prefs.isKey("uid");
-    if (hasSentinel && !hasUid) {
-        // Sentinel was written but uid wasn't — torn write or flash corruption.
-        // Don't silently fall back to the factory MAC without surfacing this.
-        Serial.println("nvs_store: sentinel present but uid key missing — NVS corruption suspected");
-        prefs.end();
-        return false;
-    }
     if (!hasUid) {
         prefs.end();
         return false; // genuine first boot
+    }
+    if (!hasSentinel) {
+        // uid is present but sentinel absent — the save sequence didn't
+        // commit the final sentinel write, so uid was left in an
+        // indeterminate state (torn write or flash corruption).
+        Serial.println("nvs_store: uid key present but sentinel missing — torn write suspected");
+        prefs.end();
+        return false;
     }
     size_t read = prefs.getBytes("uid", uid, 6);
     prefs.end();

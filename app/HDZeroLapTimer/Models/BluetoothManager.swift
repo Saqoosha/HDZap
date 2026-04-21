@@ -24,12 +24,16 @@ class BluetoothManager: NSObject {
     private(set) var lapCount: UInt8 = 0
     /// Recent errors, newest at index 0. Capped at `errorLogCapacity`;
     /// overflows and consecutive-duplicate collapses both increment
-    /// `droppedErrorCount` so the UI can show "N more queued (+M dropped)"
-    /// rather than losing the signal silently.
+    /// `droppedErrorCount`, which the UI surfaces as
+    /// "N more queued (+M suppressed)" so either form of lost signal is
+    /// visible rather than silent.
     private(set) var errorLog: [String] = []
-    /// Errors that were dropped (either by overflow trimming or dedup
-    /// collapsing a repeat). Cleared when `clearError()` empties the log
-    /// or when `clearAllErrors()` is called explicitly.
+    /// Count of errors that were suppressed — either trimmed by overflow
+    /// or collapsed as a repeat of the current head. Sticky across
+    /// `clearError()` calls so an ongoing error storm stays visible after
+    /// the user drains the queue; only `clearAllErrors()` zeroes it.
+    /// Named `droppedErrorCount` for legacy reasons; the user-visible
+    /// label is "suppressed".
     private(set) var droppedErrorCount = 0
 
     /// Single-string view of the top of `errorLog` (newest entry).
@@ -61,15 +65,13 @@ class BluetoothManager: NSObject {
     }
 
     /// Dismiss the currently-displayed error. Other queued errors stay
-    /// visible on the next tick so a burst isn't lost to one tap. When
-    /// the log drains to empty, `droppedErrorCount` also resets so a
-    /// stale "(+N dropped)" badge doesn't linger on the next new error.
+    /// visible on the next tick so a burst isn't lost to one tap.
+    /// `droppedErrorCount` stays sticky: an ongoing storm would otherwise
+    /// look like a trickle once the user drains the queue. Use
+    /// `clearAllErrors()` when the user explicitly wants to zero the log.
     func clearError() {
         guard !errorLog.isEmpty else { return }
         errorLog.removeFirst()
-        if errorLog.isEmpty {
-            droppedErrorCount = 0
-        }
     }
 
     /// Wipe the whole log plus the dropped counter.
@@ -207,8 +209,29 @@ class BluetoothManager: NSObject {
 
 extension BluetoothManager: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        if central.state != .poweredOn {
-            isScanning = false
+        if central.state == .poweredOn { return }
+        isScanning = false
+        // A mid-session state change (Bluetooth toggled off, permission
+        // revoked, stack reset) leaves our cached peripheral pointer valid
+        // but useless — writes silently enqueue and never deliver. Tear
+        // the connection down explicitly so the UI reflects reality.
+        if isConnected {
+            isConnected = false
+            connectedDeviceName = nil
+            connectedPeripheral = nil
+            characteristics = [:]
+            switch central.state {
+            case .poweredOff:
+                lastError = "Bluetooth turned off mid-session. Laps are not reaching the goggle — enable Bluetooth and tap Scan."
+            case .unauthorized:
+                lastError = "Bluetooth permission revoked. Re-grant in Settings → HDZero → Bluetooth."
+            case .resetting:
+                lastError = "Bluetooth stack resetting. Wait a moment, then tap Scan."
+            case .unsupported:
+                lastError = "This device no longer reports Bluetooth LE support."
+            default:
+                lastError = "Bluetooth unavailable (state \(central.state.rawValue))."
+            }
         }
     }
 
@@ -283,11 +306,21 @@ extension BluetoothManager: CBPeripheralDelegate {
                 peripheral.setNotifyValue(true, for: char)
             }
         }
+        // Point out schema mismatch explicitly rather than letting the user
+        // tap Apply/Bind/Lap and hit the generic "Characteristic not ready"
+        // error on every write. Missing characteristics almost always mean
+        // firmware/app version skew — surface that directly.
+        let expected: [CBUUID] = [uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID]
+        let missing = expected.filter { characteristics[$0] == nil }
+        if !missing.isEmpty {
+            let names = missing.map(characteristicName).joined(separator: ", ")
+            lastError = "Firmware missing characteristics: \(names). Update firmware?"
+        }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error {
-            lastError = "\(characteristicName(characteristic.uuid)) write failed: \(error.localizedDescription)"
+            lastError = formatBLEError(kind: "write failed", uuid: characteristic.uuid, error: error)
         }
     }
 
@@ -300,7 +333,7 @@ extension BluetoothManager: CBPeripheralDelegate {
                 currentUID = nil
                 lapCount = 0
             }
-            lastError = "\(characteristicName(characteristic.uuid)) notify error: \(error.localizedDescription)"
+            lastError = formatBLEError(kind: "notify error", uuid: characteristic.uuid, error: error)
             return
         }
         guard characteristic.uuid == statusUUID else { return }
@@ -318,6 +351,16 @@ extension BluetoothManager: CBPeripheralDelegate {
         // Format: [connected:u8][uid:6bytes][lap_count:u8]
         currentUID = Array(data[1...6])
         lapCount = data[7]
+    }
+
+    /// Composed error message that keeps the underlying NSError domain +
+    /// code in the text. This matters for dedup: two CoreBluetooth errors
+    /// with the same `localizedDescription` but different underlying codes
+    /// would otherwise collapse into the same string and mask the fact
+    /// that the failure mode shifted.
+    private func formatBLEError(kind: String, uuid: CBUUID, error: Error) -> String {
+        let ns = error as NSError
+        return "\(characteristicName(uuid)) \(kind): \(error.localizedDescription) [\(ns.domain) \(ns.code)]"
     }
 
     private func characteristicName(_ uuid: CBUUID) -> String {
