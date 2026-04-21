@@ -5,8 +5,13 @@ struct TimerView: View {
     @Environment(BluetoothManager.self) private var bluetooth
 
     var body: some View {
+        @Bindable var bluetooth = bluetooth
         VStack(spacing: 16) {
             connectionStatus
+
+            if let err = bluetooth.lastError {
+                errorBanner(err)
+            }
 
             elapsedTimeDisplay
 
@@ -24,6 +29,22 @@ struct TimerView: View {
             LapListView(laps: lapTimer.laps, bestLapIndex: lapTimer.bestLapIndex)
         }
         .padding(.top)
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.red)
+            Spacer()
+            Button("Dismiss") { bluetooth.clearError() }
+                .font(.caption)
+        }
+        .padding(8)
+        .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal)
     }
 
     // MARK: - Subviews

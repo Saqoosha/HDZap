@@ -229,7 +229,17 @@ extension BluetoothManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard characteristic.uuid == statusUUID, let data = characteristic.value, data.count >= 8 else { return }
+        if let error {
+            print("BLE notify error on \(characteristic.uuid): \(error.localizedDescription)")
+            return
+        }
+        guard characteristic.uuid == statusUUID else { return }
+        guard let data = characteristic.value, data.count >= 8 else {
+            // Short frame would indicate firmware/protocol skew — log so it
+            // can be diagnosed rather than silently leaving stale state.
+            print("BLE status frame malformed: \(characteristic.value?.count ?? 0) bytes, need 8")
+            return
+        }
         // Format: [connected:u8][uid:6bytes][lap_count:u8]
         currentUID = Array(data[1...6])
         lapCount = data[7]

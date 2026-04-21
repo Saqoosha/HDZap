@@ -18,10 +18,11 @@
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
 #define CHR_STATUS_UUID         "f47ac10b-58cc-4372-a567-0e02b2c3d485"
 
-// BLE callback task (btc_task on core 0) writes these; main loop on core 1 reads.
-// Flags signal edges; the accompanying scratch fields carry the payload.
-// A portMUX guards multi-field producers (lap data, UID staging) so main
-// loop never observes a torn pair.
+// BLE callback context (NimBLE's btc_task, typically core 0 under Arduino)
+// writes these; Arduino main loop (typically core 1) reads. Flags signal
+// edges; the accompanying scratch fields carry the payload. A portMUX
+// guards multi-field producers (lap data, UID staging) so main loop never
+// observes a torn pair.
 inline volatile bool g_bind_requested = false;
 inline volatile bool g_lap_received = false;
 inline volatile bool g_osd_clear_requested = false;
