@@ -233,7 +233,13 @@ extension BluetoothManager: CBCentralManagerDelegate {
         // an app-initiated teardown (tearDownConnection from a discovery
         // failure) has its own error message but shouldn't mask a
         // concurrent BT-off event the user also needs to know about.
-        if wasUserTap { return }
+        if wasUserTap {
+            // Consume the flag here so a later state change that isn't
+            // user-initiated (e.g. BT toggled off during a subsequent
+            // auto-reconnected session) doesn't inherit the suppression.
+            userTappedDisconnect = false
+            return
+        }
         switch central.state {
         case .poweredOff:
             lastError = "Bluetooth turned off mid-session. Laps are not reaching the goggle — enable Bluetooth and tap Scan."
@@ -257,6 +263,11 @@ extension BluetoothManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         isConnected = true
+        // Clean slate for the intent flags on every successful connection,
+        // regardless of which path (explicit connect() or iOS auto-reconnect
+        // after an unexpected drop) got us here.
+        suppressAutoReconnect = false
+        userTappedDisconnect = false
         // peripheral.name can be nil before the remote name is resolved; fall
         // back to a short identifier prefix so the UI shows *something* rather
         // than implying there's no active connection.
@@ -270,6 +281,12 @@ extension BluetoothManager: CBCentralManagerDelegate {
         isConnected = false
         connectedPeripheral = nil
         connectedDeviceName = nil
+        // Clear the disconnect-intent flags so the next connect() starts
+        // from a clean slate — connect() already resets them, but making
+        // it explicit here prevents stale flags leaking across sessions
+        // if that reset path ever changes.
+        suppressAutoReconnect = false
+        userTappedDisconnect = false
         lastError = "Connection failed: \(error?.localizedDescription ?? "unknown"). Tap Scan to retry."
     }
 

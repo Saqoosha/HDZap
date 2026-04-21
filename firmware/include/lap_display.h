@@ -10,23 +10,25 @@ public:
     void begin(OSD *osd) {
         m_osd = osd;
         m_count = 0;
+        m_capWarned = false;
     }
 
-    void addLap(uint8_t lapNum, uint32_t timeMs) {
+    /// Append a lap. Returns true if stored, false if dropped because the
+    /// buffer is at MAX_LAPS — caller can then surface a user-visible
+    /// signal (the Serial log is only for the first overflow per session).
+    bool addLap(uint8_t lapNum, uint32_t timeMs) {
         if (m_count >= MAX_LAPS) {
-            // Loud once per overflow: the iOS side keeps sending but we
-            // can't store any more. User needs to reset laps to continue
-            // capturing on the goggle side.
             if (!m_capWarned) {
-                Serial.printf("lap_display: at MAX_LAPS (%u), dropping lap %u and subsequent\n",
+                Serial.printf("lap_display: at MAX_LAPS (%u), dropping lap %u and silencing further warnings until clear()\n",
                               MAX_LAPS, lapNum);
                 m_capWarned = true;
             }
-            return;
+            return false;
         }
         m_laps[m_count].num = lapNum;
         m_laps[m_count].timeMs = timeMs;
         m_count++;
+        return true;
     }
 
     void clear() {

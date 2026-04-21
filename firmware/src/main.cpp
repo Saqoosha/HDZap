@@ -36,23 +36,29 @@ static void applyStagedUid() {
     memcpy(g_uid, new_uid, 6);
     portEXIT_CRITICAL(&g_ble_mux);
 
+    bool radioOk;
     if (espnow_ready) {
-        if (!espnow_reinit(g_uid)) {
+        radioOk = espnow_reinit(g_uid);
+        if (!radioOk) {
             espnow_ready = false;
             Serial.println("ESP-NOW reinit failed");
-            stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
         }
     } else {
         // espnow_ready is false — espnow_init recovers from a partial prior
         // init (see its docstring), so a fresh attempt with the new UID is
         // the right move.
         espnow_ready = espnow_init(g_uid);
-        if (!espnow_ready) {
+        radioOk = espnow_ready;
+        if (!radioOk) {
             Serial.println("ESP-NOW init still failing after UID change");
-            stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
         }
     }
+    // Draw status first, then stamp the error message on top — otherwise
+    // showStatus's fillRect wipes showMessage's strip on the next frame.
     stickDisplay.showStatus(g_uid, g_ble_connected);
+    if (!radioOk) {
+        stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
+    }
 }
 
 void setup() {
@@ -122,13 +128,18 @@ void loop() {
         portEXIT_CRITICAL(&g_ble_mux);
 
         Serial.printf("Lap %d: %lu ms\n", num, (unsigned long)ms);
-        lapDisplay.addLap(num, ms);
-        if (espnow_ready) {
-            if (!lapDisplay.render()) {
-                stickDisplay.showMessage("LAP RENDER FAIL", TFT_RED);
-            }
-        }
+        bool stored = lapDisplay.addLap(num, ms);
+        bool renderOk = true;
+        if (espnow_ready) renderOk = lapDisplay.render();
+        // Draw the lap card first, then stamp any status message on top —
+        // showLap's fillRect covers showMessage's region, so ordering
+        // matters if we want the error to stay visible until the next lap.
         stickDisplay.showLap(num, ms);
+        if (!stored) {
+            stickDisplay.showMessage("LAPS FULL", TFT_ORANGE);
+        } else if (!renderOk) {
+            stickDisplay.showMessage("LAP RENDER FAIL", TFT_RED);
+        }
     }
 
     if (g_osd_clear_requested) {
