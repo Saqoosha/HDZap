@@ -27,7 +27,7 @@ static void applyStagedUid() {
     // uncommitted value to iOS between the publish and the commit.
     if (!nvs_store::saveUid(new_uid)) {
         Serial.println("NVS save failed — UID unchanged");
-        stickDisplay.showMessage("NVS SAVE FAIL\nUID unchanged", TFT_RED);
+        stickDisplay.showMessage("NVS SAVE FAIL", TFT_RED);
         return;
     }
     // Publish the committed value under the mux so ble_update_status
@@ -36,6 +36,7 @@ static void applyStagedUid() {
     memcpy(g_uid, new_uid, 6);
     portEXIT_CRITICAL(&g_ble_mux);
 
+    bool wasRadioDown = !espnow_ready;
     bool radioOk;
     if (espnow_ready) {
         radioOk = espnow_reinit(g_uid);
@@ -53,11 +54,15 @@ static void applyStagedUid() {
             Serial.println("ESP-NOW init still failing after UID change");
         }
     }
-    // Draw status first, then stamp the error message on top — otherwise
-    // showStatus's fillRect wipes showMessage's strip on the next frame.
     stickDisplay.showStatus(g_uid, g_ble_connected);
     if (!radioOk) {
         stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
+    } else {
+        // Success here supersedes any prior "LAPS FULL" / "LAP RENDER
+        // FAIL" / "ESPNOW FAIL" strip content; those conditions don't
+        // apply to the freshly-committed UID.
+        stickDisplay.clearMessage();
+        if (wasRadioDown) Serial.println("ESP-NOW recovered");
     }
 }
 
@@ -82,7 +87,7 @@ void setup() {
     if (!espnow_ready) {
         // Keep running so the user can still reconfigure UID over BLE.
         Serial.println("ESP-NOW init FAILED — BLE only, reconfigure UID to retry");
-        stickDisplay.showMessage("ESPNOW FAIL\nBLE only", TFT_RED);
+        stickDisplay.showMessage("ESPNOW FAIL (BLE only)", TFT_RED);
     } else {
         Serial.println("ESP-NOW initialized");
     }
