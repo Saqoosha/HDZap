@@ -32,7 +32,7 @@ struct TimerView: View {
 
     private func errorBanner(_ message: String) -> some View {
         let remaining = max(bluetooth.errorLog.count - 1, 0)
-        let dropped = bluetooth.droppedErrorCount
+        let suppressed = bluetooth.droppedErrorCount
         return HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.yellow)
@@ -40,16 +40,22 @@ struct TimerView: View {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.red)
-                if remaining > 0 || dropped > 0 {
-                    let suffix = dropped > 0 ? " (+\(dropped) dropped)" : ""
+                if remaining > 0 || suppressed > 0 {
+                    let suffix = suppressed > 0 ? " (+\(suppressed) suppressed)" : ""
                     Text("\(remaining) more queued\(suffix)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
             Spacer()
-            Button(remaining > 0 ? "Next" : "Dismiss") { bluetooth.clearError() }
-                .font(.caption)
+            VStack(alignment: .trailing, spacing: 4) {
+                Button(remaining > 0 ? "Next" : "Dismiss") { bluetooth.clearError() }
+                    .font(.caption)
+                if remaining > 0 || suppressed > 0 {
+                    Button("Clear all", role: .destructive) { bluetooth.clearAllErrors() }
+                        .font(.caption2)
+                }
+            }
         }
         .padding(8)
         .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))

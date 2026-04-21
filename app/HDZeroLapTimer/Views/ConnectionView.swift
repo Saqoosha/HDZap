@@ -31,18 +31,18 @@ struct ConnectionView: View {
     private var errorSection: some View {
         if let err = bluetooth.lastError {
             let remaining = max(bluetooth.errorLog.count - 1, 0)
-            let dropped = bluetooth.droppedErrorCount
+            let suppressed = bluetooth.droppedErrorCount
             Section("Error") {
                 Text(err).foregroundStyle(.red)
-                if remaining > 0 || dropped > 0 {
-                    let suffix = dropped > 0 ? " (+\(dropped) dropped)" : ""
+                if remaining > 0 || suppressed > 0 {
+                    let suffix = suppressed > 0 ? " (+\(suppressed) suppressed)" : ""
                     Text("\(remaining) more queued\(suffix)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 HStack {
                     Button(remaining > 0 ? "Next" : "Clear") { bluetooth.clearError() }
-                    if remaining > 0 || dropped > 0 {
+                    if remaining > 0 || suppressed > 0 {
                         Spacer()
                         Button("Clear all", role: .destructive) {
                             bluetooth.clearAllErrors()

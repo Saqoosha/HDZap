@@ -25,6 +25,9 @@
 // Mux-guarded (portMUX; main loop never sees a torn pair):
 //   g_staged_uid + g_uid_config_requested     (UID config staging)
 //   g_lap_num + g_lap_time_ms + g_lap_count + g_lap_received  (lap frame)
+//     — g_lap_count has a secondary role: read unlocked by
+//       ble_update_status() for the status-notify payload. Single byte,
+//       so the unlocked read is an atomic snapshot of the latest write.
 //
 // Bare-volatile single-flag — idempotent commands, rapid double-write
 // collapses into one edge (which is fine, the action just means
