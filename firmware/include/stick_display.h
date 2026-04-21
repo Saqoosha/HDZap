@@ -1,6 +1,14 @@
 #pragma once
 #include <M5Unified.h>
+#include <cstring>
 
+/// M5StickS3 LCD: fixed regions that don't overlap, so each drawing
+/// function only touches its own strip:
+///   [0 .. 20)              header (drawn once at begin())
+///   [24 .. h-kMsgStripH)   status / lap card body
+///   [h-kMsgStripH .. h)    message strip (sticky; persists across
+///                          status and lap redraws until
+///                          clearMessage() is called)
 class StickDisplay {
 public:
     void begin() {
@@ -10,6 +18,7 @@ public:
         M5.Display.fillScreen(TFT_BLACK);
         M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
         M5.Display.setTextSize(2);
+        m_msg[0] = 0;
         drawHeader();
     }
 
@@ -22,7 +31,8 @@ public:
     }
 
     void showStatus(const uint8_t uid[6], bool bleConnected) {
-        M5.Display.fillRect(0, 24, M5.Display.width(), M5.Display.height() - 24, TFT_BLACK);
+        int bodyHeight = M5.Display.height() - 24 - kMsgStripH;
+        M5.Display.fillRect(0, 24, M5.Display.width(), bodyHeight, TFT_BLACK);
         M5.Display.setCursor(4, 28);
         M5.Display.setTextSize(1);
         M5.Display.printf("UID:\n %02X:%02X:%02X:%02X:%02X:%02X\n\n",
@@ -34,7 +44,9 @@ public:
     }
 
     void showLap(uint8_t num, uint32_t ms) {
-        int y = M5.Display.height() - 40;
+        // Anchor the lap card above the message strip so a sticky error
+        // stays visible across successive laps.
+        int y = M5.Display.height() - 40 - kMsgStripH;
         M5.Display.fillRect(0, y, M5.Display.width(), 40, TFT_BLACK);
         M5.Display.setCursor(4, y);
         M5.Display.setTextSize(2);
@@ -48,15 +60,36 @@ public:
         M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
     }
 
+    /// Set the sticky message strip. Stays on screen across showStatus /
+    /// showLap redraws — crucial for surfacing radio / NVS failures that
+    /// used to get wiped on the next BLE event.
     void showMessage(const char* msg, uint16_t color = TFT_CYAN) {
-        int y = M5.Display.height() - 16;
-        M5.Display.fillRect(0, y, M5.Display.width(), 16, TFT_BLACK);
-        M5.Display.setCursor(4, y);
-        M5.Display.setTextSize(1);
-        M5.Display.setTextColor(color, TFT_BLACK);
-        M5.Display.print(msg);
-        M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+        strncpy(m_msg, msg, sizeof(m_msg) - 1);
+        m_msg[sizeof(m_msg) - 1] = 0;
+        m_msgColor = color;
+        drawMessageStrip();
+    }
+
+    void clearMessage() {
+        m_msg[0] = 0;
+        drawMessageStrip();
     }
 
     void update() { M5.update(); }
+
+private:
+    static constexpr int kMsgStripH = 16;
+    char m_msg[32] = {};
+    uint16_t m_msgColor = TFT_CYAN;
+
+    void drawMessageStrip() {
+        int y = M5.Display.height() - kMsgStripH;
+        M5.Display.fillRect(0, y, M5.Display.width(), kMsgStripH, TFT_BLACK);
+        if (m_msg[0] == 0) return;
+        M5.Display.setCursor(4, y);
+        M5.Display.setTextSize(1);
+        M5.Display.setTextColor(m_msgColor, TFT_BLACK);
+        M5.Display.print(m_msg);
+        M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+    }
 };
