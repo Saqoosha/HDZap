@@ -65,9 +65,14 @@ inline volatile uint8_t g_lap_count = 0;
 inline void ble_update_status() {
     if (!g_status_chr) return;
     uint8_t buf[8];
+    // g_uid is mutated non-atomically by the main loop (applyStagedUid);
+    // take the mux so the status-notify frame never carries a torn pair
+    // of old/new bytes during a UID change.
+    portENTER_CRITICAL(&g_ble_mux);
     buf[0] = g_ble_connected ? 1 : 0;
     memcpy(&buf[1], g_uid, 6);
     buf[7] = g_lap_count;
+    portEXIT_CRITICAL(&g_ble_mux);
     g_status_chr->setValue(buf, 8);
     g_status_chr->notify();
 }

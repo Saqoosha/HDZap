@@ -56,7 +56,7 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - iOS: @MainActor + @Observable (not ObservableObject), @Environment for DI
 - BLE callbacks stage paired state under `g_ble_mux` (UID staging, lap frame); idempotent single-flag commands use bare `volatile`. See `ble_service.h` shared-state docstring. Heavy work (NVS, ESP-NOW reinit) runs in main loop, not in callbacks.
 - `CBCentralManager` delegate queue MUST be main (`queue: nil`). `BluetoothManager` is `@MainActor`; `recordError` runtime-asserts main-actor isolation.
-- NVS namespace: "hdzero"; keys: `"uid"` (6 bytes) + `"init"` (sentinel for corruption detection, written before uid on every save)
+- NVS namespace: "hdzero"; keys: `"uid"` (6 bytes) + `"init"` (sentinel for torn-save detection). Save order is remove sentinel → write uid → write sentinel; loadUid warns but still returns a present uid when the sentinel is absent (fail-soft — dropping a valid UID on every torn save would be worse than a log line).
 - Unicast MAC invariant: `uid[0] & 0x01 == 0` at every assignment site
 
 ## Hardware

@@ -216,10 +216,17 @@ extension BluetoothManager: CBCentralManagerDelegate {
         // but useless — writes silently enqueue and never deliver. Tear
         // the connection down explicitly so the UI reflects reality.
         if isConnected {
+            let wasIntentional = userInitiatedDisconnect
             isConnected = false
             connectedDeviceName = nil
             connectedPeripheral = nil
             characteristics = [:]
+            userInitiatedDisconnect = false
+            // A user who just tapped Disconnect shouldn't see a
+            // "Bluetooth turned off mid-session" banner if the stack
+            // happened to tear down first — their own action is the
+            // explanation.
+            if wasIntentional { return }
             switch central.state {
             case .poweredOff:
                 lastError = "Bluetooth turned off mid-session. Laps are not reaching the goggle — enable Bluetooth and tap Scan."
@@ -283,10 +290,12 @@ extension BluetoothManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         if let error {
             lastError = "Service discovery failed: \(error.localizedDescription)"
+            tearDownConnection(peripheral)
             return
         }
         guard let service = peripheral.services?.first(where: { $0.uuid == serviceUUID }) else {
             lastError = "ESP32 doesn't advertise expected service. Update firmware?"
+            tearDownConnection(peripheral)
             return
         }
         peripheral.discoverCharacteristics([
@@ -295,11 +304,17 @@ extension BluetoothManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        // Only process the service we actually care about — a future added
+        // service on the peripheral would otherwise false-positive below.
+        guard service.uuid == serviceUUID else { return }
         if let error {
             lastError = "Characteristic discovery failed: \(error.localizedDescription)"
+            tearDownConnection(peripheral)
             return
         }
-        guard let chars = service.characteristics else { return }
+        // nil and empty are both "no characteristics reported" — fold them
+        // together so the verification block runs uniformly.
+        let chars = service.characteristics ?? []
         for char in chars {
             characteristics[char.uuid] = char
             if char.uuid == statusUUID {
@@ -315,7 +330,22 @@ extension BluetoothManager: CBPeripheralDelegate {
         if !missing.isEmpty {
             let names = missing.map(characteristicName).joined(separator: ", ")
             lastError = "Firmware missing characteristics: \(names). Update firmware?"
+            tearDownConnection(peripheral)
         }
+    }
+
+    /// Cancel the CB connection and zero the cached peripheral state.
+    /// Called when we've surfaced an error that makes the current session
+    /// unusable (wrong service, missing characteristics, discovery failure);
+    /// leaving `isConnected = true` with an empty characteristics map would
+    /// make every write fail with the generic "not ready" error.
+    private func tearDownConnection(_ peripheral: CBPeripheral) {
+        centralManager.cancelPeripheralConnection(peripheral)
+        isConnected = false
+        connectedDeviceName = nil
+        connectedPeripheral = nil
+        characteristics = [:]
+        userInitiatedDisconnect = true // suppress auto-reconnect on the next didDisconnect
     }
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
@@ -354,10 +384,12 @@ extension BluetoothManager: CBPeripheralDelegate {
     }
 
     /// Composed error message that keeps the underlying NSError domain +
-    /// code in the text. This matters for dedup: two CoreBluetooth errors
-    /// with the same `localizedDescription` but different underlying codes
-    /// would otherwise collapse into the same string and mask the fact
-    /// that the failure mode shifted.
+    /// code in the text. Matters primarily for CoreBluetooth errors
+    /// (`CBError`, `CBATTError`): two distinct codes that share a
+    /// `localizedDescription` would otherwise dedup into one row and mask
+    /// a shifting failure mode. Pure Swift errors bridge too, though the
+    /// resulting domain string (e.g. "HDZeroLapTimer.MyError") is cosmetic
+    /// noise rather than useful signal.
     private func formatBLEError(kind: String, uuid: CBUUID, error: Error) -> String {
         let ns = error as NSError
         return "\(characteristicName(uuid)) \(kind): \(error.localizedDescription) [\(ns.domain) \(ns.code)]"

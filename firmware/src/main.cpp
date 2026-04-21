@@ -25,12 +25,17 @@ static void applyStagedUid() {
     // Persist first, then reconfigure the radio. If NVS save fails we roll
     // g_uid back so runtime and persistent state stay in sync — otherwise a
     // reboot would silently revert to the old UID and the goggle stops
-    // receiving for no user-visible reason.
+    // receiving for no user-visible reason. g_uid writes go under g_ble_mux
+    // so ble_update_status never sees a torn old/new byte pair.
     uint8_t prev_uid[6];
+    portENTER_CRITICAL(&g_ble_mux);
     memcpy(prev_uid, g_uid, 6);
     memcpy(g_uid, new_uid, 6);
+    portEXIT_CRITICAL(&g_ble_mux);
     if (!nvs_store::saveUid(g_uid)) {
+        portENTER_CRITICAL(&g_ble_mux);
         memcpy(g_uid, prev_uid, 6);
+        portEXIT_CRITICAL(&g_ble_mux);
         Serial.println("NVS save failed — UID change reverted");
         stickDisplay.showMessage("NVS SAVE FAIL\nUID reverted", TFT_RED);
         return;
