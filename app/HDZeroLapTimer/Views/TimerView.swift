@@ -105,18 +105,22 @@ struct TimerView: View {
     }
 
     private var lapButton: some View {
-        Button {
+        let enabled = lapTimer.isRunning && bluetooth.isConnected
+        return Button {
             recordLap()
         } label: {
             Text("LAP")
                 .font(.system(size: 36, weight: .bold))
                 .frame(maxWidth: .infinity)
                 .frame(height: 88)
-                .background(lapTimer.isRunning ? Color.accentColor : Color.gray)
+                .background(enabled ? Color.accentColor : Color.gray)
                 .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
         }
-        .disabled(!lapTimer.isRunning)
+        // Require a BLE connection like RESET — a tap while disconnected
+        // would leave the iOS lap list and the goggle OSD disagreeing
+        // (lap stored locally, nothing reaches the goggle).
+        .disabled(!enabled)
         .padding(.horizontal)
     }
 
