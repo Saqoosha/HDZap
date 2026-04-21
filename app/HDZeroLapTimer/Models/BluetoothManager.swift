@@ -380,6 +380,15 @@ extension BluetoothManager: CBPeripheralDelegate {
         suppressAutoReconnect = true
     }
 
+    func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        // Without this, a failed subscribe to the status characteristic
+        // leaves currentUID / lapCount永-nil and the user thinks the
+        // firmware just isn't reporting. Surface the real cause.
+        if let error {
+            lastError = "\(characteristicName(characteristic.uuid)) subscribe failed: \(error.localizedDescription)"
+        }
+    }
+
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error {
             lastError = formatBLEError(kind: "write failed", uuid: characteristic.uuid, error: error)

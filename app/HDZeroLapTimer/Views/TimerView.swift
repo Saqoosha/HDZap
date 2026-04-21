@@ -150,7 +150,10 @@ struct TimerView: View {
                     .foregroundStyle(.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .disabled(lapTimer.isRunning)
+            // Require a BLE connection so a tap doesn't leave iOS and the
+            // goggle in disagreement — local state would clear while the
+            // goggle kept displaying the old lap table.
+            .disabled(lapTimer.isRunning || !bluetooth.isConnected)
         }
         .padding(.horizontal)
     }

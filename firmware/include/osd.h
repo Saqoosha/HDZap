@@ -62,6 +62,12 @@ private:
     bool send_osd(const uint8_t *payload, size_t payload_size) {
         uint8_t buf[MSP_MAX_PACKET];
         size_t len = msp_build_packet(buf, MSP_SET_OSD_ELEM, payload, payload_size);
-        return espnow_send(m_uid, buf, len);
+        bool ok = espnow_send(m_uid, buf, len);
+        if (!ok) {
+            // Include the DP subcommand so the Serial log distinguishes
+            // which stage of a clear/write/draw pair actually failed.
+            Serial.printf("osd: send failed (DP subcmd=0x%02X)\n", payload[0]);
+        }
+        return ok;
     }
 };
