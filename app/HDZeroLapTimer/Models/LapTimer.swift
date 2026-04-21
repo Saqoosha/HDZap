@@ -27,12 +27,17 @@ class LapTimer {
         isRunning = true
         startDate = Date()
         // 60 Hz matches typical display refresh and keeps ms-digit rendering smooth.
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        // Explicitly register on .common so the timer keeps firing during
+        // scroll / user interaction (default `.scheduledTimer` uses .default
+        // which pauses in tracking runloop modes).
+        let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
                 guard let self, let startDate = self.startDate else { return }
                 self.elapsedTime = self.accumulatedTime + Date().timeIntervalSince(startDate)
             }
         }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     @discardableResult

@@ -70,6 +70,11 @@ class ServerCallbacks : public BLEServerCallbacks {
 };
 
 class UIDConfigCallback : public BLECharacteristicCallbacks {
+    // Max bind phrase length must match MD5 input staging below AND the iOS
+    // client's effective limit; diverging here silently produces different
+    // UIDs on the two ends.
+    static constexpr size_t kMaxBindPhrase = 63;
+
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
         if (val.length() < 1) return;
@@ -77,9 +82,15 @@ class UIDConfigCallback : public BLECharacteristicCallbacks {
         uint8_t new_uid[6];
 
         if (mode == 0x01 && val.length() > 1) {
-            char phrase[64] = {};
             size_t len = val.length() - 1;
-            if (len > 63) len = 63;
+            // Reject oversized phrases instead of truncating — a truncated
+            // MD5 input would produce a UID the iOS side never derives.
+            if (len > kMaxBindPhrase) {
+                Serial.printf("UIDConfig: bind phrase too long (%u bytes, max %u)\n",
+                              (unsigned)len, (unsigned)kMaxBindPhrase);
+                return;
+            }
+            char phrase[kMaxBindPhrase + 1] = {};
             memcpy(phrase, val.data() + 1, len);
             uid_from_bind_phrase(phrase, new_uid);
         } else if (mode == 0x02 && val.length() >= 7) {
@@ -90,7 +101,7 @@ class UIDConfigCallback : public BLECharacteristicCallbacks {
             return;
         }
 
-        new_uid[0] &= ~0x01; // Unicast MAC invariant enforced for every mode.
+        new_uid[0] &= ~0x01; // unicast MAC invariant
 
         portENTER_CRITICAL(&g_ble_mux);
         memcpy(g_staged_uid, new_uid, 6);
@@ -134,7 +145,11 @@ class OSDControlCallback : public BLECharacteristicCallbacks {
         if ((uint8_t)val[0] == 0x01) g_osd_clear_requested = true;
         if ((uint8_t)val[0] == 0x02) {
             g_osd_reset_laps_requested = true;
+            // Reset under the mux for symmetry with LapTimeCallback's
+            // increment — otherwise concurrent BLE writes could tear.
+            portENTER_CRITICAL(&g_ble_mux);
             g_lap_count = 0;
+            portEXIT_CRITICAL(&g_ble_mux);
         }
     }
 };

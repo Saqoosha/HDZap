@@ -76,13 +76,26 @@ class BluetoothManager: NSObject {
         centralManager.cancelPeripheralConnection(peripheral)
     }
 
+    /// Bind phrases share a 63-byte cap with the firmware so the MD5 input
+    /// (and therefore the derived UID) is identical on both sides.
+    static let maxBindPhraseBytes = 63
+
     @discardableResult
     func sendUIDConfig(mode: UIDMode) -> Bool {
         var data = Data()
         switch mode {
         case .bindPhrase(let phrase):
+            let bytes = Array(phrase.utf8)
+            guard !bytes.isEmpty else {
+                lastError = "Bind phrase is empty."
+                return false
+            }
+            guard bytes.count <= Self.maxBindPhraseBytes else {
+                lastError = "Bind phrase is \(bytes.count) bytes; max is \(Self.maxBindPhraseBytes)."
+                return false
+            }
             data.append(0x01)
-            data.append(contentsOf: phrase.utf8)
+            data.append(contentsOf: bytes)
         case .manualUID(let uid):
             guard uid.count == 6 else {
                 lastError = "UID must be 6 bytes, got \(uid.count)."
@@ -98,7 +111,7 @@ class BluetoothManager: NSObject {
 
     @discardableResult
     func sendBindCommand() -> Bool {
-        write(data: Data([0x01]), to: bindCommandUUID)
+        return write(data: Data([0x01]), to: bindCommandUUID)
     }
 
     @discardableResult
@@ -145,7 +158,11 @@ extension BluetoothManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         isConnected = true
+        // peripheral.name can be nil before the remote name is resolved; fall
+        // back to a short identifier prefix so the UI shows *something* rather
+        // than implying there's no active connection.
         connectedDeviceName = peripheral.name
+            ?? "Device \(peripheral.identifier.uuidString.prefix(8))"
         peripheral.delegate = self
         peripheral.discoverServices([serviceUUID])
     }
@@ -161,15 +178,17 @@ extension BluetoothManager: CBCentralManagerDelegate {
         isConnected = false
         connectedDeviceName = nil
         characteristics = [:]
-        if let error {
-            lastError = "Disconnected: \(error.localizedDescription)"
-        }
         if userInitiatedDisconnect {
             userInitiatedDisconnect = false
             connectedPeripheral = nil
             return
         }
         // Auto-reconnect: iOS will retry indefinitely in the background.
+        // Don't flash the user a red error for a drop we're about to recover
+        // from; only surface the disconnect reason via serial-level logging.
+        if let error {
+            print("BLE auto-reconnecting after disconnect: \(error.localizedDescription)")
+        }
         centralManager.connect(peripheral)
     }
 }
