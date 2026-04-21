@@ -51,7 +51,13 @@ inline bool espnow_init(uint8_t uid[6]) {
     WiFi.disconnect();
     uint8_t primary = 0;
     wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
-    if (esp_wifi_get_channel(&primary, &second) == ESP_OK && primary != 1) {
+    esp_err_t ch_err = esp_wifi_get_channel(&primary, &second);
+    if (ch_err != ESP_OK) {
+        // The verification step itself failed — don't silently proceed
+        // assuming channel 1. Log so a misconfigured WiFi stack is
+        // diagnosable from serial alone.
+        Serial.printf("espnow_init: get_channel failed (%d) — channel unverified\n", ch_err);
+    } else if (primary != 1) {
         // peer.channel = 0 means "current channel" — a post-WiFi.begin
         // channel drift would silently send every packet to a channel
         // the goggle isn't listening on. Force it back to 1 so the

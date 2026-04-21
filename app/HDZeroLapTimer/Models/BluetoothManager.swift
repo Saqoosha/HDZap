@@ -381,11 +381,12 @@ extension BluetoothManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
-        // Without this, a failed subscribe to the status characteristic
-        // leaves currentUID / lapCount at nil and the user thinks the
-        // firmware just isn't reporting. Surface the real cause.
+        // Only the status characteristic uses notifications today; gate
+        // on UUID so a future notify-on-another-characteristic failure
+        // doesn't get misattributed as "Status subscribe failed".
+        guard characteristic.uuid == statusUUID else { return }
         if let error {
-            lastError = "\(characteristicName(characteristic.uuid)) subscribe failed: \(error.localizedDescription)"
+            lastError = "Status subscribe failed: \(error.localizedDescription). Laps still send, but goggle state won't appear in-app."
         }
     }
 
