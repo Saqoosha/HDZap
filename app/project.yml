@@ -1,0 +1,24 @@
+name: HDZeroLapTimer
+options:
+  bundleIdPrefix: sh.saqoo
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.4"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+targets:
+  HDZeroLapTimer:
+    type: application
+    platform: iOS
+    sources:
+      - HDZeroLapTimer
+    info:
+      path: HDZeroLapTimer/Info.plist
+      properties:
+        NSBluetoothAlwaysUsageDescription: "Connect to HDZero OSD bridge device via Bluetooth"
+        UIBackgroundModes:
+          - bluetooth-central
+        CFBundleDisplayName: HDZero Lap Timer
+        UILaunchScreen: {}
