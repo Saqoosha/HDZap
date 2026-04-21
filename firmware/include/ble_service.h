@@ -20,10 +20,16 @@
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
-// Flags signal edges; the accompanying scratch fields carry the payload.
-// A portMUX guards multi-field producers (lap data, UID staging) so main
-// loop never observes a torn pair. Single-flag paths tolerate edge-loss
-// under rapid double-write: the latest state wins.
+// Flags signal edges; scratch fields carry the payload.
+//
+// Mux-guarded (portMUX, main loop never sees a torn pair):
+//   g_staged_uid + g_uid_config_requested
+//   g_lap_num + g_lap_time_ms + g_lap_count + g_lap_received
+//
+// Bare-volatile single-flag (idempotent commands — rapid double-write
+// collapses into one edge, which is fine because the action just means
+// "do it once"):
+//   g_bind_requested, g_osd_clear_requested, g_osd_reset_laps_requested
 inline volatile bool g_bind_requested = false;
 inline volatile bool g_lap_received = false;
 inline volatile bool g_osd_clear_requested = false;
@@ -103,8 +109,9 @@ class UIDConfigCallback : public BLECharacteristicCallbacks {
         } else if (mode == 0x03) {
             esp_read_mac(new_uid, ESP_MAC_WIFI_STA);
         } else {
-            // Unknown mode or wrong-length payload — log so protocol skew
-            // with the iOS client is detectable instead of silent.
+            // Either an unrecognized mode or a known mode with a short
+            // payload (mode 0x01 needs >= 2 bytes, mode 0x02 needs >= 7).
+            // Log both fields so iOS protocol skew is diagnosable.
             Serial.printf("UIDConfig: unexpected mode=0x%02X len=%u\n",
                           mode, (unsigned)val.length());
             return;

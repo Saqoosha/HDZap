@@ -13,7 +13,6 @@ struct ConnectionView: View {
     @State private var manualUIDText = ""
 
     var body: some View {
-        @Bindable var bluetooth = bluetooth
         NavigationStack {
             List {
                 errorSection
@@ -31,9 +30,25 @@ struct ConnectionView: View {
     @ViewBuilder
     private var errorSection: some View {
         if let err = bluetooth.lastError {
+            let remaining = max(bluetooth.errorLog.count - 1, 0)
+            let dropped = bluetooth.droppedErrorCount
             Section("Error") {
                 Text(err).foregroundStyle(.red)
-                Button("Clear") { bluetooth.clearError() }
+                if remaining > 0 || dropped > 0 {
+                    let suffix = dropped > 0 ? " (+\(dropped) dropped)" : ""
+                    Text("\(remaining) more queued\(suffix)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button(remaining > 0 ? "Next" : "Clear") { bluetooth.clearError() }
+                    if remaining > 0 {
+                        Spacer()
+                        Button("Clear all", role: .destructive) {
+                            bluetooth.clearAllErrors()
+                        }
+                    }
+                }
             }
         }
     }

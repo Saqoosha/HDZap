@@ -31,14 +31,24 @@ struct TimerView: View {
     }
 
     private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        let remaining = max(bluetooth.errorLog.count - 1, 0)
+        let dropped = bluetooth.droppedErrorCount
+        return HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.yellow)
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                if remaining > 0 || dropped > 0 {
+                    let suffix = dropped > 0 ? " (+\(dropped) dropped)" : ""
+                    Text("\(remaining) more queued\(suffix)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Spacer()
-            Button("Dismiss") { bluetooth.clearError() }
+            Button(remaining > 0 ? "Next" : "Dismiss") { bluetooth.clearError() }
                 .font(.caption)
         }
         .padding(8)

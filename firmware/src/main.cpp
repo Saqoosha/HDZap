@@ -43,8 +43,9 @@ static void applyStagedUid() {
             stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
         }
     } else {
-        // Previous espnow_init failed; retry from scratch with the new UID
-        // (espnow_init handles cleanup internally).
+        // espnow_ready is false — espnow_init recovers from a partial prior
+        // init (see its docstring), so a fresh attempt with the new UID is
+        // the right move.
         espnow_ready = espnow_init(g_uid);
         if (!espnow_ready) {
             Serial.println("ESP-NOW init still failing after UID change");
@@ -128,26 +129,27 @@ void loop() {
 
     if (g_osd_clear_requested) {
         g_osd_clear_requested = false;
-        bool ok = true;
-        if (espnow_ready) {
-            ok = osd.clear() && osd.draw();
+        if (!espnow_ready) {
+            stickDisplay.showMessage("CLEAR: ESPNOW DOWN", TFT_ORANGE);
+        } else if (!(osd.clear() && osd.draw())) {
+            stickDisplay.showMessage("CLEAR FAIL", TFT_RED);
+        } else {
+            stickDisplay.showMessage("OSD CLEARED", TFT_CYAN);
         }
-        stickDisplay.showMessage(ok ? "OSD CLEARED" : "CLEAR FAIL",
-                                 ok ? TFT_CYAN : TFT_RED);
     }
 
     if (g_osd_reset_laps_requested) {
         g_osd_reset_laps_requested = false;
         lapDisplay.clear();
-        bool ok = true;
-        if (espnow_ready) {
-            ok = osd.clear() && osd.draw();
-        }
-        Serial.printf("Laps reset%s\n", ok ? "" : " (OSD send failed)");
-        if (ok) {
-            stickDisplay.showStatus(g_uid, g_ble_connected);
-        } else {
+        if (!espnow_ready) {
+            Serial.println("Laps reset (local only; ESP-NOW down)");
+            stickDisplay.showMessage("RESET: ESPNOW DOWN", TFT_ORANGE);
+        } else if (!(osd.clear() && osd.draw())) {
+            Serial.println("Laps reset (OSD send failed)");
             stickDisplay.showMessage("RESET FAIL", TFT_RED);
+        } else {
+            Serial.println("Laps reset");
+            stickDisplay.showStatus(g_uid, g_ble_connected);
         }
     }
 

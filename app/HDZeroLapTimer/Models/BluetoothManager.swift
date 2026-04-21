@@ -22,18 +22,24 @@ class BluetoothManager: NSObject {
     private(set) var connectedDeviceName: String?
     private(set) var currentUID: [UInt8]?
     private(set) var lapCount: UInt8 = 0
-    /// Most recent errors, newest first. Limited to `errorLogCapacity` so a
-    /// burst of failures doesn't lose the first one to overwrite.
+    /// Recent errors, newest at index 0. Cap prevents unbounded growth but
+    /// also means old entries are dropped silently — `droppedErrorCount`
+    /// records how many so the UI can show a "… and N more" badge.
     private(set) var errorLog: [String] = []
-    /// UI-compatible single-string view. `lastError` setter appends to the
-    /// log rather than overwriting; setter is kept for external clear paths.
+    private(set) var droppedErrorCount = 0
+
+    /// Single-string view of the top of `errorLog`. Getter returns the most
+    /// recent entry; setter with a non-nil string records a new error;
+    /// setter with nil drops every entry (equivalent to `clearAllErrors()`).
+    /// Call sites that `set lastError = "…"` continue to work; `clearError()`
+    /// is the preferred Dismiss path and only drops one entry at a time.
     var lastError: String? {
         get { errorLog.first }
         set {
             if let newValue {
                 recordError(newValue)
             } else {
-                errorLog.removeAll()
+                clearAllErrors()
             }
         }
     }
@@ -49,12 +55,33 @@ class BluetoothManager: NSObject {
         centralManager = CBCentralManager(delegate: self, queue: nil)
     }
 
-    func clearError() { errorLog.removeAll() }
+    /// Dismiss the currently-displayed error. Other queued errors (if any)
+    /// remain visible on the next tick so a burst isn't lost on one tap.
+    func clearError() {
+        guard !errorLog.isEmpty else { return }
+        errorLog.removeFirst()
+    }
+
+    /// Wipe the whole log, including queued older errors + dropped counter.
+    func clearAllErrors() {
+        errorLog.removeAll()
+        droppedErrorCount = 0
+    }
 
     private func recordError(_ message: String) {
+        // All state mutations must stay on the main queue because @Observable
+        // observers are notified synchronously on whichever thread writes —
+        // future BLE-queue changes would otherwise cause silent SwiftUI races.
+        MainActor.assertIsolated()
+        // Collapse consecutive identical errors so an error storm (e.g. every
+        // lap write failing during a disconnect) doesn't flood the ring with
+        // duplicates.
+        if errorLog.first == message { return }
         errorLog.insert(message, at: 0)
-        if errorLog.count > Self.errorLogCapacity {
-            errorLog.removeLast(errorLog.count - Self.errorLogCapacity)
+        let overflow = errorLog.count - Self.errorLogCapacity
+        if overflow > 0 {
+            errorLog.removeLast(overflow)
+            droppedErrorCount += overflow
         }
     }
 
@@ -258,8 +285,12 @@ extension BluetoothManager: CBPeripheralDelegate {
         guard characteristic.uuid == statusUUID else { return }
         guard let data = characteristic.value, data.count >= 8 else {
             // Short frame points at firmware/app version skew — surface as
-            // actionable error, not just a console log.
+            // actionable error and invalidate the derived fields so the UI
+            // doesn't keep showing a UID/lapCount that no longer reflects
+            // the firmware.
             let n = characteristic.value?.count ?? 0
+            currentUID = nil
+            lapCount = 0
             lastError = "Status frame unexpected size (\(n)B, expected 8). Firmware/app version mismatch?"
             return
         }
