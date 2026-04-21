@@ -21,18 +21,21 @@ public:
 
     /// Write text at (row, col). attr: bit0 = font page (0 or 1).
     bool writeString(uint8_t row, uint8_t col, const char *text, uint8_t attr = 0) {
+        if (row >= OSD_ROWS || col >= OSD_COLS) return false;
+        size_t maxLen = OSD_COLS - col;
         size_t textLen = strlen(text);
-        if (textLen > OSD_COLS - col) textLen = OSD_COLS - col;
+        if (textLen > maxLen) textLen = maxLen;
 
-        uint8_t payload[4 + textLen];
+        uint8_t payload[4 + OSD_COLS];
         payload[0] = MSP_DP_WRITE_STRING;
         payload[1] = row;
         payload[2] = col;
         payload[3] = attr;
         for (size_t i = 0; i < textLen; i++) {
             char c = text[i];
-            // BF OSD font: 0x60-0x7F are special symbols, not lowercase
-            if (c >= 'a' && c <= 'z') c -= 32; // to uppercase
+            // BF/HDZero OSD font 0x60-0x7F = FPV glyphs (battery, GPS, arrows),
+            // NOT ASCII lowercase. Promote a-z to A-Z to display Latin letters.
+            if (c >= 'a' && c <= 'z') c -= 32;
             payload[4 + i] = c;
         }
         return send_osd(payload, 4 + textLen);
@@ -46,9 +49,7 @@ public:
 
     /// Convenience: clear + write + draw in one call
     bool display(uint8_t row, uint8_t col, const char *text) {
-        clear();
-        writeString(row, col, text);
-        return draw();
+        return clear() && writeString(row, col, text) && draw();
     }
 
 private:

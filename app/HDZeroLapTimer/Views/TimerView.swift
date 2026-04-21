@@ -122,9 +122,13 @@ struct TimerView: View {
     // MARK: - Actions
 
     private func recordLap() {
-        let lap = lapTimer.lap()
+        guard let lap = lapTimer.lap() else { return }
         let timeMs = UInt32(lap.time * 1000)
-        bluetooth.sendLapTime(lapNum: UInt8(min(lap.id, 255)), timeMs: timeMs)
+        // Wire format uses u8 lap num. Firmware caps laps at 99 (MAX_LAPS),
+        // so wrapping is only a concern for runaway sessions; keep the wrap
+        // documented rather than silently clamping to 255 forever.
+        let lapByte = UInt8(truncatingIfNeeded: lap.id)
+        bluetooth.sendLapTime(lapNum: lapByte, timeMs: timeMs)
     }
 }
 

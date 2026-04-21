@@ -1,16 +1,22 @@
 import SwiftUI
 import CoreBluetooth
 
+enum UIDConfigMode: Int, CaseIterable {
+    case bindPhrase, manualUID, newPairing
+}
+
 struct ConnectionView: View {
     @Environment(BluetoothManager.self) private var bluetooth
 
-    @State private var selectedMode = 0 // 0: bind phrase, 1: manual UID, 2: new pairing
+    @State private var selectedMode: UIDConfigMode = .bindPhrase
     @State private var bindPhrase = ""
     @State private var manualUIDText = ""
 
     var body: some View {
+        @Bindable var bluetooth = bluetooth
         NavigationStack {
             List {
+                errorSection
                 bleStatusSection
                 discoveredDevicesSection
                 gogglePairingSection
@@ -21,6 +27,16 @@ struct ConnectionView: View {
     }
 
     // MARK: - Sections
+
+    @ViewBuilder
+    private var errorSection: some View {
+        if let err = bluetooth.lastError {
+            Section("Error") {
+                Text(err).foregroundStyle(.red)
+                Button("Clear") { bluetooth.clearError() }
+            }
+        }
+    }
 
     private var bleStatusSection: some View {
         Section("Bluetooth") {
@@ -34,12 +50,11 @@ struct ConnectionView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let peripheral = bluetooth.discoveredDevices.first(where: { _ in bluetooth.isConnected }) {
+            if bluetooth.isConnected, let name = bluetooth.connectedDeviceName {
                 HStack {
                     Text("Device")
                     Spacer()
-                    Text(peripheral.name ?? "Unknown")
-                        .foregroundStyle(.secondary)
+                    Text(name).foregroundStyle(.secondary)
                 }
             }
 
@@ -87,14 +102,14 @@ struct ConnectionView: View {
     private var gogglePairingSection: some View {
         Section("Goggle Pairing") {
             Picker("Mode", selection: $selectedMode) {
-                Text("Bind Phrase").tag(0)
-                Text("Manual UID").tag(1)
-                Text("New Pairing").tag(2)
+                Text("Bind Phrase").tag(UIDConfigMode.bindPhrase)
+                Text("Manual UID").tag(UIDConfigMode.manualUID)
+                Text("New Pairing").tag(UIDConfigMode.newPairing)
             }
             .pickerStyle(.segmented)
 
             switch selectedMode {
-            case 0:
+            case .bindPhrase:
                 TextField("Bind phrase", text: $bindPhrase)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -104,12 +119,17 @@ struct ConnectionView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-            case 1:
+            case .manualUID:
                 TextField("AA:BB:CC:DD:EE:FF", text: $manualUIDText)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.body.monospaced())
-            default:
+                if !manualUIDText.isEmpty, case .failure(let err) = parseUID(manualUIDText) {
+                    Text(err.localizedDescription)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            case .newPairing:
                 Text("Put your goggles in bind mode, then tap Send Bind Packet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -120,7 +140,7 @@ struct ConnectionView: View {
             }
             .disabled(!canApplyUID)
 
-            if selectedMode == 2 {
+            if selectedMode == .newPairing {
                 Button("Send Bind Packet") {
                     bluetooth.sendBindCommand()
                 }
@@ -145,22 +165,23 @@ struct ConnectionView: View {
     private var canApplyUID: Bool {
         guard bluetooth.isConnected else { return false }
         switch selectedMode {
-        case 0: return !bindPhrase.isEmpty
-        case 1: return parseUID(manualUIDText) != nil
-        case 2: return true
-        default: return false
+        case .bindPhrase: return !bindPhrase.isEmpty
+        case .manualUID:
+            if case .success = parseUID(manualUIDText) { return true }
+            return false
+        case .newPairing: return true
         }
     }
 
     private func applyUID() {
         let mode: UIDMode
         switch selectedMode {
-        case 0:
+        case .bindPhrase:
             mode = .bindPhrase(bindPhrase)
-        case 1:
-            guard let uid = parseUID(manualUIDText) else { return }
+        case .manualUID:
+            guard case .success(let uid) = parseUID(manualUIDText) else { return }
             mode = .manualUID(uid)
-        default:
+        case .newPairing:
             mode = .newPairing
         }
         bluetooth.sendUIDConfig(mode: mode)

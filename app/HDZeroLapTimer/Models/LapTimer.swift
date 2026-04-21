@@ -5,6 +5,7 @@ struct Lap: Identifiable {
     let time: TimeInterval
 }
 
+@MainActor
 @Observable
 class LapTimer {
     private(set) var elapsedTime: TimeInterval = 0
@@ -19,25 +20,31 @@ class LapTimer {
     private var timer: Timer?
     private var startDate: Date?
     private var accumulatedTime: TimeInterval = 0
+    private var cumulativeLapTime: TimeInterval = 0
 
     func start() {
         guard !isRunning else { return }
         isRunning = true
         startDate = Date()
+        // 60 Hz matches typical display refresh and keeps ms-digit rendering smooth.
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            guard let self, let startDate = self.startDate else { return }
-            self.elapsedTime = self.accumulatedTime + Date().timeIntervalSince(startDate)
+            Task { @MainActor [weak self] in
+                guard let self, let startDate = self.startDate else { return }
+                self.elapsedTime = self.accumulatedTime + Date().timeIntervalSince(startDate)
+            }
         }
     }
 
     @discardableResult
-    func lap() -> Lap {
-        let lapTime: TimeInterval
-        if let lastLap = laps.last {
-            lapTime = elapsedTime - laps.reduce(0) { $0 + $1.time }
-        } else {
-            lapTime = elapsedTime
+    func lap() -> Lap? {
+        guard isRunning else { return nil }
+        // Snapshot elapsed at the instant of the tap rather than reading
+        // the 60 Hz-sampled value to keep lap boundaries accurate.
+        if let startDate {
+            elapsedTime = accumulatedTime + Date().timeIntervalSince(startDate)
         }
+        let lapTime = elapsedTime - cumulativeLapTime
+        cumulativeLapTime = elapsedTime
         let newLap = Lap(id: laps.count + 1, time: lapTime)
         laps.append(newLap)
         return newLap
@@ -58,6 +65,7 @@ class LapTimer {
         stop()
         elapsedTime = 0
         accumulatedTime = 0
+        cumulativeLapTime = 0
         laps = []
     }
 }

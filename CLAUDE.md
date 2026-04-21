@@ -41,22 +41,24 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 ## Architecture Boundaries
 
 - `msp.h` — packet building only, no I/O
-- `espnow_link.h` — ESP-NOW init/send/reinit, no business logic
+- `espnow_link.h` — ESP-NOW init/send/reinit + broadcast helper, no business logic
 - `osd.h` — OSD commands via ESP-NOW, no layout knowledge
-- `ble_service.h` — BLE GATT server, sets global flags for main loop
-- `bind.h` — ELRS bind protocol, stateless
+- `ble_service.h` — BLE GATT server, stages payloads + sets flags for main loop
+- `bind.h` — ELRS bind protocol, stateless (broadcast via espnow_link)
 - `lap_display.h` — lap formatting + OSD rendering
-- `main.cpp` — event loop, glues everything via volatile flags
+- `nvs_store.h` — UID persistence, namespace "hdzero"
+- `stick_display.h` — M5StickS3 LCD status display, no business logic
+- `main.cpp` — event loop; consumes staged BLE data under `g_ble_mux` and runs heavy work (NVS, ESP-NOW reinit) outside the BLE task
 
 ## Conventions
 
 - Firmware: C++ headers in include/, single source in src/
-- iOS: @Observable (not ObservableObject), @Environment for DI
-- BLE callbacks set volatile flags, main loop processes them (no heavy work in callbacks)
+- iOS: @MainActor + @Observable (not ObservableObject), @Environment for DI
+- BLE callbacks stage data under `g_ble_mux` + set a flag; main loop processes (no heavy work in callbacks)
 - NVS namespace: "hdzero", key: "uid"
+- Unicast MAC invariant: `uid[0] & 0x01 == 0` at every assignment site
 
 ## Hardware
 
-- Current dev: ESP32 devkit
-- Target: M5StickS3 (ESP32-S3)
+- Target / current: M5StickS3 (ESP32-S3, 1.14" LCD, 2 buttons, AXP2101 PMIC)
 - Goggle: HDZero with ELRS backpack

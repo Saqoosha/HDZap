@@ -77,13 +77,13 @@ Mode 3 — New Pairing:
 
 ```
 main.cpp
-  ├── ble_service.h ──→ espnow_link.h ──→ WiFi/esp_now/MD5
-  │                      (reinit on UID change)
+  ├── ble_service.h ──→ nvs_store.h (staged data only; main.cpp applies)
   ├── bind.h ──→ msp.h (MSP_ELRS_BIND)
-  │             └→ esp_now (broadcast send)
+  │             └→ espnow_link.h (broadcast helper)
   ├── lap_display.h ──→ osd.h ──→ msp.h (MSP_SET_OSD_ELEM)
   │                               └→ espnow_link.h (send)
-  └── (NVS via Preferences in ble_service.h)
+  ├── nvs_store.h ──→ Preferences (namespace "hdzero")
+  └── stick_display.h ──→ M5Unified (LCD status display only)
 ```
 
 ### Concurrency Model
@@ -91,34 +91,20 @@ main.cpp
 ```
 BLE Callback Thread              Main Loop (Arduino loop())
 ─────────────────                ───────────────────────────
-UIDConfigCallback.onWrite()  →   (UID change handled inline in callback
-                                  since espnow_reinit is synchronous)
+UIDConfigCallback.onWrite()  →   g_staged_uid + g_uid_config_requested
+                                 → main loop: nvs_store::saveUid + espnow_reinit
 
-BindCmdCallback.onWrite()    →   g_bind_requested = true  →  main loop sends bind
+BindCmdCallback.onWrite()    →   g_bind_requested                  → send_bind_packet
 
-LapTimeCallback.onWrite()    →   g_lap_received = true     →  main loop renders OSD
-                                 g_lap_num = N
-                                 g_lap_time_ms = M
+LapTimeCallback.onWrite()    →   g_lap_num + g_lap_time_ms + g_lap_received
+                                 → main loop: addLap + render
 
-OSDControlCallback.onWrite() →   g_osd_clear_requested     →  main loop clears OSD
-                                 g_osd_reset_laps_requested →  main loop resets laps
+OSDControlCallback.onWrite() →   g_osd_clear_requested / reset_laps → main loop
 ```
 
-All inter-thread communication uses `volatile` global flags.
-BLE callbacks only set flags and copy data — no ESP-NOW or OSD calls in callbacks.
-Exception: UID config changes call espnow_reinit() directly in callback (synchronous, infrequent).
-
-### Memory Layout (min_spiffs partition)
-
-```
-Flash (4MB):
-  Bootloader:     ~17KB
-  Partition table: 4KB
-  App:            1.9MB  ← firmware lives here (currently 1.5MB / 78%)
-  SPIFFS:         ~128KB
-  NVS:            20KB   ← UID persistence
-  OTA:            remaining
-```
+All multi-field producers (UID staging, lap pair) are guarded by `portENTER_CRITICAL(&g_ble_mux)`
+on both the BLE task and main loop sides, so main loop never observes a torn pair. Single-bool
+flags rely on `volatile` ordering alone. No heavy work runs inside BLE callbacks.
 
 ## iPhone App Architecture
 

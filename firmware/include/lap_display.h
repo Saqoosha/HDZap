@@ -24,6 +24,7 @@ public:
     }
 
     void render() {
+        if (!m_osd) return;
         m_osd->clear();
 
         if (m_count == 0) {
@@ -76,7 +77,10 @@ public:
 
 private:
     static constexpr uint8_t MAX_LAPS = 99;
-    static constexpr uint8_t MAX_LAP_ROWS = 12;
+    // ESP-NOW: safe to send up to 10 packets per OSD cycle (REPORT.md).
+    // render() cycle = clear + MAX_LAP_ROWS + best + total + draw = MAX_LAP_ROWS + 4.
+    // 6 rows => 10 packets, the stable ceiling.
+    static constexpr uint8_t MAX_LAP_ROWS = 6;
 
     struct Lap {
         uint8_t num;
