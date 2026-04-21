@@ -21,7 +21,11 @@ public:
 
     /// Write text at (row, col). attr: bit0 = font page (0 or 1).
     bool writeString(uint8_t row, uint8_t col, const char *text, uint8_t attr = 0) {
-        if (row >= OSD_ROWS || col >= OSD_COLS) return false;
+        if (row >= OSD_ROWS || col >= OSD_COLS) {
+            Serial.printf("osd: writeString OOB row=%u col=%u (grid %ux%u)\n",
+                          row, col, OSD_ROWS, OSD_COLS);
+            return false;
+        }
         size_t maxLen = OSD_COLS - col;
         size_t textLen = strlen(text);
         if (textLen > maxLen) textLen = maxLen;

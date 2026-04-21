@@ -5,7 +5,6 @@ struct TimerView: View {
     @Environment(BluetoothManager.self) private var bluetooth
 
     var body: some View {
-        @Bindable var bluetooth = bluetooth
         VStack(spacing: 16) {
             connectionStatus
 
