@@ -122,25 +122,14 @@ Backpack OSD は VTX 映像とは独立したパス（`elrs.c` → `elrs_osd_ove
 
 ## Project Structure
 
-```
-HDZeroOSD/
-├── platformio.ini        # ESP32 Arduino, bind phrase config
-├── include/
-│   ├── msp.h             # MSPv2 packet builder + CRC8/DVB-S2
-│   ├── espnow_link.h     # ESP-NOW init + bind phrase → UID
-│   └── osd.h             # OSD class (clear/writeString/draw)
-└── src/
-    └── main.cpp           # Test application
-```
+Run `ls firmware/include firmware/src` for the current module list.
+Architecture boundaries and responsibilities live in
+[CLAUDE.md](../CLAUDE.md#architecture-boundaries).
 
 ## Configuration
 
-### platformio.ini
-
-```ini
-build_flags =
-    -DCONFIG_BIND_PHRASE=\"your_phrase\"
-```
+The bind phrase / UID is configured at runtime from the iOS app over BLE
+(no build-time flag). See iOS `ConnectionView` → "Goggle Pairing".
 
 ### Goggle Setup
 
