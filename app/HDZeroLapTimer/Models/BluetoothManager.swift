@@ -57,7 +57,15 @@ class BluetoothManager: NSObject {
     private var centralManager: CBCentralManager!
     private var connectedPeripheral: CBPeripheral?
     private var characteristics: [CBUUID: CBCharacteristic] = [:]
-    private var userInitiatedDisconnect = false
+    /// Suppresses iOS background auto-reconnect. Set by both `disconnect()`
+    /// (user tapped Disconnect) and `tearDownConnection(_:)` (app-initiated
+    /// abort after discovery failure). Consumed by `didDisconnectPeripheral`.
+    private var suppressAutoReconnect = false
+    /// Distinguishes "user actually tapped Disconnect" from other teardown
+    /// sources. Used only by `centralManagerDidUpdateState` to decide
+    /// whether to surface the BT-state banner — an app-initiated teardown
+    /// has its own error message and shouldn't mask a concurrent BT-off.
+    private var userTappedDisconnect = false
 
     override init() {
         super.init()
@@ -130,14 +138,16 @@ class BluetoothManager: NSObject {
 
     func connect(_ peripheral: CBPeripheral) {
         stopScan()
-        userInitiatedDisconnect = false
+        suppressAutoReconnect = false
+        userTappedDisconnect = false
         connectedPeripheral = peripheral
         centralManager.connect(peripheral)
     }
 
     func disconnect() {
         guard let peripheral = connectedPeripheral else { return }
-        userInitiatedDisconnect = true
+        suppressAutoReconnect = true
+        userTappedDisconnect = true
         centralManager.cancelPeripheralConnection(peripheral)
     }
 
@@ -212,33 +222,29 @@ extension BluetoothManager: CBCentralManagerDelegate {
         if central.state == .poweredOn { return }
         isScanning = false
         // A mid-session state change (Bluetooth toggled off, permission
-        // revoked, stack reset) leaves our cached peripheral pointer valid
-        // but useless — writes silently enqueue and never deliver. Tear
-        // the connection down explicitly so the UI reflects reality.
-        if isConnected {
-            let wasIntentional = userInitiatedDisconnect
-            isConnected = false
-            connectedDeviceName = nil
-            connectedPeripheral = nil
-            characteristics = [:]
-            userInitiatedDisconnect = false
-            // A user who just tapped Disconnect shouldn't see a
-            // "Bluetooth turned off mid-session" banner if the stack
-            // happened to tear down first — their own action is the
-            // explanation.
-            if wasIntentional { return }
-            switch central.state {
-            case .poweredOff:
-                lastError = "Bluetooth turned off mid-session. Laps are not reaching the goggle — enable Bluetooth and tap Scan."
-            case .unauthorized:
-                lastError = "Bluetooth permission revoked. Re-grant in Settings → HDZero → Bluetooth."
-            case .resetting:
-                lastError = "Bluetooth stack resetting. Wait a moment, then tap Scan."
-            case .unsupported:
-                lastError = "This device no longer reports Bluetooth LE support."
-            default:
-                lastError = "Bluetooth unavailable (state \(central.state.rawValue))."
-            }
+        // revoked, stack reset) leaves the cached peripheral stale —
+        // CoreBluetooth needs cancelPeripheralConnection to keep its own
+        // bookkeeping consistent, so route through tearDownConnection
+        // instead of nil-ing the fields inline.
+        guard isConnected, let peripheral = connectedPeripheral else { return }
+        let wasUserTap = userTappedDisconnect
+        tearDownConnection(peripheral)
+        // Only a real user tap suppresses the state-change banner —
+        // an app-initiated teardown (tearDownConnection from a discovery
+        // failure) has its own error message but shouldn't mask a
+        // concurrent BT-off event the user also needs to know about.
+        if wasUserTap { return }
+        switch central.state {
+        case .poweredOff:
+            lastError = "Bluetooth turned off mid-session. Laps are not reaching the goggle — enable Bluetooth and tap Scan."
+        case .unauthorized:
+            lastError = "Bluetooth permission revoked. Re-grant in Settings → HDZero → Bluetooth."
+        case .resetting:
+            lastError = "Bluetooth stack resetting. Wait a moment, then tap Scan."
+        case .unsupported:
+            lastError = "This device no longer reports Bluetooth LE support."
+        default:
+            lastError = "Bluetooth unavailable (state \(central.state.rawValue))."
         }
     }
 
@@ -271,8 +277,9 @@ extension BluetoothManager: CBCentralManagerDelegate {
         isConnected = false
         connectedDeviceName = nil
         characteristics = [:]
-        if userInitiatedDisconnect {
-            userInitiatedDisconnect = false
+        if suppressAutoReconnect {
+            suppressAutoReconnect = false
+            userTappedDisconnect = false
             connectedPeripheral = nil
             return
         }
@@ -339,13 +346,21 @@ extension BluetoothManager: CBPeripheralDelegate {
     /// unusable (wrong service, missing characteristics, discovery failure);
     /// leaving `isConnected = true` with an empty characteristics map would
     /// make every write fail with the generic "not ready" error.
+    ///
+    /// Sets `suppressAutoReconnect = true` so the upcoming
+    /// `didDisconnectPeripheral` takes the early-return branch instead of
+    /// triggering auto-reconnect — the flag does double duty as "user
+    /// tapped Disconnect" (from `disconnect()`) and "internal teardown
+    /// wants iOS not to retry" (from here). If that callback never fires
+    /// (iOS can skip it when the peripheral was still in .connecting),
+    /// the flag remains sticky until the next call to `connect(_:)`.
     private func tearDownConnection(_ peripheral: CBPeripheral) {
         centralManager.cancelPeripheralConnection(peripheral)
         isConnected = false
         connectedDeviceName = nil
         connectedPeripheral = nil
         characteristics = [:]
-        userInitiatedDisconnect = true // suppress auto-reconnect on the next didDisconnect
+        suppressAutoReconnect = true
     }
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {

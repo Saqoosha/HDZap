@@ -13,7 +13,17 @@ public:
     }
 
     void addLap(uint8_t lapNum, uint32_t timeMs) {
-        if (m_count >= MAX_LAPS) return;
+        if (m_count >= MAX_LAPS) {
+            // Loud once per overflow: the iOS side keeps sending but we
+            // can't store any more. User needs to reset laps to continue
+            // capturing on the goggle side.
+            if (!m_capWarned) {
+                Serial.printf("lap_display: at MAX_LAPS (%u), dropping lap %u and subsequent\n",
+                              MAX_LAPS, lapNum);
+                m_capWarned = true;
+            }
+            return;
+        }
         m_laps[m_count].num = lapNum;
         m_laps[m_count].timeMs = timeMs;
         m_count++;
@@ -21,6 +31,7 @@ public:
 
     void clear() {
         m_count = 0;
+        m_capWarned = false;
     }
 
     bool render() {
@@ -97,6 +108,7 @@ private:
     OSD *m_osd = nullptr;
     Lap m_laps[MAX_LAPS];
     uint8_t m_count = 0;
+    bool m_capWarned = false;
 
     /// Format milliseconds as "MM:SS.mmm"
     static void formatTime(uint32_t ms, char *buf) {

@@ -28,6 +28,9 @@
 //     — g_lap_count has a secondary role: read unlocked by
 //       ble_update_status() for the status-notify payload. Single byte,
 //       so the unlocked read is an atomic snapshot of the latest write.
+//   g_uid                                     (6 bytes; main loop writes
+//       under the mux in applyStagedUid, BLE task reads under the mux in
+//       ble_update_status so the notify frame never carries a torn pair)
 //
 // Bare-volatile single-flag — idempotent commands, rapid double-write
 // collapses into one edge (which is fine, the action just means

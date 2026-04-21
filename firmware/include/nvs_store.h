@@ -19,6 +19,12 @@
 // possibility of using slightly-stale state.
 namespace nvs_store {
 
+// Note on acknowledgement: Arduino's Preferences wrapper exposes putBytes
+// / putUChar via their byte counts (1 or 6 = "written as far as we can
+// tell") but `end()` commits without a return path — if the underlying
+// nvs_commit fails, we have no signal. We treat a full-size put as the
+// strongest commitment signal available and accept the residual risk.
+
 inline bool saveUid(const uint8_t uid[6]) {
     Preferences prefs;
     if (!prefs.begin("hdzero", false)) return false;

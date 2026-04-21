@@ -22,24 +22,19 @@ static void applyStagedUid() {
     g_uid_config_requested = false;
     portEXIT_CRITICAL(&g_ble_mux);
 
-    // Persist first, then reconfigure the radio. If NVS save fails we roll
-    // g_uid back so runtime and persistent state stay in sync — otherwise a
-    // reboot would silently revert to the old UID and the goggle stops
-    // receiving for no user-visible reason. g_uid writes go under g_ble_mux
-    // so ble_update_status never sees a torn old/new byte pair.
-    uint8_t prev_uid[6];
-    portENTER_CRITICAL(&g_ble_mux);
-    memcpy(prev_uid, g_uid, 6);
-    memcpy(g_uid, new_uid, 6);
-    portEXIT_CRITICAL(&g_ble_mux);
-    if (!nvs_store::saveUid(g_uid)) {
-        portENTER_CRITICAL(&g_ble_mux);
-        memcpy(g_uid, prev_uid, 6);
-        portEXIT_CRITICAL(&g_ble_mux);
-        Serial.println("NVS save failed — UID change reverted");
-        stickDisplay.showMessage("NVS SAVE FAIL\nUID reverted", TFT_RED);
+    // Persist before publishing. If NVS save fails g_uid is untouched —
+    // no rollback window, no chance for ble_update_status to leak an
+    // uncommitted value to iOS between the publish and the commit.
+    if (!nvs_store::saveUid(new_uid)) {
+        Serial.println("NVS save failed — UID unchanged");
+        stickDisplay.showMessage("NVS SAVE FAIL\nUID unchanged", TFT_RED);
         return;
     }
+    // Publish the committed value under the mux so ble_update_status
+    // never sees a torn old/new byte pair during the memcpy.
+    portENTER_CRITICAL(&g_ble_mux);
+    memcpy(g_uid, new_uid, 6);
+    portEXIT_CRITICAL(&g_ble_mux);
 
     if (espnow_ready) {
         if (!espnow_reinit(g_uid)) {
@@ -128,7 +123,11 @@ void loop() {
 
         Serial.printf("Lap %d: %lu ms\n", num, (unsigned long)ms);
         lapDisplay.addLap(num, ms);
-        if (espnow_ready) lapDisplay.render();
+        if (espnow_ready) {
+            if (!lapDisplay.render()) {
+                stickDisplay.showMessage("LAP RENDER FAIL", TFT_RED);
+            }
+        }
         stickDisplay.showLap(num, ms);
     }
 
