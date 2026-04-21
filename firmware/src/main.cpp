@@ -131,11 +131,14 @@ void loop() {
         bool stored = lapDisplay.addLap(num, ms);
         bool renderOk = true;
         if (espnow_ready) renderOk = lapDisplay.render();
-        // Draw the lap card first, then stamp any status message on top —
-        // showLap's fillRect covers showMessage's region, so ordering
-        // matters if we want the error to stay visible until the next lap.
         stickDisplay.showLap(num, ms);
-        if (!stored) {
+        // Priority: radio dead > storage full > render dropped. ESPNOW
+        // DOWN matters most because no laps reach the goggle; LAPS FULL
+        // means storage is capped (lap is on the phone but not here);
+        // RENDER FAIL is a per-lap dispatch failure.
+        if (!espnow_ready) {
+            stickDisplay.showMessage("ESPNOW DOWN", TFT_RED);
+        } else if (!stored) {
             stickDisplay.showMessage("LAPS FULL", TFT_ORANGE);
         } else if (!renderOk) {
             stickDisplay.showMessage("LAP RENDER FAIL", TFT_RED);
@@ -165,6 +168,9 @@ void loop() {
         } else {
             Serial.println("Laps reset");
             stickDisplay.showStatus(g_uid, g_ble_connected);
+            // Drop any stale "LAPS FULL" / "LAP RENDER FAIL" from the
+            // sticky strip — a fresh reset is a clean slate.
+            stickDisplay.clearMessage();
         }
     }
 
