@@ -32,8 +32,9 @@ inline void uid_from_bind_phrase(const char *phrase, uint8_t uid[6]) {
 }
 
 /// Initialize ESP-NOW with the given UID as both our MAC and the peer MAC.
-/// Safe to call again after a prior failure: if ESP-NOW is already inside
-/// a started state we deinit first so add_peer gets a clean table.
+/// Safe to retry after a prior failure: if esp_now_init returns
+/// ESP_ERR_ESPNOW_INTERNAL (already initialized / partial teardown) we
+/// deinit and retry so add_peer starts with a clean peer table.
 inline bool espnow_init(uint8_t uid[6]) {
     WiFi.mode(WIFI_STA);
     WiFi.setTxPower(WIFI_POWER_19_5dBm);
@@ -47,9 +48,10 @@ inline bool espnow_init(uint8_t uid[6]) {
 
     esp_err_t init_err = esp_now_init();
     if (init_err == ESP_ERR_ESPNOW_INTERNAL) {
-        // IDF returns INTERNAL when esp_now_init is called while already
-        // initialized. Tear down and retry so the peer table is clean.
-        esp_now_deinit();
+        esp_err_t deinit_err = esp_now_deinit();
+        if (deinit_err != ESP_OK && deinit_err != ESP_ERR_ESPNOW_NOT_INIT) {
+            Serial.printf("espnow_init: esp_now_deinit failed (%d) before retry\n", deinit_err);
+        }
         init_err = esp_now_init();
     }
     if (init_err != ESP_OK) {
@@ -77,9 +79,9 @@ inline bool espnow_init(uint8_t uid[6]) {
 /// Reinitialize ESP-NOW with a new UID at runtime.
 /// Snapshots every registered peer into a local array, then deletes them —
 /// mutating the peer list while iterating with esp_now_fetch_peer is not
-/// documented behaviour, and relying on "delete shifts the head" broke in
-/// practice with broadcast peers that fetch_peer doesn't return. After the
-/// peer table is empty we update the MAC and add the new peer.
+/// documented behaviour, and fetch_peer skips broadcast/multicast peers,
+/// so "delete shifts the head" is fragile regardless. After the peer
+/// table is empty we update the MAC and add the new peer.
 inline bool espnow_reinit(uint8_t new_uid[6]) {
     new_uid[0] &= ~0x01; // unicast MAC invariant
 
@@ -143,14 +145,20 @@ inline bool espnow_send_broadcast(const uint8_t *data, size_t len, int repeat = 
     peer.encrypt = false;
     esp_err_t add_err = esp_now_add_peer(&peer);
     if (add_err == ESP_ERR_ESPNOW_EXIST) {
-        Serial.println("espnow_send_broadcast: broadcast peer leaked from prior call");
+        Serial.println("espnow_send_broadcast: peer already present (stale cleanup)");
     } else if (add_err != ESP_OK) {
+        Serial.printf("espnow_send_broadcast: add_peer failed (%d)\n", add_err);
         return false;
     }
 
     bool ok = true;
     for (int i = 0; i < repeat; i++) {
-        if (esp_now_send(kBroadcast, data, len) != ESP_OK) ok = false;
+        esp_err_t send_err = esp_now_send(kBroadcast, data, len);
+        if (send_err != ESP_OK) {
+            Serial.printf("espnow_send_broadcast: send %d/%d failed (%d)\n",
+                          i + 1, repeat, send_err);
+            ok = false;
+        }
     }
 
     esp_err_t del_err = esp_now_del_peer(kBroadcast);

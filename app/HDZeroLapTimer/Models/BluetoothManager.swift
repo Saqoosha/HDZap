@@ -22,8 +22,23 @@ class BluetoothManager: NSObject {
     private(set) var connectedDeviceName: String?
     private(set) var currentUID: [UInt8]?
     private(set) var lapCount: UInt8 = 0
-    var lastError: String?
+    /// Most recent errors, newest first. Limited to `errorLogCapacity` so a
+    /// burst of failures doesn't lose the first one to overwrite.
+    private(set) var errorLog: [String] = []
+    /// UI-compatible single-string view. `lastError` setter appends to the
+    /// log rather than overwriting; setter is kept for external clear paths.
+    var lastError: String? {
+        get { errorLog.first }
+        set {
+            if let newValue {
+                recordError(newValue)
+            } else {
+                errorLog.removeAll()
+            }
+        }
+    }
 
+    private static let errorLogCapacity = 5
     private var centralManager: CBCentralManager!
     private var connectedPeripheral: CBPeripheral?
     private var characteristics: [CBUUID: CBCharacteristic] = [:]
@@ -34,7 +49,14 @@ class BluetoothManager: NSObject {
         centralManager = CBCentralManager(delegate: self, queue: nil)
     }
 
-    func clearError() { lastError = nil }
+    func clearError() { errorLog.removeAll() }
+
+    private func recordError(_ message: String) {
+        errorLog.insert(message, at: 0)
+        if errorLog.count > Self.errorLogCapacity {
+            errorLog.removeLast(errorLog.count - Self.errorLogCapacity)
+        }
+    }
 
     func startScan() {
         switch centralManager.state {
@@ -224,24 +246,36 @@ extension BluetoothManager: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error {
-            lastError = "Write failed: \(error.localizedDescription)"
+            lastError = "\(characteristicName(characteristic.uuid)) write failed: \(error.localizedDescription)"
         }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error {
-            print("BLE notify error on \(characteristic.uuid): \(error.localizedDescription)")
+            lastError = "\(characteristicName(characteristic.uuid)) notify error: \(error.localizedDescription)"
             return
         }
         guard characteristic.uuid == statusUUID else { return }
         guard let data = characteristic.value, data.count >= 8 else {
-            // Short frame would indicate firmware/protocol skew — log so it
-            // can be diagnosed rather than silently leaving stale state.
-            print("BLE status frame malformed: \(characteristic.value?.count ?? 0) bytes, need 8")
+            // Short frame points at firmware/app version skew — surface as
+            // actionable error, not just a console log.
+            let n = characteristic.value?.count ?? 0
+            lastError = "Status frame unexpected size (\(n)B, expected 8). Firmware/app version mismatch?"
             return
         }
         // Format: [connected:u8][uid:6bytes][lap_count:u8]
         currentUID = Array(data[1...6])
         lapCount = data[7]
+    }
+
+    private func characteristicName(_ uuid: CBUUID) -> String {
+        switch uuid {
+        case uidConfigUUID: return "UID config"
+        case bindCommandUUID: return "Bind"
+        case lapTimeUUID: return "Lap time"
+        case osdControlUUID: return "OSD control"
+        case statusUUID: return "Status"
+        default: return uuid.uuidString
+        }
     }
 }

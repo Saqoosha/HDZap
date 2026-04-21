@@ -18,11 +18,12 @@
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
 #define CHR_STATUS_UUID         "f47ac10b-58cc-4372-a567-0e02b2c3d485"
 
-// BLE callback context (NimBLE's btc_task, typically core 0 under Arduino)
-// writes these; Arduino main loop (typically core 1) reads. Flags signal
-// edges; the accompanying scratch fields carry the payload. A portMUX
-// guards multi-field producers (lap data, UID staging) so main loop never
-// observes a torn pair.
+// BLE callback context (Bluedroid's btc_task, typically core 0 under
+// Arduino) writes these; Arduino main loop (typically core 1) reads.
+// Flags signal edges; the accompanying scratch fields carry the payload.
+// A portMUX guards multi-field producers (lap data, UID staging) so main
+// loop never observes a torn pair. Single-flag paths tolerate edge-loss
+// under rapid double-write: the latest state wins.
 inline volatile bool g_bind_requested = false;
 inline volatile bool g_lap_received = false;
 inline volatile bool g_osd_clear_requested = false;
@@ -78,7 +79,10 @@ class UIDConfigCallback : public BLECharacteristicCallbacks {
 
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
-        if (val.length() < 1) return;
+        if (val.length() < 1) {
+            Serial.println("UIDConfig: empty write");
+            return;
+        }
         uint8_t mode = (uint8_t)val[0];
         uint8_t new_uid[6];
 
@@ -99,6 +103,10 @@ class UIDConfigCallback : public BLECharacteristicCallbacks {
         } else if (mode == 0x03) {
             esp_read_mac(new_uid, ESP_MAC_WIFI_STA);
         } else {
+            // Unknown mode or wrong-length payload — log so protocol skew
+            // with the iOS client is detectable instead of silent.
+            Serial.printf("UIDConfig: unexpected mode=0x%02X len=%u\n",
+                          mode, (unsigned)val.length());
             return;
         }
 
@@ -123,7 +131,11 @@ class BindCmdCallback : public BLECharacteristicCallbacks {
 class LapTimeCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
-        if (val.length() < 5) return;
+        if (val.length() < 5) {
+            Serial.printf("LapTime: short payload (%u bytes, need 5)\n",
+                          (unsigned)val.length());
+            return;
+        }
         const uint8_t *d = (const uint8_t *)val.data();
 
         portENTER_CRITICAL(&g_ble_mux);
@@ -142,15 +154,22 @@ class LapTimeCallback : public BLECharacteristicCallbacks {
 class OSDControlCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
-        if (val.length() < 1) return;
-        if ((uint8_t)val[0] == 0x01) g_osd_clear_requested = true;
-        if ((uint8_t)val[0] == 0x02) {
+        if (val.length() < 1) {
+            Serial.println("OSDControl: empty write");
+            return;
+        }
+        uint8_t cmd = (uint8_t)val[0];
+        if (cmd == 0x01) {
+            g_osd_clear_requested = true;
+        } else if (cmd == 0x02) {
             g_osd_reset_laps_requested = true;
             // Reset under the mux for symmetry with LapTimeCallback's
             // increment — otherwise concurrent BLE writes could tear.
             portENTER_CRITICAL(&g_ble_mux);
             g_lap_count = 0;
             portEXIT_CRITICAL(&g_ble_mux);
+        } else {
+            Serial.printf("OSDControl: unknown command 0x%02X\n", cmd);
         }
     }
 };

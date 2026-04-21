@@ -43,9 +43,8 @@ static void applyStagedUid() {
             stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
         }
     } else {
-        // Previous espnow_init failed (espnow_ready=false); retry from
-        // scratch with the new UID. espnow_init internally deinits first
-        // when it finds an already-initialized state.
+        // Previous espnow_init failed; retry from scratch with the new UID
+        // (espnow_init handles cleanup internally).
         espnow_ready = espnow_init(g_uid);
         if (!espnow_ready) {
             Serial.println("ESP-NOW init still failing after UID change");
@@ -129,22 +128,27 @@ void loop() {
 
     if (g_osd_clear_requested) {
         g_osd_clear_requested = false;
+        bool ok = true;
         if (espnow_ready) {
-            osd.clear();
-            osd.draw();
+            ok = osd.clear() && osd.draw();
         }
-        stickDisplay.showMessage("OSD CLEARED", TFT_CYAN);
+        stickDisplay.showMessage(ok ? "OSD CLEARED" : "CLEAR FAIL",
+                                 ok ? TFT_CYAN : TFT_RED);
     }
 
     if (g_osd_reset_laps_requested) {
         g_osd_reset_laps_requested = false;
         lapDisplay.clear();
+        bool ok = true;
         if (espnow_ready) {
-            osd.clear();
-            osd.draw();
+            ok = osd.clear() && osd.draw();
         }
-        Serial.println("Laps reset");
-        stickDisplay.showStatus(g_uid, g_ble_connected);
+        Serial.printf("Laps reset%s\n", ok ? "" : " (OSD send failed)");
+        if (ok) {
+            stickDisplay.showStatus(g_uid, g_ble_connected);
+        } else {
+            stickDisplay.showMessage("RESET FAIL", TFT_RED);
+        }
     }
 
     delay(10);
