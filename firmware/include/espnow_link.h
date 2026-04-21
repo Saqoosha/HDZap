@@ -39,11 +39,24 @@ inline void uid_from_bind_phrase(const char *phrase, uint8_t uid[6]) {
 inline bool espnow_init(uint8_t uid[6]) {
     WiFi.mode(WIFI_STA);
     WiFi.setTxPower(WIFI_POWER_19_5dBm);
-    esp_wifi_set_protocol(WIFI_IF_STA,
+    esp_err_t proto_err = esp_wifi_set_protocol(WIFI_IF_STA,
         WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G |
         WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+    if (proto_err != ESP_OK) {
+        // LR mode is ESP32-family only; silent failure here means range
+        // is limited to plain B/G/N even though the rest of init succeeds.
+        Serial.printf("espnow_init: set_protocol failed (%d) — LR may be unavailable\n", proto_err);
+    }
     WiFi.begin("_", "_", 1); // Force channel 1
     WiFi.disconnect();
+    uint8_t primary = 0;
+    wifi_second_chan_t second;
+    if (esp_wifi_get_channel(&primary, &second) == ESP_OK && primary != 1) {
+        // peer.channel = 0 means "current channel" — if we're not actually
+        // on channel 1, every send will go out on a channel the goggle
+        // isn't listening to and nothing surfaces the mismatch at runtime.
+        Serial.printf("espnow_init: WiFi on channel %u, expected 1\n", primary);
+    }
 
     if (esp_wifi_set_mac(WIFI_IF_STA, uid) != ESP_OK) return false;
 
