@@ -49,11 +49,9 @@ struct TimerView: View {
                 if let err = bluetooth.lastError {
                     errorStrip(err)
                 } else if !bluetooth.isReady {
-                    // Mirrors the action-button gating: anything that depends
-                    // on a BLE write — LAP, RESET — uses `isReady`, so the
-                    // banner uses it too. Without this, a user in the
-                    // sub-second discovery window sees disabled buttons with
-                    // no explanation.
+                    // Surface link state passively — actions always run
+                    // against iOS state, but the operator should know the
+                    // goggle won't update until BLE is back.
                     bleStrip
                 }
 
@@ -466,23 +464,16 @@ struct TimerView: View {
     private var secondaryLabel: String { lapTimer.isRunning ? "STOP" : "RESET" }
 
     private var primaryDisabled: Bool {
-        if sessionEnded { return true }
-        // LAP / FINAL must reach the goggle to keep the iOS lap list and
-        // the OSD in sync (CLAUDE.md invariant). `isReady` rather than
-        // `isConnected` so taps in the brief window before characteristic
-        // discovery completes don't silently no-op. START itself is
-        // BLE-free — gate only the lap-recording path.
-        if lapTimer.isRunning && !bluetooth.isReady { return true }
-        return false
+        // iOS state is the source of truth: every action commits locally
+        // and best-effort fires at the goggle. BLE state never gates
+        // input — `lastError` and the BLE strip surface link issues.
+        sessionEnded
     }
 
     private var secondaryDisabled: Bool {
         if lapTimer.isRunning { return false } // STOP always allowed
-        if lapTimer.laps.isEmpty && lapTimer.elapsedTime == 0 { return true }
-        // No goggle state to desync if nothing was ever sent — RESET just
-        // wipes the local timer. Required only when laps exist on the OSD.
-        if lapTimer.laps.isEmpty { return false }
-        return !bluetooth.isReady
+        // RESET only when there's something to clear.
+        return lapTimer.laps.isEmpty && lapTimer.elapsedTime == 0
     }
 
     private var primaryFill: Color {
@@ -498,14 +489,8 @@ struct TimerView: View {
     private func primaryAction() {
         if sessionEnded { return }
         if lapTimer.isRunning && timeUp {
-            // FINAL: only end the session when the lap actually reached
-            // the goggle. If the BLE write failed, `recordLap()` already
-            // rolled back the local lap; leaving the timer running keeps
-            // the FINAL tap retryable instead of stranding the operator
-            // in DONE one lap short.
-            if recordLap() {
-                lapTimer.stop()
-            }
+            recordLap()
+            lapTimer.stop()
         } else if lapTimer.isRunning {
             recordLap()
         } else {
@@ -529,15 +514,12 @@ struct TimerView: View {
                 paceSnapshot = lapTimer.laps.count
             }
         } else {
-            // Only ping the goggle when there's actually a lap table to
-            // wipe; the reset packet is otherwise a no-op that needlessly
-            // requires a connection. If the write fails (BLE dropped
-            // between the disabled-check and the tap), keep iOS state
-            // intact so the user can retry once the link recovers — the
-            // alternative is a desync where iOS shows zero laps and the
-            // OSD keeps showing the old table.
+            // iOS state is the source of truth — clear it regardless of
+            // whether the goggle ack'd the reset packet. The `lastError`
+            // surfaces a failed write so the operator knows the OSD may
+            // still show the old table until they reconnect.
             if !lapTimer.laps.isEmpty {
-                guard bluetooth.sendOSDControl(command: .resetLaps) else { return }
+                bluetooth.sendOSDControl(command: .resetLaps)
             }
             lapTimer.reset()
             paceSnapshot = nil
@@ -545,23 +527,12 @@ struct TimerView: View {
         }
     }
 
-    /// Returns `true` when the lap was recorded *and* the BLE write was
-    /// dispatched without a synchronous failure (no peripheral / no
-    /// characteristic). The FINAL-lap branch in `primaryAction` uses this
-    /// to decide whether to actually `stop()` — a sync rollback shouldn't
-    /// strand the operator in `sessionEnded` with one fewer lap than they
-    /// tapped.
-    ///
-    /// Caveat: write-with-response only confirms transport-layer success
-    /// asynchronously via `peripheral(_:didWriteValueFor:error:)`, which
-    /// surfaces as `lastError` but doesn't unwind the lap. So a peer
-    /// disconnect that races between dispatch and transmission can leave
-    /// iOS showing a lap the goggle never received. A tighter invariant
-    /// would gate FINAL on the firmware's `lapCount` echo (status notify)
-    /// — out of scope for this iteration.
-    @discardableResult
-    private func recordLap() -> Bool {
-        guard let lap = lapTimer.lap() else { return false }
+    /// Records the lap locally and fires it at the goggle. iOS state is
+    /// the source of truth; a BLE write failure surfaces via `lastError`
+    /// but never rolls back the lap — the operator's tap is what counts,
+    /// and the goggle catching up (or not) is downstream concern.
+    private func recordLap() {
+        guard let lap = lapTimer.lap() else { return }
         // `UInt32(x)` traps on overflow or negatives — clamp via Int64 so a
         // pathological multi-hour session can't crash the app.
         let rawMs = Int64((lap.time * 1000).rounded())
@@ -570,15 +541,7 @@ struct TimerView: View {
         // iOS keeps counting but truncating wraps at 256. Only a concern
         // for runaway sessions — firmware caps its own display.
         let lapByte = UInt8(truncatingIfNeeded: lap.id)
-        guard bluetooth.sendLapTime(lapNum: lapByte, timeMs: timeMs) else {
-            // Tap-to-render race: the button was enabled when SwiftUI
-            // committed the hit-test, but the BLE link dropped before the
-            // write went out. Keep iOS and OSD in sync by undoing the
-            // local lap — the operator will tap LAP again once the link
-            // recovers, and `lastError` is already showing what happened.
-            lapTimer.removeLastLap()
-            return false
-        }
+        bluetooth.sendLapTime(lapNum: lapByte, timeMs: timeMs)
         // Snapshot pace at the moment of the lap. `ceil(remaining / avg)`
         // counts every lap that fits in the remaining window — including
         // the in-flight lap that just started AND the partial lap the
@@ -588,11 +551,10 @@ struct TimerView: View {
         // (`timeUp`), `remaining == 0` and the projection collapses to
         // `laps.count`.
         let avg = lapTimer.laps.reduce(0) { $0 + $1.time } / Double(lapTimer.laps.count)
-        guard avg > 0 else { return true }
+        guard avg > 0 else { return }
         let remainingFuture = max(0, remaining)
         let future = Int((remainingFuture / avg).rounded(.up))
         paceSnapshot = lapTimer.laps.count + future
-        return true
     }
 }
 
