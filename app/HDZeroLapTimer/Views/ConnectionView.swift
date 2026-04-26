@@ -20,6 +20,7 @@ struct ConnectionView: View {
                 discoveredDevicesSection
                 gogglePairingSection
                 currentUIDSection
+                osdTestSection
             }
             .navigationTitle("Connection")
         }
@@ -135,10 +136,13 @@ struct ConnectionView: View {
                         .foregroundStyle(.secondary)
                 }
             case .manualUID:
-                TextField("AA:BB:CC:DD:EE:FF", text: $manualUIDText)
+                TextField("60:D2:53:8A:B2:00 or 96 210 83 138 178 0", text: $manualUIDText)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.body.monospaced())
+                Text("Hex matches the iOS/M5Stick display; decimal matches what HDZero goggles show.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 if !manualUIDText.isEmpty {
                     switch parseUID(manualUIDText) {
                     case .failure(let err):
@@ -147,10 +151,16 @@ struct ConnectionView: View {
                             .foregroundStyle(.red)
                     case .success(let raw):
                         let normalized = normalizeUID(raw)
-                        if normalized != raw {
-                            // Surface the silent bit0 clear so the user
-                            // understands what will actually be sent.
-                            Text("Normalized: \(formatUID(normalized))")
+                        // Always show the canonical hex form when the user
+                        // typed decimal — it confirms the interpretation and
+                        // lets them compare against the iOS "Current UID"
+                        // section above. When bit0 was set on input, the
+                        // normalize step changes it here, which is also the
+                        // moment we want to surface to the user.
+                        let showParsed = !manualUIDText.contains(":") || normalized != raw
+                        if showParsed {
+                            let label = (normalized != raw) ? "Normalized" : "Parsed"
+                            Text("\(label): \(formatUID(normalized))")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
@@ -184,6 +194,18 @@ struct ConnectionView: View {
                     .font(.body.monospaced())
                     .textSelection(.enabled)
             }
+        }
+    }
+
+    private var osdTestSection: some View {
+        Section("Debug") {
+            Button("Send Test OSD") {
+                bluetooth.sendOSDControl(command: .testOSD)
+            }
+            .disabled(!bluetooth.isConnected)
+            Text("Fires one 'HDZERO TEST' message at the goggle OSD. M5Stick strip shows TEST OK / TEST LOST based on ESP-NOW delivery.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
