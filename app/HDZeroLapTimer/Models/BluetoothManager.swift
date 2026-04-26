@@ -4,6 +4,10 @@ import CoreBluetooth
 enum OSDCommand: UInt8 {
     case clear = 0x01
     case resetLaps = 0x02
+    /// Debug-only: fire a single test message ("HDZERO TEST") at the
+    /// goggle OSD to verify ESP-NOW delivery end-to-end without having
+    /// to start the timer and record a lap.
+    case testOSD = 0x03
 }
 
 private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d479")
