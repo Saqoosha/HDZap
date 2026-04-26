@@ -35,7 +35,8 @@
 // Bare-volatile single-flag — idempotent commands, rapid double-write
 // collapses into one edge (which is fine, the action just means
 // "do it once"):
-//   g_bind_requested, g_osd_clear_requested, g_osd_reset_laps_requested
+//   g_bind_requested, g_osd_clear_requested, g_osd_reset_laps_requested,
+//   g_osd_test_requested
 //
 // Bare-volatile state snapshot — written by ServerCallbacks (BLE task),
 // read for status-notify payload + main loop LCD update. Single byte, so
@@ -45,6 +46,7 @@ inline volatile bool g_bind_requested = false;
 inline volatile bool g_lap_received = false;
 inline volatile bool g_osd_clear_requested = false;
 inline volatile bool g_osd_reset_laps_requested = false;
+inline volatile bool g_osd_test_requested = false;
 inline volatile bool g_uid_config_requested = false;
 
 // Lap data staged by LapTimeCallback.
@@ -191,6 +193,8 @@ class OSDControlCallback : public BLECharacteristicCallbacks {
             portENTER_CRITICAL(&g_ble_mux);
             g_lap_count = 0;
             portEXIT_CRITICAL(&g_ble_mux);
+        } else if (cmd == 0x03) {
+            g_osd_test_requested = true;
         } else {
             Serial.printf("OSDControl: unknown command 0x%02X\n", cmd);
         }

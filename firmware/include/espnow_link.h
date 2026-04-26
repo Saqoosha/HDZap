@@ -14,6 +14,28 @@
 // that to 1 via WiFi.begin below). One comment here avoids re-explaining
 // at every peer_info_t init.
 
+/// Delivery-status counters updated from the ESP-NOW send callback (runs
+/// in WiFi task context). The main loop snapshots g_espnow_sent_fail
+/// before dispatching a render cycle and re-checks after a verify window
+/// to detect MAC-layer delivery failure — the only feedback available
+/// since the HDZero goggle does not emit an application-level ack.
+///
+/// Single-word uint32_t load/store is atomic on ESP32 (32-bit aligned),
+/// so `volatile` without a mux is sufficient for the one-writer /
+/// one-reader pattern here. Wraparound is safe: readers compute deltas
+/// via unsigned subtraction.
+inline volatile uint32_t g_espnow_sent_ok = 0;
+inline volatile uint32_t g_espnow_sent_fail = 0;
+
+inline void _espnow_send_status_cb(const uint8_t *mac_addr, esp_now_send_status_t status) {
+    (void)mac_addr;
+    if (status == ESP_NOW_SEND_SUCCESS) {
+        g_espnow_sent_ok++;
+    } else {
+        g_espnow_sent_fail++;
+    }
+}
+
 /// Derive 6-byte UID from bind phrase using MD5.
 /// Matches ELRS: MD5('-DMY_BINDING_PHRASE="<phrase>"'), first 6 bytes, bit0 of [0] cleared.
 inline void uid_from_bind_phrase(const char *phrase, uint8_t uid[6]) {
@@ -79,6 +101,16 @@ inline bool espnow_init(uint8_t uid[6]) {
     if (init_err != ESP_OK) {
         Serial.printf("espnow_init: esp_now_init failed (%d)\n", init_err);
         return false;
+    }
+
+    // Register BEFORE peer add so the ESP_ERR_ESPNOW_EXIST early-return
+    // below still has delivery tracking wired. Non-fatal: transmission
+    // works without the callback, but the main loop's retry state
+    // machine sees no "fail" events and silently skips retries, so log
+    // loudly enough to diagnose from serial alone.
+    esp_err_t cb_err = esp_now_register_send_cb(_espnow_send_status_cb);
+    if (cb_err != ESP_OK) {
+        Serial.printf("espnow_init: register_send_cb failed (%d) — delivery tracking disabled\n", cb_err);
     }
 
     esp_now_peer_info_t peer = {};
@@ -175,6 +207,19 @@ inline bool espnow_send_broadcast(const uint8_t *data, size_t len, int repeat = 
 
     bool ok = true;
     for (int i = 0; i < repeat; i++) {
+        if (i > 0) {
+            // ELRS backpack needs a gap between consecutive bind
+            // broadcasts to process each MSP_ELRS_BIND before the next
+            // arrives. Removing this gap in an earlier refactor silently
+            // broke bind (all 3 queued too fast, receiver dropped
+            // everything past the first — goggle UID stayed stale).
+            //
+            // delayMicroseconds is a busy-wait: it does NOT yield to
+            // FreeRTOS, so it does NOT fall under CLAUDE.md's "no
+            // delay() between ESP-NOW packets" rule. The original
+            // experimental code used this same 5 ms.
+            delayMicroseconds(5000);
+        }
         esp_err_t send_err = esp_now_send(kBroadcast, data, len);
         if (send_err != ESP_OK) {
             Serial.printf("espnow_send_broadcast: send %d/%d failed (%d)\n",
