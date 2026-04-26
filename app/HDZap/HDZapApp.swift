@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct HDZeroLapTimerApp: App {
+struct HDZapApp: App {
     @State private var bluetoothManager = BluetoothManager()
     @State private var lapTimer = LapTimer()
 

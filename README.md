@@ -1,4 +1,4 @@
-# HDZero OSD Lap Timer
+# HDZap
 
 iPhone manual lap timer that sends lap times to HDZero FPV goggles via ESP32 bridge.
 
@@ -85,7 +85,7 @@ pio device monitor   # serial monitor
 ```sh
 cd app
 xcodegen generate    # generate .xcodeproj
-open HDZeroLapTimer.xcodeproj
+open HDZap.xcodeproj
 ```
 
 Build and run on device (BLE requires physical device, not simulator).
