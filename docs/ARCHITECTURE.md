@@ -36,13 +36,31 @@ User taps LAP button
   → Sets g_lap_received=true, g_lap_num, g_lap_time_ms (volatile)
   → Main loop detects flag
   → LapDisplay.addLap(num, ms) stores in array
-  → LapDisplay.render():
-      → osd.clear()         → MSPv2 [MSP_DP_CLEAR]    → ESP-NOW
-      → osd.writeString()×N → MSPv2 [MSP_DP_WRITE]×N  → ESP-NOW
-      → osd.draw()          → MSPv2 [MSP_DP_DRAW]      → ESP-NOW
+  → requestRender() — state machine handles dispatch + retry:
+      [PENDING] snapshot g_espnow_sent_fail baseline
+      [PENDING → dispatch] LapDisplay.render():
+          → osd.clear()         → MSPv2 [MSP_DP_CLEAR]    → ESP-NOW queue
+          → osd.writeString()×N → MSPv2 [MSP_DP_WRITE]×N  → ESP-NOW queue
+          → osd.draw()          → MSPv2 [MSP_DP_DRAW]     → ESP-NOW queue
+      [WAITING_ACK] wait RENDER_VERIFY_MS for send-cb results
+      [VERIFY] newFails = g_espnow_sent_fail - baseline
+          newFails == 0          → IDLE (delivered)
+          newFails > 0, retries  → PENDING after RENDER_RETRY_BACKOFF_MS
+          retries exhausted      → IDLE + "OSD LOST" strip
   → Goggle backpack receives, forwards via UART to main SoC
   → OSD overlay rendered on video feed
 ```
+
+**Delivery tracking**: `esp_now_register_send_cb` populates `g_espnow_sent_ok` /
+`g_espnow_sent_fail` from the WiFi task context. Single-word uint32_t is atomic
+on ESP32; reader uses `volatile` without a mux. Retry granularity is the whole
+render cycle (not individual packets) because mid-cycle failure leaves the
+goggle OSD buffer partially written — a fresh clear+writes+draw restores a
+known-good state because `lapDisplay.render()` is idempotent.
+
+**Cancellation**: `cancelRender()` drops the state machine when stale state
+would be rendered: UID change (`applyStagedUid`), OSD clear, laps reset. Late
+callbacks from an in-flight cycle are simply ignored.
 
 ### UID Configuration
 
@@ -99,14 +117,20 @@ UIDConfigCallback.onWrite()  →   g_staged_uid + g_uid_config_requested
 BindCmdCallback.onWrite()    →   g_bind_requested                  → send_bind_packet
 
 LapTimeCallback.onWrite()    →   g_lap_num + g_lap_time_ms + g_lap_received
-                                 → main loop: addLap + render
+                                 → main loop: addLap + requestRender → state machine
 
 OSDControlCallback.onWrite() →   g_osd_clear_requested / reset_laps → main loop
+                                 → cancelRender + osd.clear/reset
+
+WiFi task (ESP-NOW send cb)  →   g_espnow_sent_ok / g_espnow_sent_fail
+                                 → main loop verify step reads delta
 ```
 
 All multi-field producers (UID staging, lap pair) are guarded by `portENTER_CRITICAL(&g_ble_mux)`
 on both the BLE task and main loop sides, so main loop never observes a torn pair. Single-bool
-flags rely on `volatile` ordering alone. No heavy work runs inside BLE callbacks.
+flags rely on `volatile` ordering alone. The ESP-NOW send-callback counters are `volatile uint32_t`
+without a mux — single-word load/store is atomic on ESP32, and the reader only needs the delta
+across a verify window. No heavy work runs inside BLE callbacks or the ESP-NOW send callback.
 
 ## iPhone App Architecture
 

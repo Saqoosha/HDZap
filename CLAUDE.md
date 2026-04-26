@@ -45,10 +45,10 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - `osd.h` — OSD commands via ESP-NOW, no layout knowledge
 - `ble_service.h` — BLE GATT server, stages payloads + sets flags for main loop
 - `bind.h` — ELRS bind protocol, stateless (broadcast via espnow_link)
-- `lap_display.h` — lap formatting + OSD rendering
+- `lap_display.h` — lap formatting + OSD rendering. `render()` is idempotent (pulls from in-memory lap history) so retries are safe.
 - `nvs_store.h` — UID persistence, namespace "hdzero"
 - `stick_display.h` — M5StickS3 LCD status display, no business logic
-- `main.cpp` — event loop; consumes staged BLE data under `g_ble_mux` and runs heavy work (NVS, ESP-NOW reinit) outside the BLE task
+- `main.cpp` — event loop; consumes staged BLE data under `g_ble_mux`, runs heavy work (NVS, ESP-NOW reinit) outside the BLE task, and hosts the render-retry state machine (`IDLE` → `PENDING` → `WAITING_ACK`). Lap delivery uses MAC-layer feedback from `esp_now_register_send_cb` (counters in `espnow_link.h`) — if any packet in a cycle fails to deliver, `render()` is re-dispatched up to `MAX_RENDER_RETRIES` times (granularity = whole cycle, because mid-cycle failure leaves the OSD buffer partially written). `cancelRender()` drops the cycle when stale state would be rendered (UID change, OSD clear, laps reset).
 
 ## Conventions
 
