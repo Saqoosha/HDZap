@@ -116,6 +116,12 @@ static void applyStagedUid() {
         stickDisplay.clearMessage();
         if (wasRadioDown) Serial.println("ESP-NOW recovered");
     }
+    // Push the new UID to iOS over BLE notify. Without this, the iOS
+    // status frame is only refreshed on connect/disconnect, so a UID
+    // change (especially the auto-rollback path triggered by a failed
+    // pairing test) leaves the app showing the stale UID — exactly
+    // the state we just left behind on the firmware side.
+    ble_update_status();
 }
 
 void setup() {
@@ -292,6 +298,13 @@ void loop() {
         // screen the user just cleared) and fire a single clear+write+draw
         // cycle with synchronous delivery verification.
         cancelRender();
+        // Result is also pushed back to iOS via the status notify so the
+        // pairing flow can auto-rollback on failure without asking the
+        // user to look at the goggle. Encoding matches g_last_test_result
+        // doc above (1 = OK, 2 = LOST). We always overwrite — the iOS
+        // side reads the value as "result of the most recent test" and
+        // is responsible for ignoring stale values it has already acted on.
+        uint8_t result = 2;
         if (!espnow_ready) {
             stickDisplay.showMessage("TEST: ESPNOW DOWN", TFT_RED);
         } else {
@@ -316,12 +329,17 @@ void loop() {
                 if (newFails == 0) {
                     Serial.println("Test OSD: delivered");
                     stickDisplay.showMessage("TEST OK", TFT_GREEN);
+                    result = 1;
                 } else {
                     Serial.printf("Test OSD: %u packet(s) lost\n", (unsigned)newFails);
                     stickDisplay.showMessage("TEST LOST", TFT_RED);
                 }
             }
         }
+        portENTER_CRITICAL(&g_ble_mux);
+        g_last_test_result = result;
+        portEXIT_CRITICAL(&g_ble_mux);
+        ble_update_status();
     }
 
     if (g_osd_reset_laps_requested) {

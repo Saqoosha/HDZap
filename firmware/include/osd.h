@@ -9,8 +9,16 @@
 /// OSD controller — sends MSP OSD commands via ESP-NOW
 class OSD {
 public:
-    void begin(uint8_t uid[6]) {
-        memcpy(m_uid, uid, 6);
+    /// Bind to the live UID storage. We hold a pointer rather than a
+    /// copy so a subsequent UID change (applyStagedUid → espnow_reinit
+    /// updates the peer table; osd would otherwise still send to the
+    /// old MAC which is no longer a registered peer, and esp_now_send
+    /// fails with ESP_ERR_ESPNOW_NOT_FOUND). Caller must keep the
+    /// referenced storage alive for the OSD's lifetime — in our setup
+    /// that's the file-scope `g_uid` in main.cpp, so the contract is
+    /// trivially satisfied.
+    void begin(const uint8_t *uid) {
+        m_uid = uid;
     }
 
     /// Clear the OSD overlay buffer (not displayed until draw)
@@ -57,16 +65,24 @@ public:
     }
 
 private:
-    uint8_t m_uid[6];
+    const uint8_t *m_uid = nullptr;
 
     bool send_osd(const uint8_t *payload, size_t payload_size) {
+        if (!m_uid) {
+            Serial.println("osd: send before begin() — UID pointer not set");
+            return false;
+        }
         uint8_t buf[MSP_MAX_PACKET];
         size_t len = msp_build_packet(buf, MSP_SET_OSD_ELEM, payload, payload_size);
         bool ok = espnow_send(m_uid, buf, len);
         if (!ok) {
-            // Include the DP subcommand so the Serial log distinguishes
-            // which stage of a clear/write/draw pair actually failed.
-            Serial.printf("osd: send failed (DP subcmd=0x%02X)\n", payload[0]);
+            // Include the DP subcommand and the UID we tried to send to,
+            // so a "wrong peer / stale m_uid" failure mode is obvious in
+            // the serial log instead of just "send failed".
+            Serial.printf("osd: send failed (DP subcmd=0x%02X, dest %02X:%02X:%02X:%02X:%02X:%02X)\n",
+                          payload[0],
+                          m_uid[0], m_uid[1], m_uid[2],
+                          m_uid[3], m_uid[4], m_uid[5]);
         }
         return ok;
     }
