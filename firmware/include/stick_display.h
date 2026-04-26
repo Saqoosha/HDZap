@@ -63,7 +63,12 @@ public:
         m_lapNum = num;
         m_lapMs = ms;
         m_lapFlashUntilMs = millis() + 1000;
+        // Capture the UID-redraw need before clearTakeover wipes the
+        // takeover kind — otherwise we can't tell the band still owes
+        // a paint after a bind takeover was short-circuited by this lap.
+        bool needsUidRedraw = (m_takeoverKind == TakeoverKind::Bind);
         clearTakeover();
+        if (needsUidRedraw) drawUidBand();
         drawLapBand();
     }
 
@@ -80,14 +85,6 @@ public:
         m_bindActive = true;
         drawUidBand();
         startTakeover(TakeoverKind::Bind, ok);
-    }
-
-    /// Drive the BIND-in-progress yellow tint on the UID caption + hero
-    /// before the verdict is known. Cleared automatically when the bind
-    /// takeover expires; callers don't need to pair this with a false call.
-    void setBindActive(bool active) {
-        m_bindActive = active;
-        drawUidBand();
     }
 
     /// Sticky message strip — persists across UID / lap redraws until
@@ -121,12 +118,11 @@ public:
         }
 
         if (m_takeoverUntilMs && now >= m_takeoverUntilMs) {
-            bool wasBind = (m_takeoverKind == TakeoverKind::Bind);
+            // clearTakeover drops m_bindActive when wasBind, so the
+            // UID band needs a redraw alongside the lap-band repaint.
+            bool needsUidRedraw = (m_takeoverKind == TakeoverKind::Bind);
             clearTakeover();
-            if (wasBind && m_bindActive) {
-                m_bindActive = false;
-                drawUidBand();
-            }
+            if (needsUidRedraw) drawUidBand();
             drawLapBand();
         }
     }
@@ -188,6 +184,12 @@ private:
     }
 
     void clearTakeover() {
+        // m_bindActive is owned by the bind takeover lifecycle. Dropping
+        // it here means showStatus / showLap / update() expiry all
+        // reliably repaint the UID band white on the next draw —
+        // otherwise an interrupted bind (lap arrives mid-takeover, BLE
+        // reconnects mid-takeover) could strand the band yellow forever.
+        if (m_takeoverKind == TakeoverKind::Bind) m_bindActive = false;
         m_takeoverKind = TakeoverKind::None;
         m_takeoverOk = false;
         m_takeoverUntilMs = 0;
@@ -374,7 +376,10 @@ private:
             // the RADIO label. Visible width used by the label = 16 (icon
             // gutter) + textWidth(label) + 6 (separator).
             int radioRight = 16 + M5.Display.textWidth(radioLabel) + 6;
-            if (msgX < radioRight) msgX = radioRight;
+            if (msgX < radioRight) {
+                Serial.printf("stick_display: strip clipped (msg=\"%s\" overruns RADIO label)\n", m_msg);
+                msgX = radioRight;
+            }
             M5.Display.setTextColor(m_msgColor, TFT_BLACK);
             M5.Display.setCursor(msgX, kStripY + 6);
             M5.Display.print(m_msg);
