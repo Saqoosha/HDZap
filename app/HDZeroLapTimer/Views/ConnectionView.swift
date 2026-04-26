@@ -30,14 +30,9 @@ struct ConnectionView: View {
     /// without intending to repair anything) is a footgun the user
     /// will not realise has fired until OSD packets stop arriving.
     @State private var pendingApply: PendingApply?
-    /// The UID the M5Stick had immediately before the most recent
-    /// Apply we sent. Used to offer a one-tap rollback when the new
-    /// pairing turns out to be wrong (most commonly: New Pairing
-    /// against a goggle whose backpack was flashed with a fixed bind
-    /// phrase, where the goggle silently reverts to its compile-time
-    /// UID after rebooting and OSD goes dark). Cleared once the user
-    /// uses the Restore button.
-    @State private var previousUID: [UInt8]?
+    // The "restore previous goggle" rollback target lives on
+    // `BluetoothManager.previousUID` so it survives the sheet being
+    // dismissed and reopened — see BluetoothManager docstring.
     /// Drives the auto-test+rollback workflow that runs after every
     /// Apply. Lets the UI show a clear "Pairing… / Verifying… /
     /// Success / Failed (rolled back)" progression instead of
@@ -51,6 +46,7 @@ struct ConnectionView: View {
         case success        // Goggle ack'd the test packets — pairing works
         case rolledBack     // Test failed; we restored the previous UID
         case failedNoRollback // Test failed and there was no previous UID to restore to
+        case verifyFailedSameUID // Test failed but pairing was a same-UID re-apply — nothing changed
         case timedOut       // Never saw a fresh test result frame
     }
 
@@ -86,6 +82,17 @@ struct ConnectionView: View {
 
     // MARK: - Sections
 
+    /// Same intent as the masthead error strip: keep `remaining` and
+    /// `suppressed` separate so neither renders a misleading `0` when only
+    /// the other is non-zero. Format matches `TimerView.errorSummaryLine`
+    /// — both banners reach the same user, so the strings should not drift.
+    private func errorBacklogLine(remaining: Int, suppressed: Int) -> String {
+        var parts: [String] = []
+        if remaining > 0 { parts.append("+\(remaining) more queued") }
+        if suppressed > 0 { parts.append("+\(suppressed) suppressed") }
+        return parts.joined(separator: " · ")
+    }
+
     @ViewBuilder
     private var errorSection: some View {
         if let err = bluetooth.lastError {
@@ -94,8 +101,7 @@ struct ConnectionView: View {
             Section("Error") {
                 Text(err).foregroundStyle(.red)
                 if remaining > 0 || suppressed > 0 {
-                    let suffix = suppressed > 0 ? " (+\(suppressed) suppressed)" : ""
-                    Text("\(remaining) more queued\(suffix)")
+                    Text(errorBacklogLine(remaining: remaining, suppressed: suppressed))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -248,7 +254,7 @@ struct ConnectionView: View {
                 Button("Pair with new goggle") {
                     applyUID()
                 }
-                .disabled(!bluetooth.isConnected)
+                .disabled(!bluetooth.isReady)
             }
         } header: {
             Text("Goggle Pairing")
@@ -282,10 +288,15 @@ struct ConnectionView: View {
                 // condition prevents the button from sticking around
                 // after the user has already restored (current would
                 // then equal previousUID).
-                if let prev = previousUID, prev != uid {
+                if let prev = bluetooth.previousUID, prev != uid {
                     Button {
-                        bluetooth.sendUIDConfig(mode: .manualUID(prev))
-                        previousUID = nil
+                        // Only drop the rollback target if the BLE write
+                        // actually went out — otherwise keep it so the user
+                        // can retry once the link recovers. `lastError` is
+                        // already set by the failed write.
+                        if bluetooth.sendUIDConfig(mode: .manualUID(prev)) {
+                            bluetooth.recordPreviousUID(nil)
+                        }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Restore previous goggle")
@@ -302,9 +313,12 @@ struct ConnectionView: View {
     private var osdTestSection: some View {
         Section("Debug") {
             Button("Send Test OSD") {
-                bluetooth.sendOSDControl(command: .testOSD)
+                // Fire-and-forget: failure is surfaced via `lastError` set
+                // inside `BluetoothManager.write()`, so no extra handling
+                // is needed here. The button is just an operator probe.
+                _ = bluetooth.sendOSDControl(command: .testOSD)
             }
-            .disabled(!bluetooth.isConnected)
+            .disabled(!bluetooth.isReady)
             Text("Fires one 'HDZERO TEST' message at the goggle OSD. M5Stick strip shows TEST OK / TEST LOST based on ESP-NOW delivery.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -340,8 +354,24 @@ struct ConnectionView: View {
                     Label("Goggle didn't accept the new pairing, and there was no previous pairing to fall back to.",
                           systemImage: "xmark.circle.fill")
                         .foregroundStyle(.red)
+                case .verifyFailedSameUID:
+                    Label("Goggle didn't ack the verify packet, but the pairing on the M5Stick is unchanged — try again, or move closer to the goggle.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
                 case .timedOut:
-                    Label("No verification result. The M5Stick may be disconnected — try again, or use Restore previous goggle.",
+                    // Suffix only when there's actually a Restore button on
+                    // screen — promising it otherwise just confuses the
+                    // user. `currentUIDSection` itself hides when
+                    // `currentUID == nil` (status notify hasn't arrived,
+                    // or arrived with an error and was cleared), so the
+                    // suffix predicate must mirror that.
+                    let restoreVisible = bluetooth.currentUID != nil
+                        && bluetooth.previousUID != nil
+                        && bluetooth.previousUID != bluetooth.currentUID
+                    let restoreHint = restoreVisible
+                        ? " — try again, or use Restore previous goggle."
+                        : " — try again."
+                    Label("No verification result. The M5Stick may be disconnected\(restoreHint)",
                           systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                 }
@@ -352,7 +382,7 @@ struct ConnectionView: View {
     // MARK: - Logic
 
     private var canApplyUID: Bool {
-        guard bluetooth.isConnected else { return false }
+        guard bluetooth.isReady else { return false }
         switch selectedMode {
         case .bindPhrase: return !bindPhrase.isEmpty
         case .manualUID:
@@ -373,17 +403,34 @@ struct ConnectionView: View {
     private func runPairingFlow(mode: UIDMode) async {
         // Capture the rollback target up-front — once we send the new
         // UID config the firmware's notify will reflect the new value.
-        if let current = bluetooth.currentUID {
-            previousUID = current
-        }
+        // Pass the optional through directly so a `nil` `currentUID`
+        // (status notify hasn't landed yet) clears any stale stash from
+        // a prior session instead of silently leaving it pointing at the
+        // wrong M5Stick.
+        bluetooth.recordPreviousUID(bluetooth.currentUID)
         pairingPhase = .applying
 
-        bluetooth.sendUIDConfig(mode: mode)
+        // Bail before the settle delay if the actual BLE write didn't go
+        // out — otherwise we'd run the verify step against the goggle's
+        // unchanged UID and falsely report "Pairing works". Drop the
+        // stash too: it equals `currentUID` (no displacement happened),
+        // so the Restore button would be hidden, and the `.timedOut`
+        // copy that says "use Restore previous goggle" would lie.
+        guard bluetooth.sendUIDConfig(mode: mode) else {
+            bluetooth.recordPreviousUID(nil)
+            pairingPhase = .timedOut
+            return
+        }
         // Only New Pairing has a goggle-side reboot to wait for; the
         // other modes just need the M5Stick to reinit ESP-NOW.
         let isNewPairing: Bool
         if case .newPairing = mode {
-            bluetooth.sendBindCommand()
+            guard bluetooth.sendBindCommand() else {
+                // The UID write already landed, so `previousUID` is a
+                // valid rollback target — keep it for the user.
+                pairingPhase = .timedOut
+                return
+            }
             isNewPairing = true
         } else {
             isNewPairing = false
@@ -402,7 +449,14 @@ struct ConnectionView: View {
         // count change, BLE reconnect status, etc).
         let baselineRev = bluetooth.testResultRevision
         pairingPhase = .verifying
-        bluetooth.sendOSDControl(command: .testOSD)
+        // If even the verify probe can't go out, the loop below will spin
+        // out the whole 2.5s waiting for a notify that will never arrive.
+        // Skip straight to the timeout state so the user sees actionable
+        // copy ("M5Stick may be disconnected") immediately.
+        guard bluetooth.sendOSDControl(command: .testOSD) else {
+            pairingPhase = .timedOut
+            return
+        }
 
         // Test OSD verify window = 200 ms in firmware + status notify
         // round trip. 2.5s gives comfortable margin even on a slow link.
@@ -424,16 +478,37 @@ struct ConnectionView: View {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             if pairingPhase == .success { pairingPhase = .idle }
         case .lost, .none:
-            if let prev = previousUID {
-                bluetooth.sendUIDConfig(mode: .manualUID(prev))
-                previousUID = nil
-                pairingPhase = .rolledBack
+            // Skip the rollback when there's no *different* UID to revert
+            // to. Re-applying the current UID would be a no-op write and
+            // the "Restored the previous one." copy would lie about a
+            // change that never happened — most often this fires when the
+            // operator re-applies the same bind phrase and the verify
+            // false-fails on a transient RF dip. The dedicated
+            // `.verifyFailedSameUID` phase tells the user that truthfully.
+            if let prev = bluetooth.previousUID, prev != bluetooth.currentUID {
+                // Only consume the rollback target when the BLE write is
+                // accepted; if it bounces (BLE drop, characteristic gone),
+                // keep the stash so the user can retry via the manual
+                // Restore button once the link recovers.
+                if bluetooth.sendUIDConfig(mode: .manualUID(prev)) {
+                    bluetooth.recordPreviousUID(nil)
+                    pairingPhase = .rolledBack
+                } else {
+                    pairingPhase = .timedOut
+                }
+            } else if bluetooth.previousUID != nil {
+                // We had a stash but it equals currentUID — this was a
+                // same-UID re-apply, not a fresh pairing that lost a
+                // baseline. Tell the user truthfully.
+                pairingPhase = .verifyFailedSameUID
             } else {
                 pairingPhase = .failedNoRollback
             }
             try? await Task.sleep(nanoseconds: 6_000_000_000)
-            if pairingPhase == .rolledBack || pairingPhase == .failedNoRollback {
+            switch pairingPhase {
+            case .rolledBack, .failedNoRollback, .verifyFailedSameUID:
                 pairingPhase = .idle
+            default: break
             }
         }
     }

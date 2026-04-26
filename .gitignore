@@ -24,3 +24,6 @@ app/xcuserdata/
 
 # Misc
 *.log
+
+# Claude Code
+.claude/

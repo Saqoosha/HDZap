@@ -22,6 +22,18 @@ private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 class BluetoothManager: NSObject {
     private(set) var isConnected = false
     private(set) var isScanning = false
+
+    /// True once we're connected AND the writeable characteristics have been
+    /// discovered. Use this for any UI gate that depends on actually being
+    /// able to write to the goggle — `isConnected` alone is true for the
+    /// sub-second window between `didConnect` and `didDiscoverCharacteristics`,
+    /// during which `write()` would fail with "characteristic not ready".
+    var isReady: Bool {
+        isConnected
+            && characteristics[lapTimeUUID] != nil
+            && characteristics[osdControlUUID] != nil
+    }
+
     private(set) var discoveredDevices: [CBPeripheral] = []
     private(set) var connectedDeviceName: String?
     private(set) var currentUID: [UInt8]?
@@ -40,6 +52,23 @@ class BluetoothManager: NSObject {
     enum TestResult: UInt8 { case none = 0, ok = 1, lost = 2 }
     private(set) var lastTestResult: TestResult = .none
     private(set) var testResultRevision: UInt32 = 0
+    /// UID we displaced on the most recent Apply attempt. Survives the
+    /// Connection sheet being dismissed (which is why it lives here, not
+    /// on the view) so the user can return to the sheet later and still
+    /// tap Restore — even after a *successful* pairing, since "go back
+    /// to my old goggle" is a real workflow.
+    ///
+    /// Replaced on every Apply attempt that has a known `currentUID` to
+    /// displace; if `currentUID` is nil at Apply time, the prior stash is
+    /// explicitly cleared instead so a UID from an earlier session can't
+    /// be applied to the wrong M5Stick. Cleared by Restore taps and by
+    /// the auto-rollback path inside `runPairingFlow` *only* when the
+    /// rollback BLE write actually queued — failed dispatches keep the
+    /// stash so the user can retry. Also cleared on intentional teardown
+    /// (user disconnect, discovery failure, connect failure): those
+    /// signal "different goggle next time, don't apply the previous
+    /// one's UID by accident".
+    private(set) var previousUID: [UInt8]?
     /// Recent errors, newest at index 0. Capped at `errorLogCapacity`;
     /// overflows and consecutive-duplicate collapses both increment
     /// `droppedErrorCount`, which the UI surfaces as
@@ -166,12 +195,25 @@ class BluetoothManager: NSObject {
         guard let peripheral = connectedPeripheral else { return }
         suppressAutoReconnect = true
         userTappedDisconnect = true
+        // Drop the rollback target — the next session is likely to talk to a
+        // different M5Stick / goggle pair, and silently surfacing the prior
+        // pair's UID as "Restore" would write the wrong value to the new one.
+        previousUID = nil
         centralManager.cancelPeripheralConnection(peripheral)
     }
 
     /// Bind phrases share a 63-byte cap with the firmware so the MD5 input
     /// (and therefore the derived UID) is identical on both sides.
     static let maxBindPhraseBytes = 63
+
+    /// Mark a UID as the rollback target. Call before sending a new UID
+    /// config so a failed pairing can be reverted. Pass `nil` to clear —
+    /// used by the manual Restore tap, the auto-rollback path inside
+    /// `runPairingFlow`, and by Apply itself when no `currentUID` baseline
+    /// exists yet.
+    func recordPreviousUID(_ uid: [UInt8]?) {
+        previousUID = uid
+    }
 
     @discardableResult
     func sendUIDConfig(mode: UIDMode) -> Bool {
@@ -305,6 +347,10 @@ extension BluetoothManager: CBCentralManagerDelegate {
         // if that reset path ever changes.
         suppressAutoReconnect = false
         userTappedDisconnect = false
+        // The connection never came up, so any rollback target tied to the
+        // previous goggle is meaningless — drop it before the user reaches
+        // for it on the wrong M5Stick.
+        previousUID = nil
         lastError = "Connection failed: \(error?.localizedDescription ?? "unknown"). Tap Scan to retry."
     }
 
@@ -393,6 +439,10 @@ extension BluetoothManager: CBPeripheralDelegate {
         centralManager.cancelPeripheralConnection(peripheral)
         isConnected = false
         connectedDeviceName = nil
+        // Same reasoning as `disconnect()`: the next session will likely
+        // be a different M5Stick / goggle, and a stale rollback UID would
+        // be applied to the wrong device.
+        previousUID = nil
         connectedPeripheral = nil
         characteristics = [:]
         suppressAutoReconnect = true
