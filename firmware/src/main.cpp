@@ -106,9 +106,9 @@ static void applyStagedUid() {
             Serial.println("ESP-NOW init still failing after UID change");
         }
     }
-    stickDisplay.showStatus(g_uid, g_ble_connected);
+    stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
     if (!radioOk) {
-        stickDisplay.showMessage("ESPNOW FAIL", TFT_RED);
+        stickDisplay.showMessage("ESPNOW FAIL", stickDisplay.colorErr());
     } else {
         // Success here supersedes any prior "LAPS FULL" / "LAP RENDER
         // FAIL" / "ESPNOW FAIL" strip content; those conditions don't
@@ -145,7 +145,7 @@ void setup() {
     if (!espnow_ready) {
         // Keep running so the user can still reconfigure UID over BLE.
         Serial.println("ESP-NOW init FAILED — BLE only, reconfigure UID to retry");
-        stickDisplay.showMessage("ESPNOW FAIL (BLE only)", TFT_RED);
+        stickDisplay.showMessage("ESPNOW FAIL (BLE only)", stickDisplay.colorErr());
     } else {
         Serial.println("ESP-NOW initialized");
     }
@@ -156,7 +156,7 @@ void setup() {
     ble_init("HDZeroOSD");
     Serial.println("BLE initialized, advertising...");
 
-    stickDisplay.showStatus(g_uid, false);
+    stickDisplay.showStatus(g_uid, false, espnow_ready);
 }
 
 void loop() {
@@ -164,7 +164,7 @@ void loop() {
 
     if (g_ble_connected != last_ble_state) {
         last_ble_state = g_ble_connected;
-        stickDisplay.showStatus(g_uid, g_ble_connected);
+        stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
     }
 
     if (g_uid_config_requested) {
@@ -174,11 +174,11 @@ void loop() {
     if (g_bind_requested) {
         g_bind_requested = false;
         Serial.println("Sending bind packet...");
-        stickDisplay.showMessage("BINDING...", TFT_YELLOW);
+        stickDisplay.setBindActive(true);
         bool ok = send_bind_packet(g_uid);
         Serial.printf("Bind packet %s\n", ok ? "sent" : "FAILED");
-        stickDisplay.showMessage(ok ? "BIND SENT" : "BIND FAIL",
-                                 ok ? TFT_GREEN : TFT_RED);
+        stickDisplay.showBindResult(ok);
+        stickDisplay.setBindActive(false);
     }
 
     if (g_lap_received) {
@@ -200,9 +200,9 @@ void loop() {
         // machine below, which handles dispatch, verify via send
         // callback, retry, and the final success/failure strip.
         if (!espnow_ready) {
-            stickDisplay.showMessage("ESPNOW DOWN", TFT_RED);
+            stickDisplay.showMessage("ESPNOW DOWN", stickDisplay.colorErr());
         } else if (!stored) {
-            stickDisplay.showMessage("LAPS FULL", TFT_ORANGE);
+            stickDisplay.showMessage("LAPS FULL", stickDisplay.colorOrange());
         } else {
             // Optimistic: a successful new lap should not keep a stale
             // "LAP RENDER FAIL" / "OSD LOST" visible. If the fresh
@@ -234,11 +234,11 @@ void loop() {
                 if (g_render_retries_left > 0) {
                     g_render_retries_left--;
                     g_render_after_ms = millis() + RENDER_RETRY_BACKOFF_MS;
-                    stickDisplay.showMessage("RETRY", TFT_ORANGE);
+                    stickDisplay.showMessage("RETRY", stickDisplay.colorOrange());
                 } else {
                     cancelRender();
                     Serial.println("Render queue failed, retries exhausted");
-                    stickDisplay.showMessage("OSD LOST", TFT_RED);
+                    stickDisplay.showMessage("OSD LOST", stickDisplay.colorErr());
                 }
             } else {
                 g_render_state = RenderState::WAITING_ACK;
@@ -267,12 +267,12 @@ void loop() {
             g_render_after_ms = millis() + RENDER_RETRY_BACKOFF_MS;
             Serial.printf("ESP-NOW delivery: %u fail(s), retrying (%u left)\n",
                           (unsigned)newFails, g_render_retries_left);
-            stickDisplay.showMessage("RETRY", TFT_ORANGE);
+            stickDisplay.showMessage("RETRY", stickDisplay.colorOrange());
         } else {
             cancelRender();
             Serial.printf("ESP-NOW delivery gave up after %u retries (%u fail(s) last cycle)\n",
                           MAX_RENDER_RETRIES, (unsigned)newFails);
-            stickDisplay.showMessage("OSD LOST", TFT_RED);
+            stickDisplay.showMessage("OSD LOST", stickDisplay.colorErr());
         }
     }
 
@@ -283,11 +283,11 @@ void loop() {
         // first. The next lap will re-arm requestRender() naturally.
         cancelRender();
         if (!espnow_ready) {
-            stickDisplay.showMessage("CLEAR: ESPNOW DOWN", TFT_ORANGE);
+            stickDisplay.showMessage("CLEAR: ESPNOW DOWN", stickDisplay.colorOrange());
         } else if (!(osd.clear() && osd.draw())) {
-            stickDisplay.showMessage("CLEAR FAIL", TFT_RED);
+            stickDisplay.showMessage("CLEAR FAIL", stickDisplay.colorErr());
         } else {
-            stickDisplay.showMessage("OSD CLEARED", TFT_CYAN);
+            stickDisplay.showMessage("OSD CLEARED", stickDisplay.colorAccent());
         }
     }
 
@@ -306,14 +306,14 @@ void loop() {
         // is responsible for ignoring stale values it has already acted on.
         uint8_t result = 2;
         if (!espnow_ready) {
-            stickDisplay.showMessage("TEST: ESPNOW DOWN", TFT_RED);
+            stickDisplay.showMessage("TEST: ESPNOW DOWN", stickDisplay.colorErr());
         } else {
             uint32_t failBefore = g_espnow_sent_fail;
             bool queued = osd.clear()
                        && osd.writeString(0, 0, "HDZERO TEST")
                        && osd.draw();
             if (!queued) {
-                stickDisplay.showMessage("TEST QUEUE FAIL", TFT_RED);
+                stickDisplay.showMessage("TEST QUEUE FAIL", stickDisplay.colorErr());
             } else {
                 // Packets are already in the ESP-NOW queue; MAC-layer TX
                 // and send callbacks fire from the WiFi task, which is
@@ -328,11 +328,11 @@ void loop() {
                 uint32_t newFails = g_espnow_sent_fail - failBefore;
                 if (newFails == 0) {
                     Serial.println("Test OSD: delivered");
-                    stickDisplay.showMessage("TEST OK", TFT_GREEN);
+                    stickDisplay.showTestResult(true);
                     result = 1;
                 } else {
                     Serial.printf("Test OSD: %u packet(s) lost\n", (unsigned)newFails);
-                    stickDisplay.showMessage("TEST LOST", TFT_RED);
+                    stickDisplay.showTestResult(false);
                 }
             }
         }
@@ -352,13 +352,13 @@ void loop() {
         lapDisplay.clear();
         if (!espnow_ready) {
             Serial.println("Laps reset (local only; ESP-NOW down)");
-            stickDisplay.showMessage("RESET: ESPNOW DOWN", TFT_ORANGE);
+            stickDisplay.showMessage("RESET: ESPNOW DOWN", stickDisplay.colorOrange());
         } else if (!(osd.clear() && osd.draw())) {
             Serial.println("Laps reset (OSD send failed)");
-            stickDisplay.showMessage("RESET FAIL", TFT_RED);
+            stickDisplay.showMessage("RESET FAIL", stickDisplay.colorErr());
         } else {
             Serial.println("Laps reset");
-            stickDisplay.showStatus(g_uid, g_ble_connected);
+            stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
             // Drop any stale "LAPS FULL" / "LAP RENDER FAIL" from the
             // sticky strip — a fresh reset is a clean slate.
             stickDisplay.clearMessage();
