@@ -1,4 +1,4 @@
-name: HDZeroLapTimer
+name: HDZap
 options:
   bundleIdPrefix: sh.saqoo
   deploymentTarget:
@@ -10,16 +10,17 @@ settings:
     DEVELOPMENT_TEAM: "2GN43ALZ4K"
     CODE_SIGN_STYLE: Automatic
 targets:
-  HDZeroLapTimer:
+  HDZap:
     type: application
     platform: iOS
     sources:
-      - HDZeroLapTimer
+      - HDZap
     info:
-      path: HDZeroLapTimer/Info.plist
+      path: HDZap/Info.plist
       properties:
         NSBluetoothAlwaysUsageDescription: "Connect to HDZero OSD bridge device via Bluetooth"
         UIBackgroundModes:
           - bluetooth-central
-        CFBundleDisplayName: HDZero Lap Timer
+        CFBundleDisplayName: HDZap
+        UIRequiresFullScreen: YES
         UILaunchScreen: {}
