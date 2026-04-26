@@ -177,6 +177,14 @@ private:
     uint16_t m_colOrange = 0, m_colErr = 0, m_colCyan = 0;
 
     void startTakeover(TakeoverKind kind, bool ok) {
+        // Hand-off: a different-kind takeover starting on top of an
+        // in-flight Bind takeover would otherwise overwrite m_takeoverKind
+        // and leave m_bindActive stranded — the iOS auto-pairing flow
+        // hits this (bind → 2.5 s settle → test) within the 3 s window.
+        if (m_takeoverKind == TakeoverKind::Bind && kind != TakeoverKind::Bind && m_bindActive) {
+            m_bindActive = false;
+            drawUidBand();
+        }
         m_takeoverKind = kind;
         m_takeoverOk = ok;
         m_takeoverUntilMs = millis() + kTakeoverMs;
