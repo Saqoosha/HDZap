@@ -181,7 +181,10 @@ inline bool espnow_reinit(uint8_t new_uid[6]) {
 }
 
 /// Send raw bytes via ESP-NOW to the UID peer.
-inline bool espnow_send(uint8_t uid[6], const uint8_t *data, size_t len) {
+/// `uid` is `const` so callers (notably OSD) can pass a pointer into
+/// shared live-UID storage without const_cast — esp_now_send itself
+/// takes a `const uint8_t *` peer address.
+inline bool espnow_send(const uint8_t *uid, const uint8_t *data, size_t len) {
     return esp_now_send(uid, data, len) == ESP_OK;
 }
 

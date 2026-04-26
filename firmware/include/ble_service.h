@@ -66,19 +66,29 @@ inline BLEServer *g_ble_server = nullptr;
 inline BLECharacteristic *g_status_chr = nullptr;
 inline volatile bool g_ble_connected = false;
 inline volatile uint8_t g_lap_count = 0;
+// Last Test OSD outcome, surfaced via status notify so the iOS pairing
+// flow can verify a fresh bind landed without asking the user to look at
+// the goggle. Encodes: 0 = no test yet (or pending), 1 = OK (all packets
+// MAC-acked), 2 = LOST (some delivery failed). Single-byte volatile is
+// sufficient — written by the main loop after Test OSD completes, read
+// (under g_ble_mux for atomicity with the rest of the status frame) by
+// ble_update_status.
+inline volatile uint8_t g_last_test_result = 0;
 
 inline void ble_update_status() {
     if (!g_status_chr) return;
-    uint8_t buf[8];
+    uint8_t buf[9];
     // g_uid is mutated non-atomically by the main loop (applyStagedUid);
     // take the mux so the status-notify frame never carries a torn pair
-    // of old/new bytes during a UID change.
+    // of old/new bytes during a UID change. g_last_test_result is also
+    // read here for atomicity with the rest of the frame.
     portENTER_CRITICAL(&g_ble_mux);
     buf[0] = g_ble_connected ? 1 : 0;
     memcpy(&buf[1], g_uid, 6);
     buf[7] = g_lap_count;
+    buf[8] = g_last_test_result;
     portEXIT_CRITICAL(&g_ble_mux);
-    g_status_chr->setValue(buf, 8);
+    g_status_chr->setValue(buf, 9);
     g_status_chr->notify();
 }
 
