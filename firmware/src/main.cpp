@@ -15,12 +15,64 @@ static StickDisplay stickDisplay;
 static bool last_ble_state = false;
 static bool espnow_ready = false;
 
+// --- Render retry state machine -------------------------------------------
+// ESP-NOW unicast auto-retries at the 802.11 MAC layer, but the send
+// callback is our only signal when those retries exhaust. The HDZero
+// goggle sends no application-level ack, so MAC delivery is the deepest
+// feedback we have.
+//
+// States: IDLE -> PENDING (dispatch scheduled) -> WAITING_ACK (callbacks
+// pending) -> IDLE | PENDING (retry). Re-entering PENDING from
+// WAITING_ACK is a retry; re-entering from IDLE is a fresh cycle.
+//
+// Retry granularity is the *whole render cycle*, not the individual
+// failed packet: a mid-cycle failure (e.g. clear + 3 writes land but
+// writeString #4 drops) leaves the goggle OSD buffer in an inconsistent
+// partial state. lapDisplay.render() is idempotent — it pulls from the
+// authoritative lap history — so a fresh clear+writes+draw restores a
+// known-good state regardless of which packet died.
+//
+// Verify window sizing: a full cycle is up to 10 packets; ESP-NOW
+// serializes unicast sends per peer at ~a few ms each plus MAC retry
+// time (tens of ms worst case). 200 ms gives comfortable margin without
+// making the user wait too long for the feedback strip to settle.
+enum class RenderState : uint8_t { IDLE, PENDING, WAITING_ACK };
+static RenderState g_render_state = RenderState::IDLE;
+static uint32_t g_render_after_ms = 0;
+static uint32_t g_render_verify_after_ms = 0;
+static uint32_t g_render_fail_baseline = 0;
+static uint8_t  g_render_retries_left = 0;
+
+static constexpr uint32_t RENDER_VERIFY_MS        = 200;
+static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
+static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
+
+static void requestRender(uint32_t delay_ms = 0) {
+    g_render_state = RenderState::PENDING;
+    g_render_after_ms = millis() + delay_ms;
+    g_render_retries_left = MAX_RENDER_RETRIES;
+}
+
+static void cancelRender() {
+    // Call when the pending render would draw stale state (UID change,
+    // OSD clear, laps reset). An in-flight WAITING_ACK naturally winds
+    // down as its callbacks arrive; we simply stop reacting to them.
+    g_render_state = RenderState::IDLE;
+}
+
 static void applyStagedUid() {
     uint8_t new_uid[6];
     portENTER_CRITICAL(&g_ble_mux);
     memcpy(new_uid, (const void *)g_staged_uid, 6);
     g_uid_config_requested = false;
     portEXIT_CRITICAL(&g_ble_mux);
+
+    // UID change invalidates any in-flight render: packets were aimed at
+    // the old peer, and the lap history post-change belongs to a new
+    // session from the goggle's perspective. Drop the state machine so
+    // late callbacks from the old cycle can't trigger a retry on the
+    // new peer.
+    cancelRender();
 
     // Persist before publishing. If NVS save fails g_uid is untouched —
     // no rollback window, no chance for ble_update_status to leak an
@@ -134,28 +186,96 @@ void loop() {
 
         Serial.printf("Lap %d: %lu ms\n", num, (unsigned long)ms);
         bool stored = lapDisplay.addLap(num, ms);
-        bool renderOk = true;
-        if (espnow_ready) renderOk = lapDisplay.render();
         stickDisplay.showLap(num, ms);
-        // Priority: radio dead > storage full > render dropped. ESPNOW
-        // DOWN matters most because no laps reach the goggle; LAPS FULL
-        // means storage is capped (lap is on the phone but not here);
-        // RENDER FAIL is a per-lap dispatch failure. A successful lap
-        // clears any stale error from an earlier condition so the strip
-        // reflects the current reality, not history.
+        // Priority: radio dead > storage full > request a retryable
+        // dispatch. ESPNOW DOWN matters most (nothing reaches the
+        // goggle); LAPS FULL means storage is capped (lap lives on the
+        // phone but not here); otherwise hand off to the render state
+        // machine below, which handles dispatch, verify via send
+        // callback, retry, and the final success/failure strip.
         if (!espnow_ready) {
             stickDisplay.showMessage("ESPNOW DOWN", TFT_RED);
         } else if (!stored) {
             stickDisplay.showMessage("LAPS FULL", TFT_ORANGE);
-        } else if (!renderOk) {
-            stickDisplay.showMessage("LAP RENDER FAIL", TFT_RED);
         } else {
+            // Optimistic: a successful new lap should not keep a stale
+            // "LAP RENDER FAIL" / "OSD LOST" visible. If the fresh
+            // cycle fails, the state machine re-populates the strip.
             stickDisplay.clearMessage();
+            requestRender();
+        }
+    }
+
+    // --- Render dispatch -------------------------------------------------
+    // Enter on PENDING once the scheduled dispatch time arrives. Snapshot
+    // the failure counter as a baseline, fire the full cycle, and move to
+    // WAITING_ACK so the verify block below can judge MAC-level delivery.
+    if (g_render_state == RenderState::PENDING && millis() >= g_render_after_ms) {
+        if (!espnow_ready) {
+            // Radio died between request and dispatch — nothing to send.
+            // Lap handler already surfaced ESPNOW DOWN when relevant;
+            // just drop the cycle so we don't spin on PENDING.
+            cancelRender();
+        } else {
+            g_render_fail_baseline = g_espnow_sent_fail;
+            bool queued = lapDisplay.render();
+            if (!queued) {
+                // esp_now_send returned non-OK for at least one packet in
+                // the cycle (queue-level failure — typically NO_MEM or
+                // NOT_FOUND). Back off and retry; NEW-38 (esp_err_t
+                // propagation) will later let us distinguish transient
+                // from terminal errors here.
+                if (g_render_retries_left > 0) {
+                    g_render_retries_left--;
+                    g_render_after_ms = millis() + RENDER_RETRY_BACKOFF_MS;
+                    stickDisplay.showMessage("RETRY", TFT_ORANGE);
+                } else {
+                    cancelRender();
+                    Serial.println("Render queue failed, retries exhausted");
+                    stickDisplay.showMessage("OSD LOST", TFT_RED);
+                }
+            } else {
+                g_render_state = RenderState::WAITING_ACK;
+                g_render_verify_after_ms = millis() + RENDER_VERIFY_MS;
+            }
+        }
+    }
+
+    // --- Render verify ---------------------------------------------------
+    // After the verify window, compare the failure counter against the
+    // baseline. Any delta means MAC-layer delivery failed on at least one
+    // packet in the cycle; retry (re-entering PENDING) or give up.
+    //
+    // Spurious retries are acceptable: if a straggler callback from an
+    // earlier cycle counts against the current baseline, we re-render,
+    // which is idempotent. The cost is a visible "RETRY" strip flash.
+    if (g_render_state == RenderState::WAITING_ACK && millis() >= g_render_verify_after_ms) {
+        uint32_t newFails = g_espnow_sent_fail - g_render_fail_baseline;
+        if (newFails == 0) {
+            // All packets delivered at the MAC layer. Strip was
+            // optimistically cleared on dispatch; nothing to redraw.
+            g_render_state = RenderState::IDLE;
+        } else if (g_render_retries_left > 0) {
+            g_render_retries_left--;
+            g_render_state = RenderState::PENDING;
+            g_render_after_ms = millis() + RENDER_RETRY_BACKOFF_MS;
+            Serial.printf("ESP-NOW delivery: %u fail(s), retrying (%u left)\n",
+                          (unsigned)newFails, g_render_retries_left);
+            stickDisplay.showMessage("RETRY", TFT_ORANGE);
+        } else {
+            cancelRender();
+            Serial.printf("ESP-NOW delivery gave up after %u retries (%u fail(s) last cycle)\n",
+                          MAX_RENDER_RETRIES, (unsigned)newFails);
+            stickDisplay.showMessage("OSD LOST", TFT_RED);
         }
     }
 
     if (g_osd_clear_requested) {
         g_osd_clear_requested = false;
+        // Clearing the OSD and then letting a pending render repopulate
+        // it would undo the user's intent, so cancel any in-flight cycle
+        // first. The next lap will re-arm requestRender() naturally.
+        cancelRender();
         if (!espnow_ready) {
             stickDisplay.showMessage("CLEAR: ESPNOW DOWN", TFT_ORANGE);
         } else if (!(osd.clear() && osd.draw())) {
@@ -165,8 +285,52 @@ void loop() {
         }
     }
 
+    if (g_osd_test_requested) {
+        g_osd_test_requested = false;
+        // Debug button: one-shot "does ESP-NOW reach the goggle?" probe.
+        // Bypass the lap state machine (test should not repopulate a lap
+        // screen the user just cleared) and fire a single clear+write+draw
+        // cycle with synchronous delivery verification.
+        cancelRender();
+        if (!espnow_ready) {
+            stickDisplay.showMessage("TEST: ESPNOW DOWN", TFT_RED);
+        } else {
+            uint32_t failBefore = g_espnow_sent_fail;
+            bool queued = osd.clear()
+                       && osd.writeString(0, 0, "HDZERO TEST")
+                       && osd.draw();
+            if (!queued) {
+                stickDisplay.showMessage("TEST QUEUE FAIL", TFT_RED);
+            } else {
+                // Packets are already in the ESP-NOW queue; MAC-layer TX
+                // and send callbacks fire from the WiFi task, which is
+                // NOT blocked by a main-loop delay. 200 ms is the same
+                // verify window the render state machine uses.
+                //
+                // The "no delay between ESP-NOW packets" rule is about
+                // inserting delays *between* clear/write/draw — those
+                // break delivery. Delaying *after* all three are queued
+                // only waits for the callbacks we care about.
+                delay(RENDER_VERIFY_MS);
+                uint32_t newFails = g_espnow_sent_fail - failBefore;
+                if (newFails == 0) {
+                    Serial.println("Test OSD: delivered");
+                    stickDisplay.showMessage("TEST OK", TFT_GREEN);
+                } else {
+                    Serial.printf("Test OSD: %u packet(s) lost\n", (unsigned)newFails);
+                    stickDisplay.showMessage("TEST LOST", TFT_RED);
+                }
+            }
+        }
+    }
+
     if (g_osd_reset_laps_requested) {
         g_osd_reset_laps_requested = false;
+        // Reset invalidates the lap history; a pending render would try
+        // to re-draw rows that no longer exist (or the "NO LAPS"
+        // placeholder on top of a freshly-cleared OSD), so drop the
+        // cycle before touching either side.
+        cancelRender();
         lapDisplay.clear();
         if (!espnow_ready) {
             Serial.println("Laps reset (local only; ESP-NOW down)");
