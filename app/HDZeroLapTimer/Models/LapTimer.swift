@@ -43,6 +43,20 @@ class LapTimer {
         timer = t
     }
 
+    /// Roll back the most recent recorded lap and re-extend the in-flight
+    /// lap to start from where the rolled-back one began. Used by the view
+    /// when the BLE write that should have carried this lap to the goggle
+    /// fails — keeping the iOS list and the OSD in sync is more important
+    /// than preserving a row the operator can't see on the goggle anyway.
+    func removeLastLap() {
+        guard let last = laps.popLast() else { return }
+        // The cumulative split-time anchor needs to back up by exactly the
+        // rolled-back lap's duration so the next call to `lap()` reports
+        // the same wall-clock split it would have had if the rolled-back
+        // tap had never happened.
+        cumulativeLapTime -= last.time
+    }
+
     @discardableResult
     func lap() -> Lap? {
         guard isRunning else { return nil }

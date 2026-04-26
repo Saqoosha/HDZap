@@ -11,12 +11,13 @@ struct TimerView: View {
     @Environment(BluetoothManager.self) private var bluetooth
 
     @State private var showConnection = false
-    /// Pace projection is captured at the instant a lap is recorded — it
-    /// shouldn't drift downward live as the in-flight lap eats into the
-    /// projection window. Cleared on reset/start.
+    /// Captured once at the moment a lap is recorded. Kept stable so the
+    /// displayed projection doesn't tick down every frame as the in-flight
+    /// lap consumes the remaining window. Cleared on START and RESET.
     @State private var paceSnapshot: Int?
     /// Set when the user taps STOP with at least one recorded lap so the
-    /// view flips to the result/done summary. Cleared by RESET.
+    /// view flips to the result/done summary. STOP with no laps just pauses
+    /// the timer — no point showing an empty results screen. Cleared by RESET.
     @State private var manuallyEnded = false
 
     private var timeUp: Bool { lapTimer.elapsedTime >= EditorialTheme.sessionLimit }
@@ -47,8 +48,12 @@ struct TimerView: View {
 
                 if let err = bluetooth.lastError {
                     errorStrip(err)
-                }
-                if !bluetooth.isConnected {
+                } else if !bluetooth.isReady {
+                    // Mirrors the action-button gating: anything that depends
+                    // on a BLE write — LAP, RESET — uses `isReady`, so the
+                    // banner uses it too. Without this, a user in the
+                    // sub-second discovery window sees disabled buttons with
+                    // no explanation.
                     bleStrip
                 }
 
@@ -121,6 +126,16 @@ struct TimerView: View {
         .padding(.vertical, 8)
     }
 
+    /// Compose a short status line about the error backlog. Keeps the two
+    /// counters separate so e.g. `suppressed > 0, queued == 0` doesn't render
+    /// as a misleading `"+0 more queued"`.
+    private func errorSummaryLine(queued: Int, suppressed: Int) -> String {
+        var parts: [String] = []
+        if queued > 0 { parts.append("+\(queued) more queued") }
+        if suppressed > 0 { parts.append("+\(suppressed) suppressed") }
+        return parts.joined(separator: " · ")
+    }
+
     private var stateLabel: String {
         if sessionEnded { return "DONE" }
         if timeUp && lapTimer.isRunning { return "FINAL LAP" }
@@ -128,18 +143,34 @@ struct TimerView: View {
     }
 
     private func errorStrip(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        let queued = max(bluetooth.errorLog.count - 1, 0)
+        let suppressed = bluetooth.droppedErrorCount
+        return HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11))
                 .foregroundStyle(EditorialTheme.accent)
-            Text(message)
-                .font(.editorialMono(10, weight: .regular))
-                .foregroundStyle(EditorialTheme.ink)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message)
+                    .font(.editorialMono(10, weight: .regular))
+                    .foregroundStyle(EditorialTheme.ink)
+                    .lineLimit(2)
+                if queued > 0 || suppressed > 0 {
+                    let summary = errorSummaryLine(queued: queued, suppressed: suppressed)
+                    Text(summary)
+                        .monoCap(size: 8.5, tracking: 1.4, color: EditorialTheme.sub)
+                }
+            }
             Spacer()
-            Button("DISMISS") { bluetooth.clearError() }
-                .monoCap(size: 9, tracking: 1.4, color: EditorialTheme.sub)
-                .buttonStyle(.plain)
+            VStack(alignment: .trailing, spacing: 4) {
+                Button(queued > 0 ? "NEXT" : "DISMISS") { bluetooth.clearError() }
+                    .monoCap(size: 9, tracking: 1.4, color: EditorialTheme.sub)
+                    .buttonStyle(.plain)
+                if queued > 0 || suppressed > 0 {
+                    Button("CLEAR ALL") { bluetooth.clearAllErrors() }
+                        .monoCap(size: 8.5, tracking: 1.4, color: EditorialTheme.dim)
+                        .buttonStyle(.plain)
+                }
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 8)
@@ -272,7 +303,7 @@ struct TimerView: View {
                     Text("Lap \(String(format: "%02d", lapTimer.laps.count + 1))")
                         .monoCap(size: 9, tracking: 2.0)
                 }
-                BigTime(ms: currentLapMs,
+                BigTime(seconds: currentLapMs,
                         accent: timeUp ? EditorialTheme.accent : EditorialTheme.ink,
                         size: 64, msSize: 22)
             }
@@ -293,7 +324,7 @@ struct TimerView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: -4) {
                 Text("Total Time").monoCap(size: 9, tracking: 2.0)
-                BigTime(ms: total, accent: EditorialTheme.ink, size: 64, msSize: 22)
+                BigTime(seconds: total, accent: EditorialTheme.ink, size: 64, msSize: 22)
             }
         }
     }
@@ -326,8 +357,6 @@ struct TimerView: View {
             Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
         }
     }
-
-    // MARK: - Histogram
 
     // MARK: - Lap header + rows + trend column
 
@@ -437,12 +466,23 @@ struct TimerView: View {
     private var secondaryLabel: String { lapTimer.isRunning ? "STOP" : "RESET" }
 
     private var primaryDisabled: Bool {
-        sessionEnded
+        if sessionEnded { return true }
+        // LAP / FINAL must reach the goggle to keep the iOS lap list and
+        // the OSD in sync (CLAUDE.md invariant). `isReady` rather than
+        // `isConnected` so taps in the brief window before characteristic
+        // discovery completes don't silently no-op. START itself is
+        // BLE-free — gate only the lap-recording path.
+        if lapTimer.isRunning && !bluetooth.isReady { return true }
+        return false
     }
 
     private var secondaryDisabled: Bool {
         if lapTimer.isRunning { return false } // STOP always allowed
-        return lapTimer.laps.isEmpty && lapTimer.elapsedTime == 0
+        if lapTimer.laps.isEmpty && lapTimer.elapsedTime == 0 { return true }
+        // No goggle state to desync if nothing was ever sent — RESET just
+        // wipes the local timer. Required only when laps exist on the OSD.
+        if lapTimer.laps.isEmpty { return false }
+        return !bluetooth.isReady
     }
 
     private var primaryFill: Color {
@@ -458,11 +498,20 @@ struct TimerView: View {
     private func primaryAction() {
         if sessionEnded { return }
         if lapTimer.isRunning && timeUp {
-            recordLap()
-            lapTimer.stop()
+            // FINAL: only end the session when the lap actually reached
+            // the goggle. If the BLE write failed, `recordLap()` already
+            // rolled back the local lap; leaving the timer running keeps
+            // the FINAL tap retryable instead of stranding the operator
+            // in DONE one lap short.
+            if recordLap() {
+                lapTimer.stop()
+            }
         } else if lapTimer.isRunning {
             recordLap()
         } else {
+            // Fresh START — wipe stale projection from a previous run so
+            // the summary band doesn't briefly show the old pace value.
+            paceSnapshot = nil
             lapTimer.start()
         }
     }
@@ -475,28 +524,75 @@ struct TimerView: View {
             // a "paused mid-run" state.
             if !lapTimer.laps.isEmpty {
                 manuallyEnded = true
+                // Stale projection from the in-flight lap would otherwise
+                // outlive the run. The achieved count is the truthful pace.
+                paceSnapshot = lapTimer.laps.count
             }
         } else {
-            bluetooth.sendOSDControl(command: .resetLaps)
+            // Only ping the goggle when there's actually a lap table to
+            // wipe; the reset packet is otherwise a no-op that needlessly
+            // requires a connection. If the write fails (BLE dropped
+            // between the disabled-check and the tap), keep iOS state
+            // intact so the user can retry once the link recovers — the
+            // alternative is a desync where iOS shows zero laps and the
+            // OSD keeps showing the old table.
+            if !lapTimer.laps.isEmpty {
+                guard bluetooth.sendOSDControl(command: .resetLaps) else { return }
+            }
             lapTimer.reset()
             paceSnapshot = nil
             manuallyEnded = false
         }
     }
 
-    private func recordLap() {
-        guard let lap = lapTimer.lap() else { return }
+    /// Returns `true` when the lap was recorded *and* the BLE write was
+    /// dispatched without a synchronous failure (no peripheral / no
+    /// characteristic). The FINAL-lap branch in `primaryAction` uses this
+    /// to decide whether to actually `stop()` — a sync rollback shouldn't
+    /// strand the operator in `sessionEnded` with one fewer lap than they
+    /// tapped.
+    ///
+    /// Caveat: write-with-response only confirms transport-layer success
+    /// asynchronously via `peripheral(_:didWriteValueFor:error:)`, which
+    /// surfaces as `lastError` but doesn't unwind the lap. So a peer
+    /// disconnect that races between dispatch and transmission can leave
+    /// iOS showing a lap the goggle never received. A tighter invariant
+    /// would gate FINAL on the firmware's `lapCount` echo (status notify)
+    /// — out of scope for this iteration.
+    @discardableResult
+    private func recordLap() -> Bool {
+        guard let lap = lapTimer.lap() else { return false }
+        // `UInt32(x)` traps on overflow or negatives — clamp via Int64 so a
+        // pathological multi-hour session can't crash the app.
         let rawMs = Int64((lap.time * 1000).rounded())
         let timeMs = UInt32(clamping: rawMs)
+        // Wire format is u8 lap num. Firmware caps display at MAX_LAPS=99;
+        // iOS keeps counting but truncating wraps at 256. Only a concern
+        // for runaway sessions — firmware caps its own display.
         let lapByte = UInt8(truncatingIfNeeded: lap.id)
-        bluetooth.sendLapTime(lapNum: lapByte, timeMs: timeMs)
-        // Snapshot pace at the moment of the lap. Counts completed laps +
-        // the in-flight lap that just started + however many more fit in
-        // the remaining session at the new average.
-        let avg = lapTimer.laps.reduce(0) { $0 + $1.time } / Double(lapTimer.laps.count)
-        if avg > 0 {
-            paceSnapshot = lapTimer.laps.count + 1 + Int(max(0, remaining) / avg)
+        guard bluetooth.sendLapTime(lapNum: lapByte, timeMs: timeMs) else {
+            // Tap-to-render race: the button was enabled when SwiftUI
+            // committed the hit-test, but the BLE link dropped before the
+            // write went out. Keep iOS and OSD in sync by undoing the
+            // local lap — the operator will tap LAP again once the link
+            // recovers, and `lastError` is already showing what happened.
+            lapTimer.removeLastLap()
+            return false
         }
+        // Snapshot pace at the moment of the lap. `ceil(remaining / avg)`
+        // counts every lap that fits in the remaining window — including
+        // the in-flight lap that just started AND the partial lap the
+        // operator will tap as FINAL when time-up hits mid-lap. `floor`
+        // dropped that final partial lap on every session whose total
+        // didn't divide evenly into `avg`. At the FINAL tap itself
+        // (`timeUp`), `remaining == 0` and the projection collapses to
+        // `laps.count`.
+        let avg = lapTimer.laps.reduce(0) { $0 + $1.time } / Double(lapTimer.laps.count)
+        guard avg > 0 else { return true }
+        let remainingFuture = max(0, remaining)
+        let future = Int((remainingFuture / avg).rounded(.up))
+        paceSnapshot = lapTimer.laps.count + future
+        return true
     }
 }
 
@@ -520,13 +616,13 @@ private struct StatusDot: View {
 // MARK: - BigTime
 
 private struct BigTime: View {
-    let ms: TimeInterval
+    let seconds: TimeInterval
     let accent: Color
     var size: CGFloat = 64
     var msSize: CGFloat = 22
 
     var body: some View {
-        let total = max(0, Int((ms * 1000).rounded(.down)))
+        let total = max(0, Int((seconds * 1000).rounded(.down)))
         let m = total / 60_000
         let s = (total % 60_000) / 1000
         let f = total % 1000
@@ -631,7 +727,7 @@ private struct EditorialLapRow: View {
     }
 }
 
-// MARK: - EditorialHistogram
+// MARK: - LapTrendChartVertical
 
 /// Vertical trend chart aligned to the right of the lap-row table.
 /// One dot per lap, positioned at the same y as its row (newest at top).
@@ -690,77 +786,3 @@ private struct LapTrendChartVertical: View {
     }
 }
 
-private struct LapTrendChart: View {
-    let laps: [Lap]
-    let bestIdx: Int?
-    let worstT: TimeInterval
-
-    private let chartH: CGFloat = 96
-
-    var body: some View {
-        VStack(spacing: 4) {
-            GeometryReader { geo in
-                let w = geo.size.width
-                let h = chartH
-                // Y axis runs from 0 to slowest lap. Headroom (1.05) keeps
-                // the worst lap from sticking to the top edge.
-                let span = max(0.001, worstT * 1.05)
-                let xs: [CGFloat] = laps.indices.map { i in
-                    laps.count <= 1 ? w / 2 : CGFloat(i) / CGFloat(laps.count - 1) * w
-                }
-                let ys: [CGFloat] = laps.map { lap in
-                    // Higher (smaller y) = faster lap.
-                    h - CGFloat(lap.time / span) * h
-                }
-
-                ZStack(alignment: .topLeading) {
-                    // Baseline rule
-                    Rectangle()
-                        .fill(EditorialTheme.hair)
-                        .frame(height: 0.5)
-                        .offset(y: h - 0.5)
-
-                    // Connecting line
-                    Path { path in
-                        guard let first = xs.first, let firstY = ys.first else { return }
-                        path.move(to: CGPoint(x: first, y: firstY))
-                        for i in 1..<xs.count {
-                            path.addLine(to: CGPoint(x: xs[i], y: ys[i]))
-                        }
-                    }
-                    .stroke(EditorialTheme.ink.opacity(0.55), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
-
-                    // Lap dots — best gets accent + ring
-                    ForEach(Array(laps.enumerated()), id: \.element.id) { i, _ in
-                        let isBest = i == bestIdx
-                        Circle()
-                            .fill(isBest ? EditorialTheme.accent : EditorialTheme.ink)
-                            .frame(width: isBest ? 7 : 4.5, height: isBest ? 7 : 4.5)
-                            .overlay(
-                                Circle().stroke(EditorialTheme.paper, lineWidth: isBest ? 1.5 : 1)
-                            )
-                            .position(x: xs[i], y: ys[i])
-                    }
-                }
-            }
-            .frame(height: chartH)
-
-            // Lap-number axis
-            GeometryReader { geo in
-                let w = geo.size.width
-                let xs: [CGFloat] = laps.indices.map { i in
-                    laps.count <= 1 ? w / 2 : CGFloat(i) / CGFloat(laps.count - 1) * w
-                }
-                ForEach(Array(laps.enumerated()), id: \.element.id) { i, lap in
-                    let isBest = i == bestIdx
-                    Text(String(format: "%02d", lap.id))
-                        .font(.editorialMono(8.5))
-                        .monospacedDigit()
-                        .foregroundStyle(isBest ? EditorialTheme.accent : EditorialTheme.sub)
-                        .position(x: xs[i], y: 6)
-                }
-            }
-            .frame(height: 12)
-        }
-    }
-}

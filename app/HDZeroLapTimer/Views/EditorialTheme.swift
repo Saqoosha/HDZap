@@ -6,10 +6,13 @@ import SwiftUI
 enum EditorialTheme {
     static let paper = Color(red: 247.0 / 255, green: 245.0 / 255, blue: 238.0 / 255)
     static let ink = Color(red: 21.0 / 255, green: 20.0 / 255, blue: 15.0 / 255)
-    static let sub = Color(red: 21.0 / 255, green: 20.0 / 255, blue: 15.0 / 255).opacity(0.55)
-    static let dim = Color(red: 21.0 / 255, green: 20.0 / 255, blue: 15.0 / 255).opacity(0.32)
-    static let hair = Color(red: 21.0 / 255, green: 20.0 / 255, blue: 15.0 / 255).opacity(0.10)
-    static let hairStrong = Color(red: 21.0 / 255, green: 20.0 / 255, blue: 15.0 / 255).opacity(0.18)
+    // Derived from `ink` so the relationship "every text/rule on this canvas
+    // is the same hue at decreasing opacity" stays mechanical — change ink
+    // and the rest follow.
+    static let sub = ink.opacity(0.55)
+    static let dim = ink.opacity(0.32)
+    static let hair = ink.opacity(0.10)
+    static let hairStrong = ink.opacity(0.18)
     static let accent = Color(red: 0xdb / 255.0, green: 0x65 / 255.0, blue: 0xa9 / 255.0)
 
     /// Time-attack window. Final lap is the one in flight when this elapses.
@@ -28,7 +31,8 @@ extension Font {
     }
 }
 
-/// Mono-cap label modifier — uppercase tracking for masthead, headers, summary labels.
+/// Uppercase, tracked, monospaced micro-label used as section markers and
+/// metric captions throughout the editorial canvas.
 struct MonoCapLabel: ViewModifier {
     let size: CGFloat
     let tracking: CGFloat
@@ -49,8 +53,13 @@ extension View {
     }
 }
 
-/// `formatTime(elapsed, msDigits: 2)` etc., matching the prototype.
+/// Time-string formatters tuned for the editorial layout: tabular-numeric
+/// monospace, fixed widths, truncated (not rounded) so a lap displayed at
+/// `00:05.99` never momentarily reads `00:06.00` before the timer ticks.
 enum EditorialFormat {
+    /// `MM:SS.fff` (or fewer ms digits). `msDigits` is clamped to 1...3 — 0
+    /// produces a dangling `.`, anything above 3 is meaningless given the
+    /// underlying integer-millisecond resolution.
     static func time(_ interval: TimeInterval, msDigits: Int = 2, showMs: Bool = true) -> String {
         let totalMs = max(0, Int((interval * 1000).rounded(.down)))
         let m = totalMs / 60_000
@@ -59,12 +68,15 @@ enum EditorialFormat {
         let mm = String(format: "%02d", m)
         let ss = String(format: "%02d", s)
         if !showMs { return "\(mm):\(ss)" }
-        let fStr = String(format: "%03d", f).prefix(msDigits)
+        let clamped = min(3, max(1, msDigits))
+        let fStr = String(format: "%03d", f).prefix(clamped)
         return "\(mm):\(ss).\(fStr)"
     }
 
-    /// `S.MM` form (no minutes) for compact summary cells where laps are
-    /// always sub-minute. Sub-second pads to e.g. `0.92`.
+    /// `S.cc` (seconds + centiseconds, no minutes). Truncated, not rounded.
+    /// Used in the summary band where Best/Avg are always well under a minute
+    /// in normal use; if a lap exceeds 60s the seconds field just keeps
+    /// counting (`74.32`) instead of wrapping into a non-existent minutes field.
     static func timeShort(_ interval: TimeInterval) -> String {
         let totalMs = max(0, Int((interval * 1000).rounded(.down)))
         let s = totalMs / 1000
@@ -72,9 +84,12 @@ enum EditorialFormat {
         return String(format: "%d.%02d", s, cs)
     }
 
-    static func delta(_ ms: TimeInterval) -> String {
-        let sign = ms >= 0 ? "+" : "−"
-        let abs = Swift.abs(ms)
+    /// Signed `±S.cc` against best lap. Argument is in *seconds* (TimeInterval).
+    /// Uses U+2212 minus, not the ASCII hyphen, for typographic consistency
+    /// with the rest of the editorial layout.
+    static func delta(_ seconds: TimeInterval) -> String {
+        let sign = seconds >= 0 ? "+" : "−"
+        let abs = Swift.abs(seconds)
         if abs < 1.0 {
             let cents = Int((abs * 1000).rounded(.down))
             return String(format: "%@0.%02d", sign, cents / 10)
