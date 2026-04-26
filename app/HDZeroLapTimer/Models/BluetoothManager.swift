@@ -26,6 +26,20 @@ class BluetoothManager: NSObject {
     private(set) var connectedDeviceName: String?
     private(set) var currentUID: [UInt8]?
     private(set) var lapCount: UInt8 = 0
+    /// Latest Test OSD outcome from the firmware status notify.
+    /// Encodes the `g_last_test_result` byte:
+    ///   .none      = no test result yet (or the firmware byte was 0)
+    ///   .ok        = ESP-NOW MAC layer ack'd every test packet
+    ///   .lost      = at least one test packet was not delivered
+    ///
+    /// Bumped each time a fresh status frame arrives, regardless of whether
+    /// the value changed. Drives the auto-test+rollback workflow in
+    /// `ConnectionView` — that view tracks a sequence number from
+    /// `testResultRevision` so it can ignore stale frames that arrived
+    /// before its own pairing attempt.
+    enum TestResult: UInt8 { case none = 0, ok = 1, lost = 2 }
+    private(set) var lastTestResult: TestResult = .none
+    private(set) var testResultRevision: UInt32 = 0
     /// Recent errors, newest at index 0. Capped at `errorLogCapacity`;
     /// overflows and consecutive-duplicate collapses both increment
     /// `droppedErrorCount`, which the UI surfaces as
@@ -421,12 +435,21 @@ extension BluetoothManager: CBPeripheralDelegate {
             let n = characteristic.value?.count ?? 0
             currentUID = nil
             lapCount = 0
-            lastError = "Status frame unexpected size (\(n)B, expected 8). Firmware/app version mismatch?"
+            lastError = "Status frame unexpected size (\(n)B, expected ≥8). Firmware/app version mismatch?"
             return
         }
-        // Format: [connected:u8][uid:6bytes][lap_count:u8]
+        // Format: [connected:u8][uid:6bytes][lap_count:u8][test_result:u8?]
+        // The test_result byte was added in firmware commit "auto-test
+        // result in status notify"; older firmware sends 8 bytes and we
+        // simply leave lastTestResult at its previous value.
         currentUID = Array(data[1...6])
         lapCount = data[7]
+        if data.count >= 9 {
+            lastTestResult = TestResult(rawValue: data[8]) ?? .none
+            // Bump even when the encoded value matches — observers want
+            // to know "a fresh frame landed" not "a different result".
+            testResultRevision &+= 1
+        }
     }
 
     /// Composed error message that keeps the underlying NSError domain +
