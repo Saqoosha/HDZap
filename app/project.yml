@@ -7,7 +7,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "2GN43ALZ4K"
+    CODE_SIGN_STYLE: Automatic
 targets:
   HDZeroLapTimer:
     type: application

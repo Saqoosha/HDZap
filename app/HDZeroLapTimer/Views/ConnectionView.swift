@@ -18,6 +18,7 @@ struct PendingApply: Identifiable {
 
 struct ConnectionView: View {
     @Environment(BluetoothManager.self) private var bluetooth
+    @Environment(\.dismiss) private var dismiss
 
     @State private var selectedMode: UIDConfigMode = .bindPhrase
     @State private var bindPhrase = ""
@@ -65,6 +66,11 @@ struct ConnectionView: View {
                 osdTestSection
             }
             .navigationTitle("Connection")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .alert(applyAlertTitle, isPresented: applyAlertBinding, presenting: pendingApply) { pending in
                 Button("Cancel", role: .cancel) { pendingApply = nil }
                 Button("Apply", role: .destructive) {
