@@ -79,7 +79,7 @@ static void applyStagedUid() {
     // uncommitted value to iOS between the publish and the commit.
     if (!nvs_store::saveUid(new_uid)) {
         Serial.println("NVS save failed — UID unchanged");
-        stickDisplay.showMessage("NVS SAVE FAIL", TFT_RED);
+        stickDisplay.showMessage("NVS SAVE FAIL", stickDisplay.colorErr());
         return;
     }
     // Publish the committed value under the mux so ble_update_status
@@ -174,11 +174,13 @@ void loop() {
     if (g_bind_requested) {
         g_bind_requested = false;
         Serial.println("Sending bind packet...");
-        stickDisplay.setBindActive(true);
+        // send_bind_packet is synchronous (~ms); a "BINDING in flight"
+        // visual would never reach the eye. showBindResult both paints
+        // the verdict on the lap band and tints the UID band yellow for
+        // the takeover window — that's the visible BINDING state.
         bool ok = send_bind_packet(g_uid);
         Serial.printf("Bind packet %s\n", ok ? "sent" : "FAILED");
         stickDisplay.showBindResult(ok);
-        stickDisplay.setBindActive(false);
     }
 
     if (g_lap_received) {
@@ -287,7 +289,7 @@ void loop() {
         } else if (!(osd.clear() && osd.draw())) {
             stickDisplay.showMessage("CLEAR FAIL", stickDisplay.colorErr());
         } else {
-            stickDisplay.showMessage("OSD CLEARED", stickDisplay.colorAccent());
+            stickDisplay.showMessage("OSD CLEARED", stickDisplay.colorCyan());
         }
     }
 

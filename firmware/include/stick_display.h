@@ -7,18 +7,19 @@
 /// M5StickS3 LCD: editorial-lite redesign.
 ///
 /// Layout (rotation 1, 240x135):
-///   [0   .. 60)    UID band       — "UID" caption + BLE pill, then UID hero
+///   [0   .. 60)    UID band       — UID caption + BLE pill, then UID hero
 ///                                   printed as comma-separated decimals
 ///                                   (matches what HDZero goggles show).
 ///   [60  .. 61)    hairline rule
 ///   [64  .. 110)   Lap band       — caption row + lap number + time.
-///                                   Hijacked for ~3 s by TEST / BIND verdicts.
+///                                   Hijacked by TEST / BIND verdicts.
 ///   [110 .. 111)   hairline rule
 ///   [113 .. 135)   Strip          — RADIO indicator (left) + sticky message
 ///                                   slot (right). Persists across redraws.
 ///
 /// Each region's draw routine fills only its rectangle, so a lap update
 /// never repaints the UID and the strip never repaints the lap band.
+/// Not safe to call from BLE/ESP-NOW callbacks; main loop only.
 class StickDisplay {
 public:
     void begin() {
@@ -28,8 +29,12 @@ public:
         m_w = M5.Display.width();
         m_h = M5.Display.height();
         M5.Display.fillScreen(TFT_BLACK);
-        m_msg[0] = 0;
-        // Cache palette so callers don't pay the conversion on every draw.
+        // M5GFX text datum is global state. Lock it to top_left here so
+        // every draw routine in this class can rely on it without saving
+        // and restoring around each print().
+        M5.Display.setTextDatum(textdatum_t::top_left);
+        // Build the palette. Done here rather than in-class because the
+        // RGB565 conversion needs the live display object.
         m_colInk    = M5.Display.color565(0xFF, 0xFF, 0xFF);
         m_colSub    = M5.Display.color565(0x8C, 0x8C, 0x8C); // ~55% white
         m_colDim    = M5.Display.color565(0x52, 0x52, 0x52); // ~32%
@@ -39,70 +44,55 @@ public:
         m_colWarn   = M5.Display.color565(0xFF, 0xD8, 0x6B);
         m_colOrange = M5.Display.color565(0xFF, 0x9F, 0x4A);
         m_colErr    = M5.Display.color565(0xFF, 0x64, 0x64);
-        // Backing copies so update() can repaint without callers re-pushing.
-        memset(m_uid, 0, sizeof(m_uid));
-        m_bleConnected = false;
-        m_radioReady = false;
-        m_haveLap = false;
+        m_colCyan   = M5.Display.color565(0x6B, 0xE1, 0xFF);
         drawHairlines();
     }
 
-    /// Repaint UID + Lap bands using the most recently published state.
-    /// Used after a takeover (TEST / BIND verdict) finishes its window.
     void showStatus(const uint8_t uid[6], bool bleConnected, bool radioReady) {
         memcpy(m_uid, uid, 6);
         m_bleConnected = bleConnected;
         m_radioReady = radioReady;
-        m_takeoverUntilMs = 0;
+        clearTakeover();
         drawUidBand();
         drawLapBand();
         drawStrip();
     }
 
-    /// Lap arrival. Stores num/time and triggers a 1 s pink flash on the
-    /// lap-number cell so the operator gets immediate confirmation that the
-    /// tap landed before the strip even has a chance to redraw.
     void showLap(uint8_t num, uint32_t ms) {
         m_haveLap = true;
         m_lapNum = num;
         m_lapMs = ms;
         m_lapFlashUntilMs = millis() + 1000;
-        m_takeoverUntilMs = 0;
+        clearTakeover();
         drawLapBand();
     }
 
     /// Lap-band takeover for the TEST OSD probe verdict. Auto-clears after
-    /// ~3 s back to whatever the most recent lap was.
+    /// the takeover window back to the most recent lap.
     void showTestResult(bool ok) {
-        m_takeoverKind = TakeoverKind::Test;
-        m_takeoverOk = ok;
-        m_takeoverUntilMs = millis() + 3000;
-        drawLapBand();
+        startTakeover(TakeoverKind::Test, ok);
     }
 
-    /// Lap-band takeover for the BIND packet verdict. Same auto-clear window.
-    /// The whole UID band also turns yellow while in the bind state — the
-    /// caller drives that by setting `bindActive` via `setBindActive()`
-    /// before/after the takeover.
+    /// Lap-band takeover for the BIND verdict. Holds the UID band yellow
+    /// for the whole takeover window so the operator sees the BINDING
+    /// state — caller does not need a paired clear.
     void showBindResult(bool ok) {
-        m_takeoverKind = TakeoverKind::Bind;
-        m_takeoverOk = ok;
-        m_takeoverUntilMs = millis() + 3000;
-        drawLapBand();
+        m_bindActive = true;
+        drawUidBand();
+        startTakeover(TakeoverKind::Bind, ok);
     }
 
-    /// Toggle the "BIND IN PROGRESS" yellow takeover on the UID band. The
-    /// firmware sets this true before send_bind_packet() and false after,
-    /// so the band reflects the in-flight bind even before the verdict
-    /// lands on the lap band.
+    /// Drive the BIND-in-progress yellow tint on the UID caption + hero
+    /// before the verdict is known. Cleared automatically when the bind
+    /// takeover expires; callers don't need to pair this with a false call.
     void setBindActive(bool active) {
         m_bindActive = active;
         drawUidBand();
     }
 
     /// Sticky message strip — persists across UID / lap redraws until
-    /// clearMessage() is called. Crucial for surfacing radio / NVS failures
-    /// that used to get wiped on the next BLE event.
+    /// clearMessage() is called. Surfaces radio / NVS failures across
+    /// BLE events.
     void showMessage(const char* msg, uint16_t color = 0) {
         size_t len = strlen(msg);
         if (len >= sizeof(m_msg)) {
@@ -111,8 +101,7 @@ public:
         }
         strncpy(m_msg, msg, sizeof(m_msg) - 1);
         m_msg[sizeof(m_msg) - 1] = 0;
-        // 0 means "use ink" — saves callers from depending on the palette
-        // accessors at the call site.
+        // 0 → ink color.
         m_msgColor = (color == 0) ? m_colInk : color;
         drawStrip();
     }
@@ -122,26 +111,36 @@ public:
         drawStrip();
     }
 
-    /// Tick the time-driven repaints: pink lap-arrival flash, takeover
-    /// auto-clear. Called from the main loop alongside M5.update().
     void update() {
         M5.update();
         uint32_t now = millis();
 
-        // Lap-flash settle: when the pink window expires, repaint the
-        // lap number once in ink so we don't keep redrawing every tick.
         if (m_lapFlashUntilMs && now >= m_lapFlashUntilMs) {
             m_lapFlashUntilMs = 0;
             drawLapBand();
         }
 
-        // Takeover auto-clear: TEST / BIND verdicts hold the lap band for
-        // ~3 s, then the band returns to the last lap.
         if (m_takeoverUntilMs && now >= m_takeoverUntilMs) {
-            m_takeoverUntilMs = 0;
+            bool wasBind = (m_takeoverKind == TakeoverKind::Bind);
+            clearTakeover();
+            if (wasBind && m_bindActive) {
+                m_bindActive = false;
+                drawUidBand();
+            }
             drawLapBand();
         }
     }
+
+    // Palette accessors — main.cpp uses these to pass strip colors to
+    // showMessage() without depending on TFT_* names.
+    uint16_t colorOk()     const { return m_colOk; }
+    uint16_t colorWarn()   const { return m_colWarn; }
+    uint16_t colorOrange() const { return m_colOrange; }
+    uint16_t colorErr()    const { return m_colErr; }
+    uint16_t colorAccent() const { return m_colAccent; }
+    uint16_t colorCyan()   const { return m_colCyan; }
+    uint16_t colorInk()    const { return m_colInk; }
+    uint16_t colorSub()    const { return m_colSub; }
 
 private:
     enum class TakeoverKind : uint8_t { None, Test, Bind };
@@ -154,6 +153,7 @@ private:
     static constexpr int kHair2Y      = 110;
     static constexpr int kStripY      = 113;
     static constexpr int kStripH      = 22;
+    static constexpr uint32_t kTakeoverMs = 3000;
 
     int m_w = 240, m_h = 135;
 
@@ -174,35 +174,40 @@ private:
     char m_msg[32] = {};
     uint16_t m_msgColor = 0;
 
-    uint16_t m_colInk, m_colSub, m_colDim, m_colHair;
-    uint16_t m_colAccent, m_colOk, m_colWarn, m_colOrange, m_colErr;
+    // Palette is filled by begin(); zero-init keeps pre-begin reads safe
+    // (everything renders as black until begin() runs).
+    uint16_t m_colInk = 0, m_colSub = 0, m_colDim = 0, m_colHair = 0;
+    uint16_t m_colAccent = 0, m_colOk = 0, m_colWarn = 0;
+    uint16_t m_colOrange = 0, m_colErr = 0, m_colCyan = 0;
+
+    void startTakeover(TakeoverKind kind, bool ok) {
+        m_takeoverKind = kind;
+        m_takeoverOk = ok;
+        m_takeoverUntilMs = millis() + kTakeoverMs;
+        drawLapBand();
+    }
+
+    void clearTakeover() {
+        m_takeoverKind = TakeoverKind::None;
+        m_takeoverOk = false;
+        m_takeoverUntilMs = 0;
+    }
 
     void drawHairlines() {
         M5.Display.fillRect(0, kHair1Y, m_w, 1, m_colHair);
         M5.Display.fillRect(0, kHair2Y, m_w, 1, m_colHair);
     }
 
-    /// UID band: caption row at top ("UID" left, "● BLE" pill right),
-    /// then the comma-separated decimal UID hero. Whole band turns yellow
-    /// while bind is in flight; UID dims when ESP-NOW is down.
     void drawUidBand() {
         M5.Display.fillRect(0, kUidBandY, m_w, kUidBandH, TFT_BLACK);
 
-        // Caption row.
         M5.Display.setTextSize(1);
-        if (m_bindActive) {
-            M5.Display.setTextColor(m_colWarn, TFT_BLACK);
-        } else {
-            M5.Display.setTextColor(m_colSub, TFT_BLACK);
-        }
+        M5.Display.setTextColor(m_bindActive ? m_colWarn : m_colSub, TFT_BLACK);
         M5.Display.setCursor(6, 6);
         M5.Display.print("UID");
 
-        // BLE pill (right side of caption row).
         const char* bleLabel = m_bleConnected ? "BLE" : "BLE OFF";
         uint16_t bleCol = m_bleConnected ? m_colOk : m_colErr;
-        // Each char in size-1 font = 6 px wide. Right-align with 6 px right
-        // margin and an 8 px dot column ahead of the label.
         int labelW = (int)strlen(bleLabel) * 6;
         int x = m_w - 6 - labelW;
         M5.Display.fillCircle(x - 6, 9, 2, bleCol);
@@ -210,26 +215,19 @@ private:
         M5.Display.setCursor(x, 6);
         M5.Display.print(bleLabel);
 
-        // UID hero. Formatted as decimals, comma-separated.
         char uidStr[32];
         snprintf(uidStr, sizeof(uidStr), "%u,%u,%u,%u,%u,%u",
                  m_uid[0], m_uid[1], m_uid[2], m_uid[3], m_uid[4], m_uid[5]);
 
         uint16_t heroCol;
-        if (m_bindActive) {
-            heroCol = m_colWarn;
-        } else if (!m_radioReady) {
-            heroCol = m_colDim;
-        } else {
-            heroCol = m_colInk;
-        }
+        if (m_bindActive)        heroCol = m_colWarn;
+        else if (!m_radioReady)  heroCol = m_colDim;
+        else                     heroCol = m_colInk;
         M5.Display.setTextColor(heroCol, TFT_BLACK);
 
-        // Pick the largest M5GFX bundled mono font that fits. With a
-        // proportional/vector font we measure the actual rendered width
-        // (textWidth) instead of guessing from char count × pixel pitch.
-        // Try big → small; the smallest is guaranteed to fit even for the
-        // worst-case "255,255,255,255,255,255" (23 chars).
+        // Pick the largest fitting font; smallest is the fallback. Disable
+        // wrap so a worst-case overflow clips at the edge instead of
+        // rolling onto a second line that crosses the hairline.
         const lgfx::IFont* fontChain[] = {
             &fonts::FreeMonoBold18pt7b,
             &fonts::FreeMonoBold12pt7b,
@@ -243,17 +241,11 @@ private:
         }
         M5.Display.setFont(chosen);
         M5.Display.setTextSize(1);
+        M5.Display.setTextWrap(false);
 
-        // Center horizontally inside the band so the eye lands on it
-        // regardless of UID length.
         int textW = M5.Display.textWidth(uidStr);
         int xHero = (m_w - textW) / 2;
         if (xHero < 4) xHero = 4;
-        // Vertically center the hero in the slot below the caption row
-        // (y=18 to y=58, so 40 px tall). Adafruit GFX fonts draw from
-        // baseline, but M5GFX with these fonts uses top-left when datum
-        // is default — guard with setTextDatum(TL) for portability.
-        M5.Display.setTextDatum(textdatum_t::top_left);
         int slotTop = kUidBandY + 18;
         int slotH   = kUidBandH - 18;
         int fontH   = M5.Display.fontHeight();
@@ -262,41 +254,39 @@ private:
         M5.Display.setCursor(xHero, yHero);
         M5.Display.print(uidStr);
 
-        // Reset font + size for downstream callers (caption rows, etc.)
         M5.Display.setFont(&fonts::Font0);
         M5.Display.setTextSize(1);
+        M5.Display.setTextWrap(true);
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
     }
 
-    /// Lap band: under normal operation, "LAST LAP" caption row + lap
-    /// number (left) + time (right). Hijacked by TEST / BIND verdicts
-    /// for ~3 s to surface the result, then returns to the last lap.
     void drawLapBand() {
         M5.Display.fillRect(0, kLapBandY, m_w, kLapBandH, TFT_BLACK);
 
-        // Takeover paths.
         if (m_takeoverUntilMs && millis() < m_takeoverUntilMs) {
             drawTakeover();
             return;
         }
 
-        // Caption row.
         M5.Display.setTextSize(1);
         M5.Display.setTextColor(m_colSub, TFT_BLACK);
         M5.Display.setCursor(6, kLapBandY + 4);
         M5.Display.print("LAST LAP");
-        // "TIME" caption right-aligned (4 chars × 6 px = 24).
-        M5.Display.setCursor(m_w - 6 - 24, kLapBandY + 4);
+        int timeLabelW = M5.Display.textWidth("TIME");
+        M5.Display.setCursor(m_w - 6 - timeLabelW, kLapBandY + 4);
         M5.Display.print("TIME");
 
-        // Lap number (left). Pink during the 1 s flash, dim if BLE off,
-        // white otherwise. "—" placeholder when no lap yet.
+        // Lap number and time share the same dim/ink rule: dim if no lap
+        // yet OR either link is down. The lap *value* survived as past
+        // data either way; the dim treatment communicates "you can't
+        // trust this to be reaching the goggle right now."
         bool flashing = m_haveLap && m_lapFlashUntilMs && millis() < m_lapFlashUntilMs;
+        bool linksUp = m_bleConnected && m_radioReady;
         uint16_t lapCol;
-        if (!m_haveLap)        lapCol = m_colDim;
-        else if (flashing)     lapCol = m_colAccent;
-        else if (!m_bleConnected || !m_radioReady) lapCol = m_colDim;
-        else                   lapCol = m_colInk;
+        if (!m_haveLap)     lapCol = m_colDim;
+        else if (flashing)  lapCol = m_colAccent;
+        else if (!linksUp)  lapCol = m_colDim;
+        else                lapCol = m_colInk;
 
         M5.Display.setTextColor(lapCol, TFT_BLACK);
         M5.Display.setTextSize(3); // 18×24
@@ -306,10 +296,8 @@ private:
         M5.Display.setCursor(6, kLapBandY + 16);
         M5.Display.print(numBuf);
 
-        // Lap time (right). Stays in ink when present (the lap was real,
-        // even if the link has since dropped), dim when no lap yet.
-        M5.Display.setTextColor(m_haveLap && m_bleConnected && m_radioReady
-                                ? m_colInk : m_colDim, TFT_BLACK);
+        uint16_t timeCol = (m_haveLap && linksUp) ? m_colInk : m_colDim;
+        M5.Display.setTextColor(timeCol, TFT_BLACK);
         M5.Display.setTextSize(2); // 12×16
         char timeBuf[16];
         if (m_haveLap) {
@@ -322,7 +310,7 @@ private:
         } else {
             snprintf(timeBuf, sizeof(timeBuf), "--:--.---");
         }
-        int timeW = (int)strlen(timeBuf) * 12;
+        int timeW = M5.Display.textWidth(timeBuf);
         M5.Display.setCursor(m_w - 6 - timeW, kLapBandY + 20);
         M5.Display.print(timeBuf);
 
@@ -330,15 +318,13 @@ private:
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
     }
 
-    /// TEST / BIND verdict takeover: caption + single big verdict word
-    /// centered in the lap band. Color carries the verdict.
     void drawTakeover() {
         const char* caption = "";
         const char* verdict = "";
         uint16_t color = m_colInk;
         switch (m_takeoverKind) {
             case TakeoverKind::Test:
-                caption = m_takeoverOk ? "TEST OSD" : "TEST OSD";
+                caption = "TEST OSD";
                 verdict = m_takeoverOk ? "DELIVERED" : "LOST";
                 color   = m_takeoverOk ? m_colOk : m_colErr;
                 break;
@@ -348,24 +334,20 @@ private:
                 color   = m_takeoverOk ? m_colWarn : m_colErr;
                 break;
             case TakeoverKind::None:
-            default:
                 return;
         }
 
-        // Caption row, centered.
         M5.Display.setTextSize(1);
         M5.Display.setTextColor(color, TFT_BLACK);
-        int capW = (int)strlen(caption) * 6;
+        int capW = M5.Display.textWidth(caption);
         M5.Display.setCursor((m_w - capW) / 2, kLapBandY + 4);
         M5.Display.print(caption);
 
-        // Verdict word, centered, big.
-        M5.Display.setTextSize(3); // 18×24
-        int verW = (int)strlen(verdict) * 18;
+        M5.Display.setTextSize(3);
+        int verW = M5.Display.textWidth(verdict);
         if (verW > m_w - 8) {
-            // Fall back to size 2 if the word doesn't fit at hero size.
             M5.Display.setTextSize(2);
-            verW = (int)strlen(verdict) * 12;
+            verW = M5.Display.textWidth(verdict);
         }
         M5.Display.setCursor((m_w - verW) / 2, kLapBandY + 18);
         M5.Display.print(verdict);
@@ -374,37 +356,30 @@ private:
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
     }
 
-    /// Footer strip: "● RADIO" indicator (left) + sticky message (right).
     void drawStrip() {
         M5.Display.fillRect(0, kStripY, m_w, kStripH, TFT_BLACK);
 
-        // RADIO indicator.
+        const char* radioLabel = m_radioReady ? "RADIO" : "RADIO DOWN";
         uint16_t radioCol = m_radioReady ? m_colOk : m_colErr;
         M5.Display.fillCircle(8, kStripY + 9, 2, radioCol);
         M5.Display.setTextSize(1);
         M5.Display.setTextColor(radioCol, TFT_BLACK);
         M5.Display.setCursor(16, kStripY + 6);
-        M5.Display.print(m_radioReady ? "RADIO" : "RADIO DOWN");
+        M5.Display.print(radioLabel);
 
-        // Sticky message — right-aligned. Empty == hidden.
         if (m_msg[0]) {
-            int w = (int)strlen(m_msg) * 6;
+            int msgW = M5.Display.textWidth(m_msg);
+            int msgX = m_w - 6 - msgW;
+            // Floor the start position so a long message can't run over
+            // the RADIO label. Visible width used by the label = 16 (icon
+            // gutter) + textWidth(label) + 6 (separator).
+            int radioRight = 16 + M5.Display.textWidth(radioLabel) + 6;
+            if (msgX < radioRight) msgX = radioRight;
             M5.Display.setTextColor(m_msgColor, TFT_BLACK);
-            M5.Display.setCursor(m_w - 6 - w, kStripY + 6);
+            M5.Display.setCursor(msgX, kStripY + 6);
             M5.Display.print(m_msg);
         }
 
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
     }
-
-public:
-    // Palette accessors so main.cpp can pass the right strip color to
-    // showMessage() without depending on TFT_* names.
-    uint16_t colorOk()     const { return m_colOk; }
-    uint16_t colorWarn()   const { return m_colWarn; }
-    uint16_t colorOrange() const { return m_colOrange; }
-    uint16_t colorErr()    const { return m_colErr; }
-    uint16_t colorAccent() const { return m_colAccent; }
-    uint16_t colorInk()    const { return m_colInk; }
-    uint16_t colorSub()    const { return m_colSub; }
 };
