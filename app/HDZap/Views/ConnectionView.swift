@@ -59,6 +59,7 @@ struct ConnectionView: View {
                 gogglePairingSection
                 pairingStatusSection
                 currentUIDSection
+                txSniffSection
                 osdTestSection
             }
             .navigationTitle("Connection")
@@ -306,6 +307,54 @@ struct ConnectionView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var txSniffSection: some View {
+        if bluetooth.isConnected && bluetooth.isTXSniffAvailable {
+            Section {
+                if bluetooth.isTXSniffActive {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Waiting for TX bind packet…")
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Stop", role: .destructive) {
+                        _ = bluetooth.stopTXSniff()
+                    }
+                } else {
+                    Button("Start TX UID Capture") {
+                        bluetooth.clearCapturedTXUID()
+                        _ = bluetooth.startTXSniff()
+                    }
+                }
+
+                if let uid = bluetooth.capturedTXUID {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Captured TX UID")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(formatUID(uid))
+                                .font(.body.monospaced())
+                                .textSelection(.enabled)
+                        }
+                        Spacer()
+                        Button("Apply") {
+                            bluetooth.recordPreviousUID(bluetooth.currentUID)
+                            _ = bluetooth.sendUIDConfig(mode: .manualUID(uid))
+                            _ = bluetooth.stopTXSniff()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            } header: {
+                Text("TX UID Capture")
+            } footer: {
+                Text("Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected.")
+                    .font(.caption2)
             }
         }
     }

@@ -10,6 +10,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 #include "espnow_link.h"
+#include "tx_sniff.h"
 
 #define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d479"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
@@ -17,6 +18,7 @@
 #define CHR_LAP_TIME_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d483"
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
 #define CHR_STATUS_UUID         "f47ac10b-58cc-4372-a567-0e02b2c3d485"
+#define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -36,7 +38,9 @@
 // collapses into one edge (which is fine, the action just means
 // "do it once"):
 //   g_bind_requested, g_osd_clear_requested, g_osd_reset_laps_requested,
-//   g_osd_test_requested
+//   g_osd_test_requested,
+//   g_sniff_start_requested, g_sniff_stop_requested  (defined in tx_sniff.h,
+//       written by TXSniffCallback, consumed by main loop)
 //
 // Bare-volatile state snapshot — written by ServerCallbacks (BLE task),
 // read for status-notify payload + main loop LCD update. Single byte, so
@@ -64,6 +68,7 @@ extern uint8_t g_uid[6];
 // BLE server state
 inline BLEServer *g_ble_server = nullptr;
 inline BLECharacteristic *g_status_chr = nullptr;
+inline BLECharacteristic *g_tx_sniff_chr = nullptr;
 inline volatile bool g_ble_connected = false;
 inline volatile uint8_t g_lap_count = 0;
 // Last Test OSD outcome, surfaced via status notify so the iOS pairing
@@ -186,6 +191,22 @@ class LapTimeCallback : public BLECharacteristicCallbacks {
     }
 };
 
+class TXSniffCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() < 1) return;
+        uint8_t cmd = (uint8_t)val[0];
+        if (cmd == 0x01) g_sniff_start_requested = true;
+        else if (cmd == 0x00) g_sniff_stop_requested = true;
+    }
+};
+
+inline void ble_notify_tx_uid(const uint8_t uid[6]) {
+    if (!g_tx_sniff_chr) return;
+    g_tx_sniff_chr->setValue(const_cast<uint8_t *>(uid), 6);
+    g_tx_sniff_chr->notify();
+}
+
 class OSDControlCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
@@ -238,6 +259,12 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         CHR_STATUS_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_status_chr->addDescriptor(new BLE2902());
+
+    g_tx_sniff_chr = pService->createCharacteristic(
+        CHR_TX_SNIFF_UUID,
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
+    g_tx_sniff_chr->addDescriptor(new BLE2902());
+    g_tx_sniff_chr->setCallbacks(new TXSniffCallback());
 
     pService->start();
 

@@ -16,6 +16,7 @@ private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d4
 private let lapTimeUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d483")
 private let osdControlUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d484")
 private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
+private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
 
 @MainActor
 @Observable
@@ -69,6 +70,19 @@ class BluetoothManager: NSObject {
     /// signal "different goggle next time, don't apply the previous
     /// one's UID by accident".
     private(set) var previousUID: [UInt8]?
+    /// Most recently captured TX UID from a sniff session. Set when the
+    /// firmware notifies via CHR_TX_SNIFF_UUID. Cleared on disconnect so
+    /// a stale capture from a prior session can't be applied to the next M5Stick.
+    private(set) var capturedTXUID: [UInt8]?
+    /// True while the app has asked the firmware to listen for TX bind packets.
+    /// Toggled locally on start/stop — firmware has no state echo.
+    /// Intentionally preserved across auto-reconnects: the firmware recv
+    /// callback survives BLE drops (only sniff_stop clears it), so both sides
+    /// stay consistent without a reset. Cleared on user-initiated disconnect
+    /// and tearDownConnection where firmware state is also discarded.
+    private(set) var isTXSniffActive = false
+    /// True once CHR_TX_SNIFF_UUID was discovered (firmware supports the feature).
+    var isTXSniffAvailable: Bool { characteristics[txSniffUUID] != nil }
     /// Recent errors, newest at index 0. Capped at `errorLogCapacity`;
     /// overflows and consecutive-duplicate collapses both increment
     /// `droppedErrorCount`, which the UI surfaces as
@@ -199,6 +213,8 @@ class BluetoothManager: NSObject {
         // different M5Stick / goggle pair, and silently surfacing the prior
         // pair's UID as "Restore" would write the wrong value to the new one.
         previousUID = nil
+        capturedTXUID = nil
+        isTXSniffActive = false
         centralManager.cancelPeripheralConnection(peripheral)
     }
 
@@ -260,6 +276,28 @@ class BluetoothManager: NSObject {
     @discardableResult
     func sendOSDControl(command: OSDCommand) -> Bool {
         write(data: Data([command.rawValue]), to: osdControlUUID)
+    }
+
+    @discardableResult
+    func startTXSniff() -> Bool {
+        guard isTXSniffAvailable else {
+            lastError = "TX sniff not available — update firmware."
+            return false
+        }
+        let ok = write(data: Data([0x01]), to: txSniffUUID)
+        if ok { isTXSniffActive = true }
+        return ok
+    }
+
+    @discardableResult
+    func stopTXSniff() -> Bool {
+        let ok = write(data: Data([0x00]), to: txSniffUUID)
+        if ok { isTXSniffActive = false }
+        return ok
+    }
+
+    func clearCapturedTXUID() {
+        capturedTXUID = nil
     }
 
     @discardableResult
@@ -387,7 +425,7 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID
+            uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID, txSniffUUID
         ], for: service)
     }
 
@@ -405,7 +443,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         let chars = service.characteristics ?? []
         for char in chars {
             characteristics[char.uuid] = char
-            if char.uuid == statusUUID {
+            if char.uuid == statusUUID || char.uuid == txSniffUUID {
                 peripheral.setNotifyValue(true, for: char)
             }
         }
@@ -413,6 +451,8 @@ extension BluetoothManager: CBPeripheralDelegate {
         // tap Apply/Bind/Lap and hit the generic "Characteristic not ready"
         // error on every write. Missing characteristics almost always mean
         // firmware/app version skew — surface that directly.
+        // txSniffUUID is intentionally excluded — it's optional (older firmware
+        // won't advertise it) and its absence doesn't block core functionality.
         let expected: [CBUUID] = [uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID]
         let missing = expected.filter { characteristics[$0] == nil }
         if !missing.isEmpty {
@@ -443,15 +483,22 @@ extension BluetoothManager: CBPeripheralDelegate {
         // be a different M5Stick / goggle, and a stale rollback UID would
         // be applied to the wrong device.
         previousUID = nil
+        capturedTXUID = nil
+        isTXSniffActive = false
         connectedPeripheral = nil
         characteristics = [:]
         suppressAutoReconnect = true
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
-        // Only the status characteristic uses notifications today; gate
-        // on UUID so a future notify-on-another-characteristic failure
-        // doesn't get misattributed as "Status subscribe failed".
+        if characteristic.uuid == txSniffUUID {
+            if let error {
+                lastError = "TX sniff subscribe failed: \(error.localizedDescription). TX UID capture will not work."
+            }
+            return
+        }
+        // Gate on statusUUID so a future notify-on-another-characteristic
+        // failure doesn't get misattributed as "Status subscribe failed".
         guard characteristic.uuid == statusUUID else { return }
         if let error {
             lastError = "Status subscribe failed: \(error.localizedDescription). Laps still send, but goggle state won't appear in-app."
@@ -474,6 +521,11 @@ extension BluetoothManager: CBPeripheralDelegate {
                 lapCount = 0
             }
             lastError = formatBLEError(kind: "notify error", uuid: characteristic.uuid, error: error)
+            return
+        }
+        if characteristic.uuid == txSniffUUID {
+            guard let data = characteristic.value, data.count == 6 else { return }
+            capturedTXUID = Array(data)
             return
         }
         guard characteristic.uuid == statusUUID else { return }
@@ -521,6 +573,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         case lapTimeUUID: return "Lap time"
         case osdControlUUID: return "OSD control"
         case statusUUID: return "Status"
+        case txSniffUUID: return "TX sniff"
         default: return uuid.uuidString
         }
     }
