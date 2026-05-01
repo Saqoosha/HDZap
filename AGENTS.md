@@ -45,6 +45,7 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - `osd.h` — OSD commands via ESP-NOW, no layout knowledge
 - `ble_service.h` — BLE GATT server, stages payloads + sets flags for main loop
 - `bind.h` — ELRS bind protocol, stateless (broadcast via espnow_link)
+- `tx_sniff.h` — ESP-NOW recv callback for TX UID capture; sniff_start/stop register/unregister the global recv_cb slot; g_sniff_uid + g_sniff_captured guarded by g_sniff_mux
 - `lap_display.h` — lap formatting + OSD rendering. `render()` is idempotent (pulls from in-memory lap history) so retries are safe.
 - `nvs_store.h` — UID persistence, namespace "hdzero"
 - `stick_display.h` — M5StickS3 LCD status display, no business logic
