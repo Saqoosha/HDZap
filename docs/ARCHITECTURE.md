@@ -62,6 +62,42 @@ known-good state because `lapDisplay.render()` is idempotent.
 would be rendered: UID change (`applyStagedUid`), OSD clear, laps reset. Late
 callbacks from an in-flight cycle are simply ignored.
 
+### TX UID Capture
+
+```
+Operator taps "Start TX UID Capture" in ConnectionView
+  → BluetoothManager.startTXSniff()
+  → CoreBluetooth writes [0x01] to TX Sniff characteristic
+  → [BLE air gap]
+  → TXSniffCallback.onWrite() sets g_sniff_start_requested = true
+  → Main loop: sniff_start() → esp_now_register_recv_cb(_espnow_recv_cb)
+
+Pilot presses Bind on TX Backpack
+  → TX Backpack broadcasts ESP-NOW MSP_ELRS_BIND packet (dst: FF:FF:FF:FF:FF:FF)
+    (src MAC = TX UID; payload = MSPv2 with function 0x0009)
+  → _espnow_recv_cb fires (WiFi task context):
+      filter: data[0]='$', data[1]='X', data[2]='<', data[4..5]=0x0009
+      portENTER_CRITICAL → memcpy src_mac → g_sniff_uid, bit0 cleared, g_sniff_captured=true
+  → Main loop detects g_sniff_captured:
+      reads g_sniff_uid under g_sniff_mux
+      ble_notify_tx_uid(uid) → BLE notify [uid:6B]
+  → [BLE air gap]
+  → BluetoothManager.didUpdateValueFor(txSniffUUID):
+      capturedTXUID = Array(data)
+  → ConnectionView shows captured UID + Apply button
+
+Operator taps "Apply"
+  → bluetooth.recordPreviousUID(currentUID)   ← enables Restore if Apply fails
+  → bluetooth.sendUIDConfig(.manualUID(uid))  ← routes through existing UID config flow
+  → bluetooth.stopTXSniff()                   ← [0x00] to TX Sniff characteristic
+```
+
+**Key invariants**: TX binding state is unaffected (TX only broadcasts; nothing is written
+to it). The recv callback occupies the single global ESP-NOW recv slot — no other code in
+this project uses `esp_now_register_recv_cb`. `isTXSniffActive` on iOS is local state
+(no firmware echo); it survives BLE auto-reconnects intentionally because the firmware
+recv callback also survives them.
+
 ### UID Configuration
 
 ```
@@ -98,7 +134,9 @@ Mode 3 — New Pairing:
 ```
 main.cpp ──→ nvs_store.h (load/save UID) ──→ Preferences
   ├── ble_service.h (stages data + flags only; main.cpp applies)
-  │     └→ espnow_link.h (uid_from_bind_phrase helper)
+  │     ├── tx_sniff.h (recv_cb registration + sniff state)
+  │     │     └→ msp.h (MSP_ELRS_BIND filter constant)
+  │     └── espnow_link.h (uid_from_bind_phrase helper)
   ├── bind.h ──→ msp.h (MSP_ELRS_BIND)
   │             └→ espnow_link.h (broadcast helper)
   ├── lap_display.h ──→ osd.h ──→ msp.h (MSP_SET_OSD_ELEM)
@@ -122,8 +160,14 @@ LapTimeCallback.onWrite()    →   g_lap_num + g_lap_time_ms + g_lap_received
 OSDControlCallback.onWrite() →   g_osd_clear_requested / reset_laps → main loop
                                  → cancelRender + osd.clear/reset
 
+TXSniffCallback.onWrite()    →   g_sniff_start_requested / g_sniff_stop_requested
+                                 → main loop: sniff_start/stop (register/unregister recv_cb)
+
 WiFi task (ESP-NOW send cb)  →   g_espnow_sent_ok / g_espnow_sent_fail
                                  → main loop verify step reads delta
+
+WiFi task (ESP-NOW recv cb)  →   g_sniff_uid[6] + g_sniff_captured (guarded by g_sniff_mux)
+                                 → main loop: ble_notify_tx_uid → iOS
 ```
 
 All multi-field producers (UID staging, lap pair) are guarded by `portENTER_CRITICAL(&g_ble_mux)`
@@ -148,9 +192,11 @@ HDZeroLapTimerApp
         │     ├── actions: bluetooth.sendLapTime/sendOSDControl
         │     └── embeds: LapListView
         └── ConnectionView
-              ├── reads: BluetoothManager (isConnected, discoveredDevices, currentUID)
+              ├── reads: BluetoothManager (isConnected, discoveredDevices, currentUID,
+              │          capturedTXUID, isTXSniffActive, isTXSniffAvailable)
               ├── actions: bluetooth.startScan/connect/disconnect
               ├── actions: bluetooth.sendUIDConfig/sendBindCommand
+              ├── actions: bluetooth.startTXSniff/stopTXSniff/clearCapturedTXUID
               └── uses: UIDUtils (uidFromBindPhrase, formatUID, parseUID)
 ```
 
@@ -199,7 +245,8 @@ Three paths leave the connected state:
 | Bind Command | `f47ac10b-...-0e02b2c3d482` | Write | `[0x01]` |
 | Lap Time | `f47ac10b-...-0e02b2c3d483` | Write | `[lap:u8][ms:u32 LE]` = 5B |
 | OSD Control | `f47ac10b-...-0e02b2c3d484` | Write | `[cmd:u8]` |
-| Status | `f47ac10b-...-0e02b2c3d485` | Read+Notify | `[conn:u8][uid:6B][laps:u8]` = 8B |
+| Status | `f47ac10b-...-0e02b2c3d485` | Read+Notify | `[conn:u8][uid:6B][laps:u8][test:u8]` = 9B |
+| TX Sniff | `f47ac10b-...-0e02b2c3d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6B]` on capture |
 
 ### MSPv2 Packet Format
 
