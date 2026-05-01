@@ -38,7 +38,9 @@
 // collapses into one edge (which is fine, the action just means
 // "do it once"):
 //   g_bind_requested, g_osd_clear_requested, g_osd_reset_laps_requested,
-//   g_osd_test_requested
+//   g_osd_test_requested,
+//   g_sniff_start_requested, g_sniff_stop_requested  (defined in tx_sniff.h,
+//       written by TXSniffCallback, consumed by main loop)
 //
 // Bare-volatile state snapshot — written by ServerCallbacks (BLE task),
 // read for status-notify payload + main loop LCD update. Single byte, so

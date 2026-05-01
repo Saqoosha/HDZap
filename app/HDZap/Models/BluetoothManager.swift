@@ -76,6 +76,10 @@ class BluetoothManager: NSObject {
     private(set) var capturedTXUID: [UInt8]?
     /// True while the app has asked the firmware to listen for TX bind packets.
     /// Toggled locally on start/stop — firmware has no state echo.
+    /// Intentionally preserved across auto-reconnects: the firmware recv
+    /// callback survives BLE drops (only sniff_stop clears it), so both sides
+    /// stay consistent without a reset. Cleared on user-initiated disconnect
+    /// and tearDownConnection where firmware state is also discarded.
     private(set) var isTXSniffActive = false
     /// True once CHR_TX_SNIFF_UUID was discovered (firmware supports the feature).
     var isTXSniffAvailable: Bool { characteristics[txSniffUUID] != nil }
@@ -487,9 +491,14 @@ extension BluetoothManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
-        // Only the status characteristic uses notifications today; gate
-        // on UUID so a future notify-on-another-characteristic failure
-        // doesn't get misattributed as "Status subscribe failed".
+        if characteristic.uuid == txSniffUUID {
+            if let error {
+                lastError = "TX sniff subscribe failed: \(error.localizedDescription). TX UID capture will not work."
+            }
+            return
+        }
+        // Gate on statusUUID so a future notify-on-another-characteristic
+        // failure doesn't get misattributed as "Status subscribe failed".
         guard characteristic.uuid == statusUUID else { return }
         if let error {
             lastError = "Status subscribe failed: \(error.localizedDescription). Laps still send, but goggle state won't appear in-app."

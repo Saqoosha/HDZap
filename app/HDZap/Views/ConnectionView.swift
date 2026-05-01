@@ -343,6 +343,7 @@ struct ConnectionView: View {
                         }
                         Spacer()
                         Button("Apply") {
+                            bluetooth.recordPreviousUID(bluetooth.currentUID)
                             _ = bluetooth.sendUIDConfig(mode: .manualUID(uid))
                             _ = bluetooth.stopTXSniff()
                         }

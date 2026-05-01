@@ -6,8 +6,7 @@
 #include "bind.h"
 #include "lap_display.h"
 #include "nvs_store.h"
-#include "ble_service.h"
-#include "tx_sniff.h"
+#include "ble_service.h" // includes tx_sniff.h transitively
 
 uint8_t g_uid[6] = {};
 static OSD osd;
@@ -345,16 +344,21 @@ void loop() {
         ble_update_status();
     }
 
+    // --- TX sniff handling -------------------------------------------
+    // Start/stop driven by iOS; capture relayed to iOS via BLE notify so
+    // the operator can apply the caught UID as the new goggle target.
     if (g_sniff_start_requested) {
         g_sniff_start_requested = false;
-        sniff_start();
-        Serial.println("TX sniff: started");
+        if (sniff_start()) {
+            Serial.println("TX sniff: started");
+        }
     }
 
     if (g_sniff_stop_requested) {
         g_sniff_stop_requested = false;
-        sniff_stop();
-        Serial.println("TX sniff: stopped");
+        if (sniff_stop()) {
+            Serial.println("TX sniff: stopped");
+        }
     }
 
     if (g_sniff_captured) {
