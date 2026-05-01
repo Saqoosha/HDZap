@@ -7,6 +7,7 @@
 #include "lap_display.h"
 #include "nvs_store.h"
 #include "ble_service.h"
+#include "tx_sniff.h"
 
 uint8_t g_uid[6] = {};
 static OSD osd;
@@ -342,6 +343,29 @@ void loop() {
         g_last_test_result = result;
         portEXIT_CRITICAL(&g_ble_mux);
         ble_update_status();
+    }
+
+    if (g_sniff_start_requested) {
+        g_sniff_start_requested = false;
+        sniff_start();
+        Serial.println("TX sniff: started");
+    }
+
+    if (g_sniff_stop_requested) {
+        g_sniff_stop_requested = false;
+        sniff_stop();
+        Serial.println("TX sniff: stopped");
+    }
+
+    if (g_sniff_captured) {
+        uint8_t uid[6];
+        portENTER_CRITICAL(&g_sniff_mux);
+        memcpy(uid, g_sniff_uid, 6);
+        g_sniff_captured = false;
+        portEXIT_CRITICAL(&g_sniff_mux);
+        Serial.printf("TX UID captured: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      uid[0], uid[1], uid[2], uid[3], uid[4], uid[5]);
+        ble_notify_tx_uid(uid);
     }
 
     if (g_osd_reset_laps_requested) {
