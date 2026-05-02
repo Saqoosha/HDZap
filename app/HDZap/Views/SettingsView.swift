@@ -62,6 +62,7 @@ struct SettingsView: View {
                 bluetoothSection
                 currentUIDSection
                 pairingSection
+                txSniffSection
                 osdTestSection
             }
             .navigationTitle("Settings")
@@ -184,22 +185,22 @@ struct SettingsView: View {
 
     private var raceSection: some View {
         Section {
+            Stepper(value: $raceSessionLimit, in: 60...180, step: 5) {
+                HStack {
+                    Text("Race time")
+                    Spacer()
+                    Text("\(raceSessionLimit)s")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+
             Stepper(value: $targetLapCount,
                     in: RaceMetrics.minTargetLapCount...RaceMetrics.maxTargetLapCount) {
                 HStack {
                     Text("Target lap")
                     Spacer()
                     Text("\(RaceMetrics.clampedTargetLapCount(targetLapCount))")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-
-            Stepper(value: $raceSessionLimit, in: 60...180, step: 5) {
-                HStack {
-                    Text("Race time")
-                    Spacer()
-                    Text("\(raceSessionLimit)s")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
@@ -347,12 +348,6 @@ struct SettingsView: View {
             if pairingPhase != .idle {
                 pairingStatusContent
             }
-
-            // TX UID capture — shown only when connected and supported.
-            if bluetooth.isConnected && bluetooth.isTXSniffAvailable {
-                Divider()
-                txSniffContent
-            }
         } header: {
             Text("Pairing")
         } footer: {
@@ -412,12 +407,21 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private var txSniffContent: some View {
-        Text("TX UID Capture")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .textCase(.uppercase)
+    private var txSniffSection: some View {
+        if bluetooth.isConnected {
+            Section {
+                txSniffContent
+            } header: {
+                Text("TX UID Capture")
+            } footer: {
+                Text("Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected.")
+                    .font(.caption2)
+            }
+        }
+    }
 
+    @ViewBuilder
+    private var txSniffContent: some View {
         if bluetooth.isTXSniffActive {
             HStack(spacing: 8) {
                 ProgressView()
@@ -457,10 +461,6 @@ struct SettingsView: View {
                 .buttonStyle(.borderedProminent)
             }
         }
-
-        Text("Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected.")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
     }
 
     private var osdTestSection: some View {

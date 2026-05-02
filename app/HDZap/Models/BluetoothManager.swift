@@ -81,8 +81,6 @@ class BluetoothManager: NSObject {
     /// stay consistent without a reset. Cleared on user-initiated disconnect
     /// and tearDownConnection where firmware state is also discarded.
     private(set) var isTXSniffActive = false
-    /// True once CHR_TX_SNIFF_UUID was discovered (firmware supports the feature).
-    var isTXSniffAvailable: Bool { characteristics[txSniffUUID] != nil }
     /// Recent errors, newest at index 0. Capped at `errorLogCapacity`;
     /// overflows and consecutive-duplicate collapses both increment
     /// `droppedErrorCount`, which the UI surfaces as
@@ -280,10 +278,6 @@ class BluetoothManager: NSObject {
 
     @discardableResult
     func startTXSniff() -> Bool {
-        guard isTXSniffAvailable else {
-            lastError = "TX sniff not available — update firmware."
-            return false
-        }
         let ok = write(data: Data([0x01]), to: txSniffUUID)
         if ok { isTXSniffActive = true }
         return ok
