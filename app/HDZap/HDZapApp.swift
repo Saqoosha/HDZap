@@ -5,6 +5,17 @@ struct HDZapApp: App {
     @State private var bluetoothManager = BluetoothManager()
     @State private var lapTimer = LapTimer()
 
+    init() {
+        UserDefaults.standard.register(defaults: [
+            "raceSessionLimit": 90,
+            "accentHue": EditorialTheme.defaultAccentHue,
+            "targetLapCount": RaceMetrics.defaultTargetLapCount,
+        ])
+        #if DEBUG
+        _oklchSanityCheck()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

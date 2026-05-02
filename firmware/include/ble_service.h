@@ -19,6 +19,7 @@
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
 #define CHR_STATUS_UUID         "f47ac10b-58cc-4372-a567-0e02b2c3d485"
 #define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
+#define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -30,6 +31,8 @@
 //     — g_lap_count has a secondary role: read unlocked by
 //       ble_update_status() for the status-notify payload. Single byte,
 //       so the unlocked read is an atomic snapshot of the latest write.
+//   g_osd_text_rows + g_osd_text_ready + g_osd_text_received  (iOS-owned
+//       goggle OSD text frame: three preformatted rows, no firmware math)
 //   g_uid                                     (6 bytes; main loop writes
 //       under the mux in applyStagedUid, BLE task reads under the mux in
 //       ble_update_status so the notify frame never carries a torn pair)
@@ -52,10 +55,16 @@ inline volatile bool g_osd_clear_requested = false;
 inline volatile bool g_osd_reset_laps_requested = false;
 inline volatile bool g_osd_test_requested = false;
 inline volatile bool g_uid_config_requested = false;
+inline volatile bool g_osd_text_received = false;
 
 // Lap data staged by LapTimeCallback.
 inline volatile uint8_t g_lap_num = 0;
 inline volatile uint32_t g_lap_time_ms = 0;
+
+inline constexpr uint8_t OSD_TEXT_ROW_COUNT = 3;
+inline constexpr uint8_t OSD_TEXT_ROW_MAX = 19;
+inline char g_osd_text_rows[OSD_TEXT_ROW_COUNT][OSD_TEXT_ROW_MAX + 1] = {};
+inline uint8_t g_osd_text_ready = 0;
 
 // UID staged by UIDConfigCallback. Applied (NVS save + ESP-NOW reinit) by main loop.
 inline uint8_t g_staged_uid[6] = {};
@@ -232,6 +241,44 @@ class OSDControlCallback : public BLECharacteristicCallbacks {
     }
 };
 
+class OSDTextCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() < 2) {
+            Serial.printf("OSDText: short payload (%u bytes, need row + text)\n",
+                          (unsigned)val.length());
+            return;
+        }
+
+        uint8_t row = (uint8_t)val[0];
+        if (row >= OSD_TEXT_ROW_COUNT) {
+            Serial.printf("OSDText: row out of range (%u)\n", row);
+            return;
+        }
+
+        size_t len = val.length() - 1;
+        if (len > OSD_TEXT_ROW_MAX) {
+            Serial.printf("OSDText: row %u too long (%u bytes, max %u)\n",
+                          row, (unsigned)len, OSD_TEXT_ROW_MAX);
+            return;
+        }
+
+        portENTER_CRITICAL(&g_ble_mux);
+        if (row == 0) {
+            memset(g_osd_text_rows, 0, sizeof(g_osd_text_rows));
+            g_osd_text_ready = 0;
+            g_osd_text_received = false;
+        }
+        memcpy(g_osd_text_rows[row], val.data() + 1, len);
+        g_osd_text_rows[row][len] = 0;
+        g_osd_text_ready |= (1 << row);
+        if ((g_osd_text_ready & ((1 << OSD_TEXT_ROW_COUNT) - 1)) == ((1 << OSD_TEXT_ROW_COUNT) - 1)) {
+            g_osd_text_received = true;
+        }
+        portEXIT_CRITICAL(&g_ble_mux);
+    }
+};
+
 inline void ble_init(const char *device_name = "HDZeroOSD") {
     BLEDevice::init(device_name);
     g_ble_server = BLEDevice::createServer();
@@ -254,6 +301,10 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
     BLECharacteristic *pOSD = pService->createCharacteristic(
         CHR_OSD_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE);
     pOSD->setCallbacks(new OSDControlCallback());
+
+    BLECharacteristic *pOSDText = pService->createCharacteristic(
+        CHR_OSD_TEXT_UUID, BLECharacteristic::PROPERTY_WRITE);
+    pOSDText->setCallbacks(new OSDTextCallback());
 
     g_status_chr = pService->createCharacteristic(
         CHR_STATUS_UUID,

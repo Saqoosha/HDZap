@@ -3,44 +3,41 @@
 ## System Overview
 
 ```
-┌─────────────────┐      BLE GATT       ┌─────────────────┐     ESP-NOW      ┌─────────────────┐
-│   iPhone App    │ ──────────────────→  │   ESP32 Bridge  │ ─────────────→   │  HDZero Goggle  │
-│                 │                      │                 │                  │                 │
-│  ┌───────────┐  │  Lap times           │  ┌───────────┐  │  MSPv2 packets   │  ELRS Backpack  │
-│  │ LapTimer  │  │  UID config          │  │BLE Server │  │  (ESP-NOW ch1)   │  (built-in ESP32│
-│  │           │  │  Bind commands       │  │           │  │                  │   running ELRS  │
-│  │ Stopwatch │  │  OSD control         │  │  ↓ flags  │  │  MAC spoofed     │   backpack FW)  │
-│  └───────────┘  │                      │  │           │  │  to match UID    │                 │
-│  ┌───────────┐  │                      │  │ Main Loop │  │                  │  Receives MSP   │
-│  │ Bluetooth │  │  Status notify       │  │  ↓        │  │                  │  via ESP-NOW    │
-│  │ Manager   │◄─│──────────────────── │  │ ESP-NOW   │  │                  │       ↓         │
-│  └───────────┘  │  [conn][uid][laps]   │  │ + OSD     │  │                  │  UART to main   │
-│  ┌───���───────┐  │                      │  └───────────┘  │                  │  SoC → OSD      │
-│  │ SwiftUI   │  │                      │  ┌───────────┐  │                  │  overlay on     │
-│  │ Views     │  │                      │  │NVS (flash)│  │                  │  video feed     │
-│  └───────────┘  │                      │  └─────��─────┘  │                  │                 │
-└──���──────────────┘                      └─────────────────┘                  └─────────────────┘
++-----------------+      BLE GATT       +-----------------+     ESP-NOW      +-----------------+
+|   iPhone App    | -------------------> |   ESP32 Bridge  | --------------> |  HDZero Goggle  |
+|                 |  OSD text rows       |                 | MSPv2 packets   |                 |
+|  LapTimer       |  UID config          |  BLE Server     | (ESP-NOW ch1)   | ELRS Backpack   |
+|  RaceMetrics    |  Bind commands       |    -> flags     | MAC spoofed     | receives MSP    |
+|  Bluetooth      |  OSD control         |  Main Loop      | to match UID    | via ESP-NOW     |
+|  SwiftUI Views  | <------------------- |  ESP-NOW + OSD  |                 | UART -> OSD     |
+|                 |  Status notify       |  NVS (flash)    |                 | overlay         |
++-----------------+                      +-----------------+                 +-----------------+
 ```
 
 ## Data Flow
 
-### Lap Recording
+### Lap Recording / Goggle OSD
 
 ```
 User taps LAP button
   → LapTimer.lap() records time (TimeInterval)
-  → TimerView calls BluetoothManager.sendLapTime(lapNum, timeMs)
-  → CoreBluetooth writes to Lap Time characteristic
+  → RaceMetrics calculates avg, pace, diff, and need/bank from iOS state
+  → TimerView updates the iOS summary band
+  → TimerView calls BluetoothManager.sendOSDText(lines:)
+  → CoreBluetooth writes three OSD Text rows:
+      [row=0]["LAP 4 22.345"]
+      [row=1]["AVG 22.222 PACE 6L"]
+      [row=2]["D+1.00 NEED -0.2/L"]
   → [BLE air gap]
-  → ESP32 BLE callback: LapTimeCallback.onWrite()
-  → Sets g_lap_received=true, g_lap_num, g_lap_time_ms (volatile)
+  → ESP32 BLE callback: OSDTextCallback.onWrite()
+  → Stages three already-formatted rows under g_ble_mux
   → Main loop detects flag
-  → LapDisplay.addLap(num, ms) stores in array
-  → requestRender() — state machine handles dispatch + retry:
+  → OSDTextDisplay.setRows(rows)
+  → requestRender(RenderContent::OSD_TEXT) — state machine handles dispatch + retry:
       [PENDING] snapshot g_espnow_sent_fail baseline
-      [PENDING → dispatch] LapDisplay.render():
+      [PENDING → dispatch] OSDTextDisplay.render():
           → osd.clear()         → MSPv2 [MSP_DP_CLEAR]    → ESP-NOW queue
-          → osd.writeString()×N → MSPv2 [MSP_DP_WRITE]×N  → ESP-NOW queue
+          → osd.writeString()×3 → MSPv2 [MSP_DP_WRITE]×3  → ESP-NOW queue
           → osd.draw()          → MSPv2 [MSP_DP_DRAW]     → ESP-NOW queue
       [WAITING_ACK] wait RENDER_VERIFY_MS for send-cb results
       [VERIFY] newFails = g_espnow_sent_fail - baseline
@@ -56,16 +53,21 @@ User taps LAP button
 on ESP32; reader uses `volatile` without a mux. Retry granularity is the whole
 render cycle (not individual packets) because mid-cycle failure leaves the
 goggle OSD buffer partially written — a fresh clear+writes+draw restores a
-known-good state because `lapDisplay.render()` is idempotent.
+known-good state because both renderers pull from staged in-memory state.
 
 **Cancellation**: `cancelRender()` drops the state machine when stale state
 would be rendered: UID change (`applyStagedUid`), OSD clear, laps reset. Late
 callbacks from an in-flight cycle are simply ignored.
 
+The legacy Lap Time characteristic and `LapDisplay` path are retained for
+compatibility with older app builds. The current iOS app owns goggle OSD
+metrics and sends finished text; firmware does not calculate target pace,
+diff, need, or bank.
+
 ### TX UID Capture
 
 ```
-Operator taps "Start TX UID Capture" in ConnectionView
+Operator taps "Start TX UID Capture" in SettingsView
   → BluetoothManager.startTXSniff()
   → CoreBluetooth writes [0x01] to TX Sniff characteristic
   → [BLE air gap]
@@ -84,7 +86,7 @@ Pilot presses Bind on TX Backpack
   → [BLE air gap]
   → BluetoothManager.didUpdateValueFor(txSniffUUID):
       capturedTXUID = Array(data)
-  → ConnectionView shows captured UID + Apply button
+  → SettingsView shows captured UID + Apply button
 
 Operator taps "Apply"
   → bluetooth.recordPreviousUID(currentUID)   ← enables Restore if Apply fails
@@ -101,7 +103,7 @@ recv callback also survives them.
 ### UID Configuration
 
 ```
-User selects mode in ConnectionView:
+User selects mode in SettingsView:
 
 Mode 1 — Bind Phrase:
   iPhone: uidFromBindPhrase(phrase)           ← MD5("-DMY_BINDING_PHRASE=\"phrase\"")
@@ -139,8 +141,9 @@ main.cpp ──→ nvs_store.h (load/save UID) ──→ Preferences
   │     └── espnow_link.h (uid_from_bind_phrase helper)
   ├── bind.h ──→ msp.h (MSP_ELRS_BIND)
   │             └→ espnow_link.h (broadcast helper)
-  ├── lap_display.h ──→ osd.h ──→ msp.h (MSP_SET_OSD_ELEM)
-  │                               └→ espnow_link.h (send)
+  ├── lap_display.h ─────┐
+  ├── osd_text_display.h ├──→ osd.h ──→ msp.h (MSP_SET_OSD_ELEM)
+  │                      │             └→ espnow_link.h (send)
   └── stick_display.h ──→ M5Unified (LCD status display only)
 ```
 
@@ -157,6 +160,9 @@ BindCmdCallback.onWrite()    →   g_bind_requested                  → send_bi
 LapTimeCallback.onWrite()    →   g_lap_num + g_lap_time_ms + g_lap_received
                                  → main loop: addLap + requestRender → state machine
 
+OSDTextCallback.onWrite()    →   g_osd_text_rows[3] + g_osd_text_received
+                                 → main loop: OSDTextDisplay + requestRender(OSD_TEXT)
+
 OSDControlCallback.onWrite() →   g_osd_clear_requested / reset_laps → main loop
                                  → cancelRender + osd.clear/reset
 
@@ -170,7 +176,7 @@ WiFi task (ESP-NOW recv cb)  →   g_sniff_uid[6] + g_sniff_captured (guarded by
                                  → main loop: ble_notify_tx_uid → iOS
 ```
 
-All multi-field producers (UID staging, lap pair) are guarded by `portENTER_CRITICAL(&g_ble_mux)`
+All multi-field producers (UID staging, lap pair, OSD text rows) are guarded by `portENTER_CRITICAL(&g_ble_mux)`
 on both the BLE task and main loop sides, so main loop never observes a torn pair. Single-bool
 flags rely on `volatile` ordering alone. The ESP-NOW send-callback counters are `volatile uint32_t`
 without a mux — single-word load/store is atomic on ESP32, and the reader only needs the delta
@@ -187,17 +193,23 @@ HDZeroLapTimerApp
   └── ContentView (TabView)
         ├── TimerView
         │     ├── reads: LapTimer (elapsed, laps, isRunning)
+        │     ├── reads: RaceMetrics (target, avg, pace, diff, need/bank)
         │     ├── reads: BluetoothManager (isConnected)
         │     ├── actions: lapTimer.start/stop/lap/reset
-        │     ├── actions: bluetooth.sendLapTime/sendOSDControl
+        │     ├── actions: bluetooth.sendOSDText/sendOSDControl
         │     └── embeds: LapListView
-        └── ConnectionView
-              ├── reads: BluetoothManager (isConnected, discoveredDevices, currentUID,
-              │          capturedTXUID, isTXSniffActive, isTXSniffAvailable)
+        └── SettingsView
+              ├── reads: BluetoothManager (isConnected, discoveredDevices,
+              │          connectedIdentifier, currentUID, capturedTXUID,
+              │          isTXSniffActive)
+              ├── owns: targetLapCount, raceSessionLimit, accentHue
+              │         @AppStorage settings
               ├── actions: bluetooth.startScan/connect/disconnect
               ├── actions: bluetooth.sendUIDConfig/sendBindCommand
+              ├── actions: bluetooth.sendOSDText/sendOSDControl (Send/Clear test)
               ├── actions: bluetooth.startTXSniff/stopTXSniff/clearCapturedTXUID
-              └── uses: UIDUtils (uidFromBindPhrase, formatUID, parseUID)
+              └── uses: UIDUtils (uidFromBindPhrase, formatUID,
+                        formatUIDDecimal, parseUID, normalizeUID)
 ```
 
 ### State Management
@@ -243,10 +255,11 @@ Three paths leave the connected state:
 |---|---|---|---|
 | UID Config | `f47ac10b-...-0e02b2c3d481` | Write | `[mode:u8][data:0-63B]` |
 | Bind Command | `f47ac10b-...-0e02b2c3d482` | Write | `[0x01]` |
-| Lap Time | `f47ac10b-...-0e02b2c3d483` | Write | `[lap:u8][ms:u32 LE]` = 5B |
+| Lap Time | `f47ac10b-...-0e02b2c3d483` | Write | Legacy path: `[lap:u8][ms:u32 LE]` = 5B |
 | OSD Control | `f47ac10b-...-0e02b2c3d484` | Write | `[cmd:u8]` |
 | Status | `f47ac10b-...-0e02b2c3d485` | Read+Notify | `[conn:u8][uid:6B][laps:u8][test:u8]` = 9B |
 | TX Sniff | `f47ac10b-...-0e02b2c3d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6B]` on capture |
+| OSD Text | `f47ac10b-...-0e02b2c3d487` | Write | `[row:u8][ascii:1-19B]`; rows `0..2` stage one bottom-center text frame |
 
 ### MSPv2 Packet Format
 
