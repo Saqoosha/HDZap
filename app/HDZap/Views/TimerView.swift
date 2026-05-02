@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Editorial Console — quiet typography, hairline rules, inline sparkbars.
 /// Modeled on the iOS Lap Timer handoff prototype (V2 Editorial).
@@ -24,6 +25,10 @@ struct TimerView: View {
     /// view flips to the result/done summary. STOP with no laps just pauses
     /// the timer — no point showing an empty results screen. Cleared by RESET.
     @State private var manuallyEnded = false
+    /// Identifier-wrapped temp PNG URL. Setting it presents the share sheet;
+    /// `.sheet(item:)` clears it on dismiss so the next tap regenerates a
+    /// fresh image (laps may have changed between presentations).
+    @State private var shareItem: ShareItem?
 
     private var timeUp: Bool { lapTimer.elapsedTime >= sessionLimit }
     private var sessionEnded: Bool {
@@ -96,6 +101,9 @@ struct TimerView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: [item.url])
         }
         .onAppear {
             clampTargetLapCountSetting()
@@ -444,7 +452,9 @@ struct TimerView: View {
 
     private var actionDock: some View {
         ZStack {
-            // Secondary — STOP / RESET, left of hero
+            // Secondary buttons row — STOP/RESET on the left, SHARE on the
+            // right (only after a session ends). Both use the same circular
+            // chrome so the dock reads as a symmetric trio around the hero.
             HStack {
                 Button(action: secondaryAction) {
                     Text(secondaryLabel)
@@ -462,6 +472,20 @@ struct TimerView: View {
                 .padding(.leading, 28)
 
                 Spacer()
+
+                if sessionEnded {
+                    Button(action: shareAction) {
+                        Text("SHARE")
+                            .font(.editorialMono(10, weight: .bold))
+                            .tracking(1.6)
+                            .foregroundStyle(EditorialTheme.ink.opacity(0.78))
+                            .frame(width: 64, height: 64)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(EditorialTheme.ink.opacity(0.14), lineWidth: 0.5))
+                    }
+                    .accessibilityLabel("Share race result")
+                    .padding(.trailing, 28)
+                }
             }
 
             // Primary — giant circle, centered
@@ -601,6 +625,80 @@ struct TimerView: View {
         metricsSnapshot = metrics
         return metrics
     }
+
+    // MARK: - Share
+
+    private func shareAction() {
+        guard let url = makeShareImage() else {
+            // Surface failure through the existing error strip rather than
+            // crashing or showing an empty share sheet.
+            bluetooth.lastError = "Couldn't render race image. Try again."
+            return
+        }
+        shareItem = ShareItem(url: url)
+    }
+
+    /// Renders `RaceShareCard` to a PNG file in the temporary directory and
+    /// returns the URL. Returns `nil` when `ImageRenderer` produces no image
+    /// or the file write fails — callers must handle the nil case (the
+    /// share sheet has nothing to share).
+    private func makeShareImage() -> URL? {
+        let card = RaceShareCard(
+            laps: lapTimer.laps,
+            bestLapIndex: lapTimer.bestLapIndex,
+            metrics: metricsSnapshot,
+            accentHue: accentHue,
+            targetLapCount: clampedTargetLapCount,
+            sessionLimit: sessionLimit,
+            generatedAt: Date()
+        )
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 3
+        guard let uiImage = renderer.uiImage,
+              let data = uiImage.pngData() else {
+            return nil
+        }
+        let stamp = Self.fileTimestampFormatter.string(from: Date())
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hdzap-race-\(stamp).png")
+        do {
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private static let fileTimestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        // Filename-safe; sortable. Avoids `:` which some share targets reject.
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f
+    }()
+}
+
+// MARK: - Share helpers
+
+/// Identifier wrapper so `.sheet(item:)` can present an `ActivityViewController`
+/// keyed off the rendered file URL. URL itself isn't `Identifiable`.
+struct ShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// Bridge to `UIActivityViewController` for the share sheet. SwiftUI's
+/// `ShareLink` requires the item at construction time; we render the PNG
+/// lazily on tap, so we present `UIActivityViewController` via this wrapper
+/// once the file exists.
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - StatusDot
@@ -622,7 +720,7 @@ private struct StatusDot: View {
 
 // MARK: - BigTime
 
-private struct BigTime: View {
+struct BigTime: View {
     let seconds: TimeInterval
     let accent: Color
     var size: CGFloat = 64
@@ -663,7 +761,7 @@ private struct BigTime: View {
 
 // MARK: - SummaryColumn
 
-private struct SummaryColumn: View {
+struct SummaryColumn: View {
     let label: String
     let value: String
     let highlight: Bool
@@ -694,7 +792,7 @@ private struct SummaryColumn: View {
 
 // MARK: - EditorialLapRow
 
-private struct EditorialLapRow: View {
+struct EditorialLapRow: View {
     let lap: Lap
     let isBest: Bool
     let delta: TimeInterval
@@ -742,7 +840,7 @@ private struct EditorialLapRow: View {
 /// Vertical trend chart aligned to the right of the lap-row table.
 /// One dot per lap, positioned at the same y as its row (newest at top).
 /// X scales lap time from 0 (left = fast) to slowest * 1.05 (right = slow).
-private struct LapTrendChartVertical: View {
+struct LapTrendChartVertical: View {
     let laps: [Lap]
     let bestIdx: Int?
     let worstT: TimeInterval
