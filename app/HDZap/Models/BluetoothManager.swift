@@ -10,13 +10,17 @@ enum OSDCommand: UInt8 {
     case testOSD = 0x03
 }
 
-private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d479")
+// Service UUID bumped from ...d479 → ...d489 in lockstep with firmware,
+// to defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
+// added characteristics are otherwise invisible until the iPhone is rebooted).
+private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
 private let osdControlUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d484")
 private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
 private let osdTextUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d487")
+private let batteryUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d488")
 
 @MainActor
 @Observable
@@ -78,6 +82,27 @@ class BluetoothManager: NSObject {
     /// firmware notifies via CHR_TX_SNIFF_UUID. Cleared on disconnect so
     /// a stale capture from a prior session can't be applied to the next M5Stick.
     private(set) var capturedTXUID: [UInt8]?
+    /// Battery state pushed from the M5Stick over `batteryUUID`. Cleared on
+    /// disconnect / teardown / notify error so a stale "85%" can't linger
+    /// after the link drops. `batteryPercent == nil` is also the firmware's
+    /// "unknown" wire-format sentinel (0xFF).
+    ///
+    /// On the wire, the charging bit and the alarm-tier bits are
+    /// independent. Firmware policy in `battery_monitor.h::poll` enforces
+    /// `charging → tier == None`, so in practice these never co-occur.
+    /// Anything in this app that assumes "charging beats alarm" should
+    /// be revisited if the firmware policy changes.
+    enum BatteryAlarm { case none, low, critical }
+    private(set) var batteryPercent: UInt8?
+    private(set) var isCharging = false
+    private(set) var batteryAlarm: BatteryAlarm = .none
+    /// True after the operator pressed BtnA / BtnB on the M5Stick to mute
+    /// the alarm beeps. The sticky message on the device stays up; any
+    /// tier transition on the firmware side (LOW → CRITICAL escalate,
+    /// CRITICAL → LOW de-escalate, or recovery to NONE) resets this to
+    /// false, re-arming the beeps for the new tier.
+    private(set) var batterySilenced = false
+
     /// True while the app has asked the firmware to listen for TX bind packets.
     /// Toggled locally on start/stop — firmware has no state echo.
     /// Intentionally preserved across auto-reconnects: the firmware recv
@@ -217,6 +242,7 @@ class BluetoothManager: NSObject {
         previousUID = nil
         capturedTXUID = nil
         isTXSniffActive = false
+        resetBatteryState()
         centralManager.cancelPeripheralConnection(peripheral)
     }
 
@@ -319,6 +345,13 @@ class BluetoothManager: NSObject {
         return true
     }
 
+    private func resetBatteryState() {
+        batteryPercent = nil
+        isCharging = false
+        batteryAlarm = .none
+        batterySilenced = false
+    }
+
     private static func osdASCIIData(for line: String) -> Data {
         let ascii = line.uppercased().unicodeScalars.map { scalar -> UInt8 in
             scalar.isASCII ? UInt8(scalar.value) : 63
@@ -408,6 +441,10 @@ extension BluetoothManager: CBCentralManagerDelegate {
         isConnected = false
         connectedDeviceName = nil
         characteristics = [:]
+        // Drop battery state on every disconnect — a "47%" lingering after
+        // the link is gone is misleading whether the next state is
+        // suppressed (user tap) or auto-reconnect.
+        resetBatteryState()
         if suppressAutoReconnect {
             suppressAutoReconnect = false
             userTappedDisconnect = false
@@ -437,7 +474,7 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID
+            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID, batteryUUID
         ], for: service)
     }
 
@@ -455,16 +492,28 @@ extension BluetoothManager: CBPeripheralDelegate {
         let chars = service.characteristics ?? []
         for char in chars {
             characteristics[char.uuid] = char
-            if char.uuid == statusUUID || char.uuid == txSniffUUID {
+            if char.uuid == statusUUID || char.uuid == txSniffUUID || char.uuid == batteryUUID {
                 peripheral.setNotifyValue(true, for: char)
+            }
+            // Battery is push-only from firmware: the connect-edge notify
+            // fires before iOS has finished writing the CCCD, so the very
+            // first frame is dropped and the row sits on "—" until the
+            // next state-change poll (worst case never, on a stable
+            // %/charging snapshot). An explicit one-shot read fills the
+            // initial value from the characteristic's cached `setValue`,
+            // independent of CCCD timing — `didUpdateValueFor` handles
+            // both paths the same way.
+            if char.uuid == batteryUUID {
+                peripheral.readValue(for: char)
             }
         }
         // Point out schema mismatch explicitly rather than letting the user
         // tap Apply/Bind/Lap and hit the generic "Characteristic not ready"
         // error on every write. Missing characteristics almost always mean
         // firmware/app version skew — surface that directly.
-        // txSniffUUID is intentionally excluded — it's optional (older firmware
-        // won't advertise it) and its absence doesn't block core functionality.
+        // txSniffUUID and batteryUUID are intentionally excluded — both are
+        // optional (older firmware won't advertise them) and their absence
+        // doesn't block core functionality.
         let expected: [CBUUID] = [uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, osdTextUUID]
         let missing = expected.filter { characteristics[$0] == nil }
         if !missing.isEmpty {
@@ -497,6 +546,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         previousUID = nil
         capturedTXUID = nil
         isTXSniffActive = false
+        resetBatteryState()
         connectedPeripheral = nil
         characteristics = [:]
         suppressAutoReconnect = true
@@ -506,6 +556,13 @@ extension BluetoothManager: CBPeripheralDelegate {
         if characteristic.uuid == txSniffUUID {
             if let error {
                 lastError = "TX sniff subscribe failed: \(error.localizedDescription). TX UID capture will not work."
+            }
+            return
+        }
+        if characteristic.uuid == batteryUUID {
+            if let error {
+                resetBatteryState()
+                lastError = "Battery subscribe failed: \(error.localizedDescription). Device battery state won't appear in-app."
             }
             return
         }
@@ -532,12 +589,40 @@ extension BluetoothManager: CBPeripheralDelegate {
                 currentUID = nil
                 lapCount = 0
             }
+            if characteristic.uuid == batteryUUID {
+                resetBatteryState()
+            }
             lastError = formatBLEError(kind: "notify error", uuid: characteristic.uuid, error: error)
             return
         }
         if characteristic.uuid == txSniffUUID {
             guard let data = characteristic.value, data.count == 6 else { return }
             capturedTXUID = Array(data)
+            return
+        }
+        if characteristic.uuid == batteryUUID {
+            // 2-byte payload: [percent | 0xFF unknown][flags: bit0 charging,
+            // bit1 LOW, bit2 CRITICAL, bit3 silenced]. Tolerate an over-
+            // length payload — only the first 2 bytes are defined; future
+            // additions stay forward-compatible if we just ignore the tail.
+            guard let data = characteristic.value, data.count >= 2 else {
+                let n = characteristic.value?.count ?? 0
+                resetBatteryState()
+                lastError = "Battery frame unexpected size (\(n)B, expected ≥2). Firmware/app version mismatch?"
+                return
+            }
+            let pct = data[0]
+            let flags = data[1]
+            batteryPercent = (pct == 0xFF) ? nil : pct
+            isCharging = (flags & 0x01) != 0
+            if (flags & 0x04) != 0 {
+                batteryAlarm = .critical
+            } else if (flags & 0x02) != 0 {
+                batteryAlarm = .low
+            } else {
+                batteryAlarm = .none
+            }
+            batterySilenced = (flags & 0x08) != 0
             return
         }
         guard characteristic.uuid == statusUUID else { return }
@@ -586,6 +671,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         case statusUUID: return "Status"
         case txSniffUUID: return "TX sniff"
         case osdTextUUID: return "OSD text"
+        case batteryUUID: return "Battery"
         default: return uuid.uuidString
         }
     }

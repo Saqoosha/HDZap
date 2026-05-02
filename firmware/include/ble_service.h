@@ -12,7 +12,14 @@
 #include "espnow_link.h"
 #include "tx_sniff.h"
 
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+// Service UUID bumped from ...d479 → ...d489 to defeat iOS CoreBluetooth's
+// per-peripheral GATT cache. Without bonding, iOS will not re-discover a
+// peripheral's services when characteristics are added — the original
+// service signature stays cached in bluetoothd, and discoverServices()
+// returns the stale tree forever. A fresh service UUID has no cache, so
+// iOS falls through to a real GATT discovery and picks up every newly-
+// added characteristic. iOS app's CBUUID must move in lockstep.
+#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 #define CHR_LAP_TIME_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d483"
@@ -20,6 +27,7 @@
 #define CHR_STATUS_UUID         "f47ac10b-58cc-4372-a567-0e02b2c3d485"
 #define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
 #define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
+#define CHR_BATTERY_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d488"
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -78,6 +86,7 @@ extern uint8_t g_uid[6];
 inline BLEServer *g_ble_server = nullptr;
 inline BLECharacteristic *g_status_chr = nullptr;
 inline BLECharacteristic *g_tx_sniff_chr = nullptr;
+inline BLECharacteristic *g_battery_chr = nullptr;
 inline volatile bool g_ble_connected = false;
 inline volatile uint8_t g_lap_count = 0;
 // Last Test OSD outcome, surfaced via status notify so the iOS pairing
@@ -216,6 +225,28 @@ inline void ble_notify_tx_uid(const uint8_t uid[6]) {
     g_tx_sniff_chr->notify();
 }
 
+/// Push the latest battery payload to the iOS app. Caller (main.cpp) is
+/// responsible for the change-gate; this helper just mirrors the bytes
+/// to the BLE notify channel. The 2-byte payload format is documented in
+/// `battery_monitor.h::payload`.
+inline void ble_update_battery(const uint8_t payload[2]) {
+    if (!g_battery_chr) {
+        // Reachable if `createCharacteristic` returned nullptr at boot
+        // (numHandles overflow regression — see `ble_init` for the trap
+        // we already hit once). Logging once-per-boot surfaces a future
+        // GATT setup regression that would otherwise silently drop every
+        // battery push; matches the project's "fail loud" convention.
+        static bool warned = false;
+        if (!warned) {
+            Serial.println("ble_update_battery: g_battery_chr is null (GATT setup failed?)");
+            warned = true;
+        }
+        return;
+    }
+    g_battery_chr->setValue(const_cast<uint8_t *>(payload), 2);
+    g_battery_chr->notify();
+}
+
 class OSDControlCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
@@ -284,7 +315,13 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
     g_ble_server = BLEDevice::createServer();
     g_ble_server->setCallbacks(new ServerCallbacks());
 
-    BLEService *pService = g_ble_server->createService(BLE_SERVICE_UUID);
+    // numHandles must cover `1 (service decl) + 2 per characteristic +
+    // 1 per BLE2902 descriptor`. createService() defaults to 15 and then
+    // silently drops overflow characteristics — last visible symptom was
+    // iOS only seeing 5 of 8 chars after we added battery / TX sniff.
+    // 32 leaves comfortable headroom; recompute and bump if a future GATT
+    // addition pushes the count past ~28.
+    BLEService *pService = g_ble_server->createService(BLEUUID(BLE_SERVICE_UUID), 32, 0);
 
     BLECharacteristic *pUID = pService->createCharacteristic(
         CHR_UID_CONFIG_UUID, BLECharacteristic::PROPERTY_WRITE);
@@ -316,6 +353,11 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
     g_tx_sniff_chr->addDescriptor(new BLE2902());
     g_tx_sniff_chr->setCallbacks(new TXSniffCallback());
+
+    g_battery_chr = pService->createCharacteristic(
+        CHR_BATTERY_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+    g_battery_chr->addDescriptor(new BLE2902());
 
     pService->start();
 
