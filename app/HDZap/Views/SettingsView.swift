@@ -127,65 +127,73 @@ struct SettingsView: View {
 
     private var bluetoothSection: some View {
         Section("Bluetooth") {
-            HStack {
-                Text("Status")
-                Spacer()
-                Circle()
-                    .fill(bluetooth.isConnected ? .green : .red)
-                    .frame(width: 10, height: 10)
-                Text(bluetooth.isConnected ? "Connected" : "Disconnected")
-                    .foregroundStyle(.secondary)
-            }
-
+            // Connected peripheral row — green dot doubles as status.
+            // Skipped only when name is missing (sub-second window between
+            // didConnect and didDiscoverServices); the identifier-based
+            // filter below still hides this peripheral from the discovered
+            // list so it never appears twice.
             if bluetooth.isConnected, let name = bluetooth.connectedDeviceName {
                 HStack {
-                    Text("Device")
-                    Spacer()
-                    Text(name).foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 12) {
-                Button(bluetooth.isScanning ? "Scanning..." : "Scan") {
-                    bluetooth.startScan()
-                }
-                .disabled(bluetooth.isScanning)
-
-                if bluetooth.isConnected {
-                    Button("Disconnect", role: .destructive) {
-                        bluetooth.disconnect()
-                    }
-                }
-            }
-
-            if bluetooth.discoveredDevices.isEmpty {
-                Text("No devices found")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(bluetooth.discoveredDevices, id: \.identifier) { peripheral in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(peripheral.name ?? "Unknown")
-                                .font(.body)
-                            Text(peripheral.identifier.uuidString.prefix(8) + "...")
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 10, height: 10)
+                    VStack(alignment: .leading) {
+                        Text(name).font(.body)
+                        if let id = bluetooth.connectedIdentifier {
+                            Text(id.uuidString.prefix(8) + "...")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Button("Connect") {
-                            bluetooth.connect(peripheral)
-                        }
-                        .buttonStyle(.bordered)
                     }
+                    Spacer()
+                    Button("Disconnect", role: .destructive) {
+                        bluetooth.disconnect()
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
+
+            // Discovered peripherals minus the currently-connected one.
+            let others = bluetooth.discoveredDevices
+                .filter { $0.identifier != bluetooth.connectedIdentifier }
+            ForEach(others, id: \.identifier) { peripheral in
+                HStack {
+                    Circle()
+                        .stroke(.secondary, lineWidth: 1)
+                        .frame(width: 10, height: 10)
+                    VStack(alignment: .leading) {
+                        Text(peripheral.name ?? "Unknown").font(.body)
+                        Text(peripheral.identifier.uuidString.prefix(8) + "...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Connect") {
+                        bluetooth.connect(peripheral)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            // Empty hint — only when nothing is connected and no peripherals
+            // are listed. Once anything appears (connected or discovered),
+            // the hint would be redundant.
+            if !bluetooth.isConnected && others.isEmpty {
+                Text("No devices found. Tap Scan to search.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(bluetooth.isScanning ? "Scanning…" : "Scan") {
+                bluetooth.startScan()
+            }
+            .disabled(bluetooth.isScanning)
         }
     }
 
     private var raceSection: some View {
         Section {
-            Stepper(value: $raceSessionLimit, in: 60...180, step: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Race time")
                     Spacer()
@@ -193,6 +201,14 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
+                Slider(
+                    value: Binding(
+                        get: { Double(raceSessionLimit) },
+                        set: { raceSessionLimit = Int($0.rounded()) }
+                    ),
+                    in: 60...180,
+                    step: 5
+                )
             }
 
             Stepper(value: $targetLapCount,
@@ -287,11 +303,11 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             case .manualUID:
-                TextField("60:D2:53:8A:B2:00 or 96 210 83 138 178 0", text: $manualUIDText)
+                TextField("96,210,83,138,178,0 or 60:D2:53:8A:B2:00", text: $manualUIDText)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.body.monospaced())
-                Text("Hex matches the iOS/M5Stick display; decimal matches what HDZero goggles show.")
+                Text("Decimal matches what HDZero goggles and the M5Stick LCD show; hex matches MAC tools.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 if !manualUIDText.isEmpty {
@@ -465,15 +481,33 @@ struct SettingsView: View {
     private var osdTestSection: some View {
         Section("Debug") {
             Button("Send Test OSD") {
-                // Fire-and-forget: failure is surfaced via `lastError` set
-                // inside `BluetoothManager.write()`, so no extra handling
-                // is needed here. The button is just an operator probe.
-                _ = bluetooth.sendOSDControl(command: .testOSD)
+                // Send the iPhone's current time so each press visibly
+                // changes on the goggle — easier to confirm packets are
+                // landing than a fixed string that might already be on
+                // screen from a prior press.
+                let now = Date()
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.dateFormat = "yyyy-MM-dd"
+                let dateStr = f.string(from: now)
+                f.dateFormat = "HH:mm:ss"
+                let timeStr = f.string(from: now)
+                let ms = Int((now.timeIntervalSince1970 * 1000).rounded()) % 1000
+                _ = bluetooth.sendOSDText(lines: [
+                    "TEST OSD",
+                    dateStr,
+                    "\(timeStr).\(String(format: "%03d", ms))",
+                ])
             }
             .disabled(!bluetooth.isReady)
-            Text("Fires one 'HDZERO TEST' message at the goggle OSD. M5Stick strip shows TEST OK / TEST LOST based on ESP-NOW delivery.")
+            Text("Sends the current iPhone time to the goggle OSD. Each press shows a different value, so it's obvious when packets land.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+            Button("Clear OSD", role: .destructive) {
+                _ = bluetooth.sendOSDControl(command: .clear)
+            }
+            .disabled(!bluetooth.isReady)
         }
     }
 

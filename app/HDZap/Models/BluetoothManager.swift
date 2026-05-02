@@ -39,6 +39,10 @@ class BluetoothManager: NSObject {
 
     private(set) var discoveredDevices: [CBPeripheral] = []
     private(set) var connectedDeviceName: String?
+    /// Identifier of the currently-connected peripheral, if any.
+    /// Lets the UI deduplicate the discovered-devices list against the
+    /// active connection without exposing the full `CBPeripheral`.
+    var connectedIdentifier: UUID? { connectedPeripheral?.identifier }
     private(set) var currentUID: [UInt8]?
     private(set) var lapCount: UInt8 = 0
     /// Latest Test OSD outcome from the firmware status notify.
