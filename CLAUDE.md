@@ -33,7 +33,8 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - ESP-NOW max 10 packets per OSD cycle (clear + 8 writes + draw)
 - OSD grid: 50x18, lowercase ASCII maps to FPV glyphs (auto-uppercase in osd.h)
 - BLE UUIDs must match between firmware (ble_service.h) and iOS (BluetoothManager.swift)
-- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d479`
+- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489` (bumped from `…d479` to defeat iOS CoreBluetooth's per-peripheral GATT cache when Battery was added)
+- `BLEServer::createService()` requires explicit `numHandles` (currently 32) — default 15 silently truncates overflow characteristics, last visible symptom was iOS only seeing 5 of 8 chars
 - Bind phrase UID derivation: MD5(`-DMY_BINDING_PHRASE="<phrase>"`), first 6 bytes, bit0 cleared
 - VTX not required for backpack OSD display
 - Binding overwrites existing UID — scenarios 1 & 2 avoid this by reusing existing UID

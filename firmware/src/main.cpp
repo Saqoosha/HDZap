@@ -8,12 +8,14 @@
 #include "osd_text_display.h"
 #include "nvs_store.h"
 #include "ble_service.h" // includes tx_sniff.h transitively
+#include "battery_monitor.h"
 
 uint8_t g_uid[6] = {};
 static OSD osd;
 static LapDisplay lapDisplay;
 static OSDTextDisplay osdTextDisplay;
 static StickDisplay stickDisplay;
+static BatteryMonitor batteryMonitor;
 static bool last_ble_state = false;
 static bool espnow_ready = false;
 
@@ -131,6 +133,7 @@ static void applyStagedUid() {
 
 void setup() {
     stickDisplay.begin();
+    batteryMonitor.begin();
     Serial.begin(115200);
     delay(500); // Wait for USB CDC serial to enumerate before first println.
     Serial.println("\n=== HDZero OSD Lap Timer ===");
@@ -168,9 +171,80 @@ void setup() {
 void loop() {
     stickDisplay.update();
 
+    // --- Battery monitor -------------------------------------------------
+    // Throttled internally to ~5 s; button state is fresh from M5.update()
+    // inside stickDisplay.update(). The monitor itself is side-effect free
+    // (no LCD writes, no BLE writes, no audio); we drive all three from here
+    // so heavy work stays in the main loop, mirroring the rest of the
+    // firmware's "callbacks stage flags, loop owns I/O" split.
+    {
+        uint32_t bnow = millis();
+        // Poll before reacting to button input: a press that happens to
+        // fall in the same loop iteration as a tier transition should
+        // silence the *new* tier the operator can see on the LCD, not
+        // the stale (typically None) tier from the previous poll.
+        BatteryMonitor::PollResult bres = batteryMonitor.poll(bnow);
+        if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed()) {
+            batteryMonitor.silence();
+        }
+        bool silenceDirty = batteryMonitor.consumeSilencedDirty();
+        if (bres.stateChanged || silenceDirty) {
+            stickDisplay.setBattery(batteryMonitor.percent(), batteryMonitor.charging());
+            uint8_t buf[2];
+            batteryMonitor.payload(buf);
+            ble_update_battery(buf);
+        }
+        if (bres.tierChanged) {
+            switch (batteryMonitor.tier()) {
+                case BatteryMonitor::Tier::None: {
+                    // Recovery (charging plug-in or rise above hysteresis)
+                    // clears the alarm sticky — but only when the battery
+                    // message is still the one on screen. A radio / render
+                    // failure may have overwritten our message in between,
+                    // and those systems don't always re-raise on their next
+                    // tick (e.g. NVS_SAVE_FAIL is one-shot), so blindly
+                    // clearing here would silently lose unrelated state.
+                    const char* cur = stickDisplay.currentMessage();
+                    if (cur[0] && (strcmp(cur, "BATTERY LOW") == 0 ||
+                                   strcmp(cur, "BATTERY CRITICAL") == 0)) {
+                        stickDisplay.clearMessage();
+                    }
+                    break;
+                }
+                case BatteryMonitor::Tier::Low:
+                    stickDisplay.showMessage("BATTERY LOW", stickDisplay.colorWarn());
+                    break;
+                case BatteryMonitor::Tier::Critical:
+                    stickDisplay.showMessage("BATTERY CRITICAL", stickDisplay.colorErr());
+                    break;
+            }
+        }
+        if (batteryMonitor.consumeBeepDue(bnow)) {
+            BatteryMonitor::Tier t = batteryMonitor.tier();
+            // M5Unified Speaker_Class::tone returns false on a queue-full /
+            // unsupported channel. consumeBeepDue already burned the cadence
+            // slot, so a missed tone goes silent for the next full period
+            // unless we surface it.
+            bool ok = M5.Speaker.tone(BatteryMonitor::beepFrequency(t),
+                                      BatteryMonitor::beepDurationMs(t));
+            if (!ok) {
+                Serial.println("Battery alarm tone FAILED (speaker queue full or unavailable)");
+            }
+        }
+    }
+
     if (g_ble_connected != last_ble_state) {
         last_ble_state = g_ble_connected;
         stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
+        // Push the current battery snapshot on every connect edge so a
+        // newly-paired iOS gets a value immediately, not on the next poll
+        // delta. Without this the first 5 s after connect leave the iOS
+        // row stuck on "—" because notify only fires on state change.
+        if (g_ble_connected) {
+            uint8_t buf[2];
+            batteryMonitor.payload(buf);
+            ble_update_battery(buf);
+        }
     }
 
     if (g_uid_config_requested) {

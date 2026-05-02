@@ -151,6 +151,21 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+
+                // Battery row sits adjacent to its source-of-truth — the
+                // connected peripheral row above. Putting it after Scan
+                // would visually group it with "find new devices" controls
+                // instead of the device-state cluster.
+                HStack {
+                    batteryDot
+                    VStack(alignment: .leading) {
+                        Text("Battery").font(.body)
+                        Text(batteryCaption)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
             }
 
             // Discovered peripherals minus the currently-connected one.
@@ -561,6 +576,57 @@ struct SettingsView: View {
     }
 
     // MARK: - Logic
+
+    /// Stroke when the firmware hasn't yet pushed a battery frame
+    /// (e.g. older firmware without `batteryUUID`); filled disc otherwise.
+    /// Matches the connected/discovered peripheral row idiom.
+    @ViewBuilder
+    private var batteryDot: some View {
+        if bluetooth.batteryPercent == nil {
+            Circle()
+                .stroke(.secondary, lineWidth: 1)
+                .frame(width: 10, height: 10)
+        } else {
+            Circle()
+                .fill(batteryDotColor)
+                .frame(width: 10, height: 10)
+        }
+    }
+
+    private var batteryDotColor: Color {
+        // Charging overrides everything — operator sees the cyan as soon as
+        // they plug the stick in, regardless of the percent at that moment.
+        if bluetooth.isCharging { return .cyan }
+        switch bluetooth.batteryAlarm {
+        case .critical: return .red
+        case .low: return .orange
+        case .none:
+            // Mirrors the firmware widget thresholds so the LCD and the
+            // SwiftUI row never disagree on color.
+            guard let pct = bluetooth.batteryPercent else { return .secondary }
+            if pct < 20 { return .red }
+            if pct < 40 { return .orange }
+            return .green
+        }
+    }
+
+    private var batteryCaption: String {
+        guard let pct = bluetooth.batteryPercent else { return "—" }
+        let pctStr = "\(pct)%"
+        if bluetooth.isCharging { return "\(pctStr) · Charging" }
+        switch bluetooth.batteryAlarm {
+        case .critical:
+            return bluetooth.batterySilenced
+                ? "\(pctStr) · Critical (silenced)"
+                : "\(pctStr) · Critical — press button on device to silence"
+        case .low:
+            return bluetooth.batterySilenced
+                ? "\(pctStr) · Low (silenced)"
+                : "\(pctStr) · Low — press button on device to silence"
+        case .none:
+            return pctStr
+        }
+    }
 
     private var canApplyUID: Bool {
         guard bluetooth.isReady else { return false }
