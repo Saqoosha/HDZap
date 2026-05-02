@@ -17,6 +17,7 @@ private let lapTimeUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d483")
 private let osdControlUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d484")
 private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
+private let osdTextUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d487")
 
 @MainActor
 @Observable
@@ -33,6 +34,7 @@ class BluetoothManager: NSObject {
         isConnected
             && characteristics[lapTimeUUID] != nil
             && characteristics[osdControlUUID] != nil
+            && characteristics[osdTextUUID] != nil
     }
 
     private(set) var discoveredDevices: [CBPeripheral] = []
@@ -272,6 +274,21 @@ class BluetoothManager: NSObject {
     }
 
     @discardableResult
+    func sendOSDText(lines: [String]) -> Bool {
+        guard lines.count == 3 else {
+            lastError = "OSD text needs exactly 3 rows, got \(lines.count)."
+            return false
+        }
+
+        for (row, line) in lines.enumerated() {
+            var data = Data([UInt8(row)])
+            data.append(Self.osdASCIIData(for: line))
+            guard write(data: data, to: osdTextUUID) else { return false }
+        }
+        return true
+    }
+
+    @discardableResult
     func sendOSDControl(command: OSDCommand) -> Bool {
         write(data: Data([command.rawValue]), to: osdControlUUID)
     }
@@ -306,6 +323,13 @@ class BluetoothManager: NSObject {
         }
         peripheral.writeValue(data, for: characteristic, type: .withResponse)
         return true
+    }
+
+    private static func osdASCIIData(for line: String) -> Data {
+        let ascii = line.uppercased().unicodeScalars.map { scalar -> UInt8 in
+            scalar.isASCII ? UInt8(scalar.value) : 63
+        }
+        return Data(ascii.prefix(RaceMetrics.osdRowMaxBytes))
     }
 }
 
@@ -419,7 +443,7 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID, txSniffUUID
+            uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID
         ], for: service)
     }
 
@@ -447,7 +471,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         // firmware/app version skew — surface that directly.
         // txSniffUUID is intentionally excluded — it's optional (older firmware
         // won't advertise it) and its absence doesn't block core functionality.
-        let expected: [CBUUID] = [uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID]
+        let expected: [CBUUID] = [uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID, osdTextUUID]
         let missing = expected.filter { characteristics[$0] == nil }
         if !missing.isEmpty {
             let names = missing.map(characteristicName).joined(separator: ", ")
@@ -568,6 +592,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         case osdControlUUID: return "OSD control"
         case statusUUID: return "Status"
         case txSniffUUID: return "TX sniff"
+        case osdTextUUID: return "OSD text"
         default: return uuid.uuidString
         }
     }
