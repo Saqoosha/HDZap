@@ -16,9 +16,12 @@ struct PendingApply: Identifiable {
     let resolvedUID: [UInt8]?
 }
 
-struct ConnectionView: View {
+struct SettingsView: View {
     @Environment(BluetoothManager.self) private var bluetooth
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
+    @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
+    @AppStorage("accentHue") private var accentHue: Double = EditorialTheme.defaultAccentHue
 
     @State private var selectedMode: UIDConfigMode = .bindPhrase
     @State private var bindPhrase = ""
@@ -54,19 +57,22 @@ struct ConnectionView: View {
         NavigationStack {
             List {
                 errorSection
-                bleStatusSection
-                discoveredDevicesSection
-                gogglePairingSection
-                pairingStatusSection
+                raceSection
+                appearanceSection
+                bluetoothSection
                 currentUIDSection
+                pairingSection
                 txSniffSection
                 osdTestSection
             }
-            .navigationTitle("Connection")
+            .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .onAppear {
+                clampTargetLapCountSetting()
             }
             .alert(applyAlertTitle, isPresented: applyAlertBinding, presenting: pendingApply) { pending in
                 Button("Cancel", role: .cancel) { pendingApply = nil }
@@ -119,68 +125,164 @@ struct ConnectionView: View {
         }
     }
 
-    private var bleStatusSection: some View {
+    private var bluetoothSection: some View {
         Section("Bluetooth") {
-            HStack {
-                Text("Status")
-                Spacer()
-                Circle()
-                    .fill(bluetooth.isConnected ? .green : .red)
-                    .frame(width: 10, height: 10)
-                Text(bluetooth.isConnected ? "Connected" : "Disconnected")
-                    .foregroundStyle(.secondary)
-            }
-
+            // Connected peripheral row — green dot doubles as status.
+            // Skipped only when name is missing (sub-second window between
+            // didConnect and didDiscoverServices); the identifier-based
+            // filter below still hides this peripheral from the discovered
+            // list so it never appears twice.
             if bluetooth.isConnected, let name = bluetooth.connectedDeviceName {
                 HStack {
-                    Text("Device")
-                    Spacer()
-                    Text(name).foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 12) {
-                Button(bluetooth.isScanning ? "Scanning..." : "Scan") {
-                    bluetooth.startScan()
-                }
-                .disabled(bluetooth.isScanning)
-
-                if bluetooth.isConnected {
-                    Button("Disconnect", role: .destructive) {
-                        bluetooth.disconnect()
-                    }
-                }
-            }
-        }
-    }
-
-    private var discoveredDevicesSection: some View {
-        Section("Discovered Devices") {
-            if bluetooth.discoveredDevices.isEmpty {
-                Text("No devices found")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(bluetooth.discoveredDevices, id: \.identifier) { peripheral in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(peripheral.name ?? "Unknown")
-                                .font(.body)
-                            Text(peripheral.identifier.uuidString.prefix(8) + "...")
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 10, height: 10)
+                    VStack(alignment: .leading) {
+                        Text(name).font(.body)
+                        if let id = bluetooth.connectedIdentifier {
+                            Text(id.uuidString.prefix(8) + "...")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Button("Connect") {
-                            bluetooth.connect(peripheral)
-                        }
-                        .buttonStyle(.bordered)
                     }
+                    Spacer()
+                    Button("Disconnect", role: .destructive) {
+                        bluetooth.disconnect()
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
+
+            // Discovered peripherals minus the currently-connected one.
+            let others = bluetooth.discoveredDevices
+                .filter { $0.identifier != bluetooth.connectedIdentifier }
+            ForEach(others, id: \.identifier) { peripheral in
+                HStack {
+                    Circle()
+                        .stroke(.secondary, lineWidth: 1)
+                        .frame(width: 10, height: 10)
+                    VStack(alignment: .leading) {
+                        Text(peripheral.name ?? "Unknown").font(.body)
+                        Text(peripheral.identifier.uuidString.prefix(8) + "...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Connect") {
+                        bluetooth.connect(peripheral)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            // Empty hint — only when nothing is connected and no peripherals
+            // are listed. Once anything appears (connected or discovered),
+            // the hint would be redundant.
+            if !bluetooth.isConnected && others.isEmpty {
+                Text("No devices found. Tap Scan to search.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(bluetooth.isScanning ? "Scanning…" : "Scan") {
+                bluetooth.startScan()
+            }
+            .disabled(bluetooth.isScanning)
         }
     }
 
-    private var gogglePairingSection: some View {
+    private var raceSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Race time")
+                    Spacer()
+                    Text("\(raceSessionLimit)s")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(
+                    value: Binding(
+                        get: { Double(raceSessionLimit) },
+                        set: { raceSessionLimit = Int($0.rounded()) }
+                    ),
+                    in: 60...180,
+                    step: 5
+                )
+            }
+
+            Stepper(value: $targetLapCount,
+                    in: RaceMetrics.minTargetLapCount...RaceMetrics.maxTargetLapCount) {
+                HStack {
+                    Text("Target lap")
+                    Spacer()
+                    Text("\(RaceMetrics.clampedTargetLapCount(targetLapCount))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+
+            HStack {
+                Text("Target pace")
+                Spacer()
+                Text("\(RaceMetrics.seconds(RaceMetrics.targetLapSeconds(for: targetLapCount, sessionLimit: TimeInterval(raceSessionLimit)), decimals: 2))s")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        } header: {
+            Text("Race")
+        } footer: {
+            Text("Target pace is race time ÷ (target lap − 1).")
+                .font(.caption2)
+        }
+    }
+
+    private var appearanceSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Highlight color")
+                    Spacer()
+                    Text("\(Int(accentHue.rounded()))°")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $accentHue, in: 0...360, step: 1)
+                    .tint(EditorialTheme.accent(hue: accentHue))
+
+                LinearGradient(
+                    colors: stride(from: 0.0, through: 360.0, by: 30.0).map {
+                        EditorialTheme.accent(hue: $0)
+                    },
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .clipShape(.capsule)
+                .frame(height: 8)
+
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(EditorialTheme.accent(hue: accentHue))
+                        .frame(width: 14, height: 14)
+                    Text("Best lap")
+                        .foregroundStyle(EditorialTheme.accent(hue: accentHue))
+                        .font(.system(.body, design: .monospaced))
+                    Spacer()
+                    Button("Reset") { accentHue = EditorialTheme.defaultAccentHue }
+                        .buttonStyle(.bordered)
+                }
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text("Hue used for the live timer, best-lap marker, and split highlights.")
+                .font(.caption2)
+        }
+    }
+
+    private var pairingSection: some View {
         Section {
             Picker("Mode", selection: $selectedMode) {
                 Text("Bind Phrase").tag(UIDConfigMode.bindPhrase)
@@ -201,11 +303,11 @@ struct ConnectionView: View {
                         .foregroundStyle(.secondary)
                 }
             case .manualUID:
-                TextField("60:D2:53:8A:B2:00 or 96 210 83 138 178 0", text: $manualUIDText)
+                TextField("96,210,83,138,178,0 or 60:D2:53:8A:B2:00", text: $manualUIDText)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.body.monospaced())
-                Text("Hex matches the iOS/M5Stick display; decimal matches what HDZero goggles show.")
+                Text("Decimal matches what HDZero goggles and the M5Stick LCD show; hex matches MAC tools.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 if !manualUIDText.isEmpty {
@@ -257,8 +359,13 @@ struct ConnectionView: View {
                 }
                 .disabled(!bluetooth.isReady)
             }
+
+            // In-section status banner — shown only while a pairing flow is active.
+            if pairingPhase != .idle {
+                pairingStatusContent
+            }
         } header: {
-            Text("Goggle Pairing")
+            Text("Pairing")
         } footer: {
             // Why this matters: the most common "I tried New Pairing
             // and now nothing works" cause is the goggle's backpack
@@ -280,30 +387,34 @@ struct ConnectionView: View {
     private var currentUIDSection: some View {
         if let uid = bluetooth.currentUID {
             Section("Current UID") {
-                Text(formatUID(uid))
-                    .font(.body.monospaced())
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(formatUIDDecimal(uid))
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                    Text(formatUID(uid))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
 
                 // One-tap rollback: only show when we have a stash
                 // AND it differs from the current UID. The latter
                 // condition prevents the button from sticking around
-                // after the user has already restored (current would
-                // then equal previousUID).
+                // after the user has already restored.
                 if let prev = bluetooth.previousUID, prev != uid {
                     Button {
-                        // Only drop the rollback target if the BLE write
-                        // actually went out — otherwise keep it so the user
-                        // can retry once the link recovers. `lastError` is
-                        // already set by the failed write.
                         if bluetooth.sendUIDConfig(mode: .manualUID(prev)) {
                             bluetooth.recordPreviousUID(nil)
                         }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Restore previous goggle")
-                            Text(formatUID(prev))
+                            Text(formatUIDDecimal(prev))
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
+                            Text(formatUID(prev))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary.opacity(0.7))
                         }
                     }
                 }
@@ -311,50 +422,63 @@ struct ConnectionView: View {
         }
     }
 
-    @ViewBuilder
     private var txSniffSection: some View {
-        if bluetooth.isConnected && bluetooth.isTXSniffAvailable {
-            Section {
-                if bluetooth.isTXSniffActive {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Waiting for TX bind packet…")
-                            .foregroundStyle(.secondary)
-                    }
-                    Button("Stop", role: .destructive) {
-                        _ = bluetooth.stopTXSniff()
-                    }
-                } else {
-                    Button("Start TX UID Capture") {
-                        bluetooth.clearCapturedTXUID()
-                        _ = bluetooth.startTXSniff()
-                    }
-                }
+        Section {
+            txSniffContent
+        } header: {
+            Text("TX UID Capture")
+        } footer: {
+            Text("Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected.")
+                .font(.caption2)
+        }
+    }
 
-                if let uid = bluetooth.capturedTXUID {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Captured TX UID")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(formatUID(uid))
-                                .font(.body.monospaced())
-                                .textSelection(.enabled)
-                        }
-                        Spacer()
-                        Button("Apply") {
-                            bluetooth.recordPreviousUID(bluetooth.currentUID)
-                            _ = bluetooth.sendUIDConfig(mode: .manualUID(uid))
-                            _ = bluetooth.stopTXSniff()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
+    @ViewBuilder
+    private var txSniffContent: some View {
+        if bluetooth.isTXSniffActive {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Waiting for TX bind packet…")
+                    .foregroundStyle(.secondary)
+            }
+            Button("Stop", role: .destructive) {
+                _ = bluetooth.stopTXSniff()
+            }
+        } else {
+            Button("Start TX UID Capture") {
+                bluetooth.clearCapturedTXUID()
+                _ = bluetooth.startTXSniff()
+            }
+            .disabled(!bluetooth.isConnected)
+        }
+
+        if let uid = bluetooth.capturedTXUID {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Captured TX UID")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(formatUIDDecimal(uid))
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                    Text(formatUID(uid))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
-            } header: {
-                Text("TX UID Capture")
-            } footer: {
-                Text("Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected.")
-                    .font(.caption2)
+                Spacer()
+                Button("Apply") {
+                    // Stop the sniff first so a stray Bind packet during
+                    // the alert doesn't overwrite `capturedTXUID`. The
+                    // Apply itself routes through the same pendingApply
+                    // alert as Manual UID — without it the operator can
+                    // accidentally change pairings with a single tap and
+                    // not realise lap times stopped reaching the goggle.
+                    _ = bluetooth.stopTXSniff()
+                    pendingApply = PendingApply(mode: .manualUID(uid), resolvedUID: uid)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!bluetooth.isReady)
             }
         }
     }
@@ -362,69 +486,77 @@ struct ConnectionView: View {
     private var osdTestSection: some View {
         Section("Debug") {
             Button("Send Test OSD") {
-                // Fire-and-forget: failure is surfaced via `lastError` set
-                // inside `BluetoothManager.write()`, so no extra handling
-                // is needed here. The button is just an operator probe.
-                _ = bluetooth.sendOSDControl(command: .testOSD)
+                // Send the iPhone's current time so each press visibly
+                // changes on the goggle — easier to confirm packets are
+                // landing than a fixed string that might already be on
+                // screen from a prior press.
+                let now = Date()
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.dateFormat = "yyyy-MM-dd"
+                let dateStr = f.string(from: now)
+                f.dateFormat = "HH:mm:ss"
+                let timeStr = f.string(from: now)
+                let ms = Int((now.timeIntervalSince1970 * 1000).rounded()) % 1000
+                _ = bluetooth.sendOSDText(lines: [
+                    "TEST OSD",
+                    dateStr,
+                    "\(timeStr).\(String(format: "%03d", ms))",
+                ])
             }
             .disabled(!bluetooth.isReady)
-            Text("Fires one 'HDZERO TEST' message at the goggle OSD. M5Stick strip shows TEST OK / TEST LOST based on ESP-NOW delivery.")
+            Text("Sends the current iPhone time to the goggle OSD. Each press shows a different value, so it's obvious when packets land.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+            Button("Clear OSD", role: .destructive) {
+                _ = bluetooth.sendOSDControl(command: .clear)
+            }
+            .disabled(!bluetooth.isReady)
         }
     }
 
     @ViewBuilder
-    private var pairingStatusSection: some View {
-        if pairingPhase != .idle {
-            Section {
-                switch pairingPhase {
-                case .idle:
-                    EmptyView()
-                case .applying:
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Switching pairing… waiting for goggle to settle.")
-                    }
-                case .verifying:
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Verifying lap times can reach the goggle…")
-                    }
-                case .success:
-                    Label("Pairing works — lap times will appear on this goggle.",
-                          systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                case .rolledBack:
-                    Label("Goggle didn't accept the new pairing. Restored the previous one.",
-                          systemImage: "arrow.uturn.backward.circle.fill")
-                        .foregroundStyle(.orange)
-                case .failedNoRollback:
-                    Label("Goggle didn't accept the new pairing, and there was no previous pairing to fall back to.",
-                          systemImage: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                case .verifyFailedSameUID:
-                    Label("Goggle didn't ack the verify packet, but the pairing on the M5Stick is unchanged — try again, or move closer to the goggle.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                case .timedOut:
-                    // Suffix only when there's actually a Restore button on
-                    // screen — promising it otherwise just confuses the
-                    // user. `currentUIDSection` itself hides when
-                    // `currentUID == nil` (status notify hasn't arrived,
-                    // or arrived with an error and was cleared), so the
-                    // suffix predicate must mirror that.
-                    let restoreVisible = bluetooth.currentUID != nil
-                        && bluetooth.previousUID != nil
-                        && bluetooth.previousUID != bluetooth.currentUID
-                    let restoreHint = restoreVisible
-                        ? " — try again, or use Restore previous goggle."
-                        : " — try again."
-                    Label("No verification result. The M5Stick may be disconnected\(restoreHint)",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
+    private var pairingStatusContent: some View {
+        switch pairingPhase {
+        case .idle:
+            EmptyView()
+        case .applying:
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Switching pairing… waiting for goggle to settle.")
             }
+        case .verifying:
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Verifying lap times can reach the goggle…")
+            }
+        case .success:
+            Label("Pairing works — lap times will appear on this goggle.",
+                  systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .rolledBack:
+            Label("Goggle didn't accept the new pairing. Restored the previous one.",
+                  systemImage: "arrow.uturn.backward.circle.fill")
+                .foregroundStyle(.orange)
+        case .failedNoRollback:
+            Label("Goggle didn't accept the new pairing, and there was no previous pairing to fall back to.",
+                  systemImage: "xmark.circle.fill")
+                .foregroundStyle(.red)
+        case .verifyFailedSameUID:
+            Label("Goggle didn't ack the verify packet, but the pairing on the M5Stick is unchanged — try again, or move closer to the goggle.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        case .timedOut:
+            let restoreVisible = bluetooth.currentUID != nil
+                && bluetooth.previousUID != nil
+                && bluetooth.previousUID != bluetooth.currentUID
+            let restoreHint = restoreVisible
+                ? " — try again, or use Restore previous goggle."
+                : " — try again."
+            Label("No verification result. The M5Stick may be disconnected\(restoreHint)",
+                  systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
         }
     }
 
@@ -438,6 +570,13 @@ struct ConnectionView: View {
             if case .success = parseUID(manualUIDText) { return true }
             return false
         case .newPairing: return true
+        }
+    }
+
+    private func clampTargetLapCountSetting() {
+        let clamped = RaceMetrics.clampedTargetLapCount(targetLapCount)
+        if targetLapCount != clamped {
+            targetLapCount = clamped
         }
     }
 

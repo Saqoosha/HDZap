@@ -13,10 +13,30 @@ enum EditorialTheme {
     static let dim = ink.opacity(0.32)
     static let hair = ink.opacity(0.10)
     static let hairStrong = ink.opacity(0.18)
-    static let accent = Color(red: 0xdb / 255.0, green: 0x65 / 255.0, blue: 0xa9 / 255.0)
+    /// OKLCH lightness for the accent. Fixed; only hue is user-adjustable.
+    static let accentL: Double = 0.66
+    /// OKLCH chroma for the accent. Fixed.
+    static let accentC: Double = 0.14
+    /// Default accent hue in degrees — derived from the legacy pink #DB65A9.
+    static let defaultAccentHue: Double = 356.0
 
-    /// Time-attack window. Final lap is the one in flight when this elapses.
-    static let sessionLimit: TimeInterval = 90
+    /// Resolve the accent color for a given hue (degrees).
+    static func accent(hue: Double) -> Color {
+        oklchColor(L: accentL, C: accentC, H: hue)
+    }
+}
+
+private struct AccentHueKey: EnvironmentKey {
+    static let defaultValue: Double = EditorialTheme.defaultAccentHue
+}
+
+extension EnvironmentValues {
+    /// Active accent hue in degrees. Read with `@Environment(\.accentHue)`
+    /// and feed into `EditorialTheme.accent(hue:)` to render.
+    var accentHue: Double {
+        get { self[AccentHueKey.self] }
+        set { self[AccentHueKey.self] = newValue }
+    }
 }
 
 extension Font {

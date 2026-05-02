@@ -37,6 +37,14 @@ func formatUID(_ uid: [UInt8]) -> String {
     uid.map { String(format: "%02X", $0) }.joined(separator: ":")
 }
 
+/// Format a UID as comma-separated decimal bytes — matches what the
+/// HDZero goggle and the M5Stick LCD display (`%u,%u,%u,%u,%u,%u`).
+/// Use this for the "Current UID" headline; pair it with `formatUID`
+/// (hex) as a small caption for cross-checking against MAC tools.
+func formatUIDDecimal(_ uid: [UInt8]) -> String {
+    uid.map { String($0) }.joined(separator: ",")
+}
+
 /// Parse a UID string into the raw 6 bytes the user typed. Accepts two
 /// formats because each corresponds to how a different device displays
 /// the UID:
