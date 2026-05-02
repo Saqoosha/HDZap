@@ -33,7 +33,8 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - ESP-NOW max 10 packets per OSD cycle (clear + 8 writes + draw)
 - OSD grid: 50x18, lowercase ASCII maps to FPV glyphs (auto-uppercase in osd.h)
 - BLE UUIDs must match between firmware (ble_service.h) and iOS (BluetoothManager.swift)
-- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d479`
+- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489` (bumped from `…d479` when the Battery characteristic was added; iOS CoreBluetooth caches GATT per-peripheral for unbonded devices, so a new service UUID is the only reliable cache-invalidation hook short of rebooting the iPhone).
+- `BLEServer::createService()` must be passed an explicit `numHandles` covering `1 (service decl) + 2 per characteristic + 1 per BLE2902 descriptor` — the default of 15 silently truncates overflow characteristics. The call uses 32 for headroom; recompute and bump if a future GATT addition pushes the count past ~28.
 - Bind phrase UID derivation: MD5(`-DMY_BINDING_PHRASE="<phrase>"`), first 6 bytes, bit0 cleared
 - VTX not required for backpack OSD display
 - Binding overwrites existing UID — scenarios 1 & 2 avoid this by reusing existing UID
@@ -48,7 +49,8 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - `tx_sniff.h` — ESP-NOW recv callback for TX UID capture; sniff_start/stop register/unregister the global recv_cb slot; g_sniff_uid + g_sniff_captured guarded by g_sniff_mux
 - `lap_display.h` — lap formatting + OSD rendering. `render()` is idempotent (pulls from in-memory lap history) so retries are safe.
 - `nvs_store.h` — UID persistence, namespace "hdzero"
-- `stick_display.h` — M5StickS3 LCD status display, no business logic
+- `stick_display.h` — M5StickS3 LCD status display, no business logic. Battery widget (top row of UID band, left of BLE pill) is fed by `main.cpp` via `setBattery(percent, charging)`; the display owns layout only.
+- `battery_monitor.h` — AXP2101 percent + charging poll, alarm tier (NONE/LOW/CRITICAL) with hysteresis, silenced-latch + beep cadence. Side-effect free — `main.cpp` consumes its outputs and drives the LCD, BLE notify, and the speaker.
 - `main.cpp` — event loop; consumes staged BLE data under `g_ble_mux`, runs heavy work (NVS, ESP-NOW reinit) outside the BLE task, and hosts the render-retry state machine (`IDLE` → `PENDING` → `WAITING_ACK`). Lap delivery uses MAC-layer feedback from `esp_now_register_send_cb` (counters in `espnow_link.h`) — if any packet in a cycle fails to deliver, `render()` is re-dispatched up to `MAX_RENDER_RETRIES` times (granularity = whole cycle, because mid-cycle failure leaves the OSD buffer partially written). `cancelRender()` drops the cycle when stale state would be rendered (UID change, OSD clear, laps reset).
 
 ## Conventions
@@ -64,3 +66,4 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 
 - Target / current: M5StickS3 (ESP32-S3, 1.14" LCD, 2 buttons, AXP2101 PMIC)
 - Goggle: HDZero with ELRS backpack
+- Buttons: BtnA + BtnB silence the battery low/critical alarm (sticky message stays; tier escalation re-arms beeps). No other firmware feature consumes button input.
