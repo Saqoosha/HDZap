@@ -406,17 +406,14 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
     private var txSniffSection: some View {
-        if bluetooth.isConnected {
-            Section {
-                txSniffContent
-            } header: {
-                Text("TX UID Capture")
-            } footer: {
-                Text("Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected.")
-                    .font(.caption2)
-            }
+        Section {
+            txSniffContent
+        } header: {
+            Text("TX UID Capture")
+        } footer: {
+            Text("Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected.")
+                .font(.caption2)
         }
     }
 
@@ -436,6 +433,7 @@ struct SettingsView: View {
                 bluetooth.clearCapturedTXUID()
                 _ = bluetooth.startTXSniff()
             }
+            .disabled(!bluetooth.isConnected)
         }
 
         if let uid = bluetooth.capturedTXUID {
@@ -459,6 +457,7 @@ struct SettingsView: View {
                     _ = bluetooth.stopTXSniff()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(!bluetooth.isReady)
             }
         }
     }
