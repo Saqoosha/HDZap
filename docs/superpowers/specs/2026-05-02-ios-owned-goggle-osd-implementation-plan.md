@@ -24,15 +24,17 @@ and goggle never disagree.
 
 ## Product Decisions
 
-- The race window stays fixed at 90 seconds.
-- The only setting is target lap count.
-- Target lap seconds are derived from target lap count:
+- The race window is configurable (default 90 s). The settings-view
+  reconstruction in the same release exposes it as a 60–180 s slider
+  (5 s step), persisted via `@AppStorage("raceSessionLimit")`.
+- Target lap count is also a user setting.
+- Target lap seconds are derived from both:
 
 ```text
-targetLapSec = 90 / (targetLapCount - 1)
+targetLapSec = raceSessionLimit / (targetLapCount - 1)
 ```
 
-- Default target lap count is 7.
+- Default target lap count is 7. Default race window is 90 s.
 - Minimum target lap count is 2, because `targetLapCount - 1` must be positive.
 - For target lap count 7, target lap seconds are `90 / (7 - 1) = 15.0`.
 - M5StickS3 does not calculate session metrics.

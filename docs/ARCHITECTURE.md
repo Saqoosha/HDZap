@@ -67,7 +67,7 @@ diff, need, or bank.
 ### TX UID Capture
 
 ```
-Operator taps "Start TX UID Capture" in ConnectionView
+Operator taps "Start TX UID Capture" in SettingsView
   → BluetoothManager.startTXSniff()
   → CoreBluetooth writes [0x01] to TX Sniff characteristic
   → [BLE air gap]
@@ -86,7 +86,7 @@ Pilot presses Bind on TX Backpack
   → [BLE air gap]
   → BluetoothManager.didUpdateValueFor(txSniffUUID):
       capturedTXUID = Array(data)
-  → ConnectionView shows captured UID + Apply button
+  → SettingsView shows captured UID + Apply button
 
 Operator taps "Apply"
   → bluetooth.recordPreviousUID(currentUID)   ← enables Restore if Apply fails
@@ -103,7 +103,7 @@ recv callback also survives them.
 ### UID Configuration
 
 ```
-User selects mode in ConnectionView:
+User selects mode in SettingsView:
 
 Mode 1 — Bind Phrase:
   iPhone: uidFromBindPhrase(phrase)           ← MD5("-DMY_BINDING_PHRASE=\"phrase\"")
@@ -198,14 +198,18 @@ HDZeroLapTimerApp
         │     ├── actions: lapTimer.start/stop/lap/reset
         │     ├── actions: bluetooth.sendOSDText/sendOSDControl
         │     └── embeds: LapListView
-        └── ConnectionView
-              ├── reads: BluetoothManager (isConnected, discoveredDevices, currentUID,
-              │          capturedTXUID, isTXSniffActive, isTXSniffAvailable)
-              ├── owns: targetLapCount @AppStorage setting
+        └── SettingsView
+              ├── reads: BluetoothManager (isConnected, discoveredDevices,
+              │          connectedIdentifier, currentUID, capturedTXUID,
+              │          isTXSniffActive)
+              ├── owns: targetLapCount, raceSessionLimit, accentHue
+              │         @AppStorage settings
               ├── actions: bluetooth.startScan/connect/disconnect
               ├── actions: bluetooth.sendUIDConfig/sendBindCommand
+              ├── actions: bluetooth.sendOSDText/sendOSDControl (Send/Clear test)
               ├── actions: bluetooth.startTXSniff/stopTXSniff/clearCapturedTXUID
-              └── uses: UIDUtils (uidFromBindPhrase, formatUID, parseUID)
+              └── uses: UIDUtils (uidFromBindPhrase, formatUID,
+                        formatUIDDecimal, parseUID, normalizeUID)
 ```
 
 ### State Management

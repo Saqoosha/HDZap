@@ -14,6 +14,18 @@
 
 ---
 
+## What shipped vs. what was planned
+
+The plan below was followed task-by-task. A handful of UX-driven adjustments diverged from the original spec during in-device review; the deviations are intentional and the code is canonical. Notable shifts:
+
+- **TX UID Capture is its own section.** Originally Task 13 merged it into the Pairing section. After running it on hardware that placement made the Pairing footer (the long "if your goggle's backpack was flashed with a fixed bind phrase…" warning) sit between the Apply controls and the TX-Capture controls, which read poorly. Shipped layout: Error / Race / Appearance / Bluetooth / Current UID / Pairing / TX UID Capture / Debug.
+- **Race time is a slider.** Task 10 specified a Stepper. After holding the device the slider felt better — race time is the most-frequently-bumped knob and a 60–180 s slider gives a sense of relative window length the Stepper didn't.
+- **Bluetooth section dedupes.** `BluetoothManager.connectedIdentifier` was added so the connected peripheral renders as a single row (with green dot + Disconnect inline) and is filtered out of the discovered list. The original Task 12 layout showed Status row + Device row + global Disconnect + discovered list, which surfaced the same device name twice.
+- **Send Test OSD now sends the iPhone time.** The fixed "HDZERO TEST" string is the same on every press, which makes it impossible to tell if a press actually landed. The shipped Test button feeds `sendOSDText` with `TEST OSD / yyyy-MM-dd / HH:MM:SS.SSS` so the OSD visibly changes between presses. A Clear OSD button lives next to it.
+- **TX sniff availability flag is gone.** `BluetoothManager.isTXSniffAvailable` was a backwards-compat hatch from when TX sniff was new firmware. Removed for consistency with every other feature, which is gated only on `isConnected`.
+
+---
+
 ## Task 1: Add `formatUIDDecimal` helper
 
 **Files:**

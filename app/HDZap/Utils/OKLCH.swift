@@ -19,6 +19,16 @@ func oklchColor(L: Double, C: Double, H: Double) -> Color {
 
 /// Returns gamma-encoded sRGB in [0, 1]^3.
 func oklchToSRGB(L: Double, C: Double, H: Double) -> (Double, Double, Double) {
+    // Reject non-finite inputs and clamp L to [0, 1] before the
+    // pipeline. A NaN H would propagate through cos/sin to NaN
+    // channels, which SwiftUI then renders as solid black with no
+    // diagnostic — better to fail loud in DEBUG and fall back to
+    // mid-gray in release.
+    guard L.isFinite, C.isFinite, H.isFinite else {
+        assertionFailure("oklchToSRGB given non-finite input L=\(L) C=\(C) H=\(H)")
+        return (0.5, 0.5, 0.5)
+    }
+    let L = min(1, max(0, L))
     var lo: Double = 0
     var hi: Double = max(0, C)
     var (r, g, b) = oklabToLinearSRGB(L: L, a: hi * cos(H * .pi / 180.0), b: hi * sin(H * .pi / 180.0))

@@ -13,7 +13,6 @@ enum OSDCommand: UInt8 {
 private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d479")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
-private let lapTimeUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d483")
 private let osdControlUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d484")
 private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
@@ -32,7 +31,6 @@ class BluetoothManager: NSObject {
     /// during which `write()` would fail with "characteristic not ready".
     var isReady: Bool {
         isConnected
-            && characteristics[lapTimeUUID] != nil
             && characteristics[osdControlUUID] != nil
             && characteristics[osdTextUUID] != nil
     }
@@ -53,14 +51,14 @@ class BluetoothManager: NSObject {
     ///
     /// Bumped each time a fresh status frame arrives, regardless of whether
     /// the value changed. Drives the auto-test+rollback workflow in
-    /// `ConnectionView` — that view tracks a sequence number from
+    /// `SettingsView` — that view tracks a sequence number from
     /// `testResultRevision` so it can ignore stale frames that arrived
     /// before its own pairing attempt.
     enum TestResult: UInt8 { case none = 0, ok = 1, lost = 2 }
     private(set) var lastTestResult: TestResult = .none
     private(set) var testResultRevision: UInt32 = 0
     /// UID we displaced on the most recent Apply attempt. Survives the
-    /// Connection sheet being dismissed (which is why it lives here, not
+    /// Settings sheet being dismissed (which is why it lives here, not
     /// on the view) so the user can return to the sheet later and still
     /// tap Restore — even after a *successful* pairing, since "go back
     /// to my old goggle" is a real workflow.
@@ -270,14 +268,6 @@ class BluetoothManager: NSObject {
     }
 
     @discardableResult
-    func sendLapTime(lapNum: UInt8, timeMs: UInt32) -> Bool {
-        var data = Data([lapNum])
-        var ms = timeMs.littleEndian
-        data.append(Data(bytes: &ms, count: 4))
-        return write(data: data, to: lapTimeUUID)
-    }
-
-    @discardableResult
     func sendOSDText(lines: [String]) -> Bool {
         guard lines.count == 3 else {
             lastError = "OSD text needs exactly 3 rows, got \(lines.count)."
@@ -447,7 +437,7 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID
+            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID
         ], for: service)
     }
 
@@ -475,7 +465,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         // firmware/app version skew — surface that directly.
         // txSniffUUID is intentionally excluded — it's optional (older firmware
         // won't advertise it) and its absence doesn't block core functionality.
-        let expected: [CBUUID] = [uidConfigUUID, bindCommandUUID, lapTimeUUID, osdControlUUID, statusUUID, osdTextUUID]
+        let expected: [CBUUID] = [uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, osdTextUUID]
         let missing = expected.filter { characteristics[$0] == nil }
         if !missing.isEmpty {
             let names = missing.map(characteristicName).joined(separator: ", ")
@@ -592,7 +582,6 @@ extension BluetoothManager: CBPeripheralDelegate {
         switch uuid {
         case uidConfigUUID: return "UID config"
         case bindCommandUUID: return "Bind"
-        case lapTimeUUID: return "Lap time"
         case osdControlUUID: return "OSD control"
         case statusUUID: return "Status"
         case txSniffUUID: return "TX sniff"

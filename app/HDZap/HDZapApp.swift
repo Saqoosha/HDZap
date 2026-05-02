@@ -11,6 +11,9 @@ struct HDZapApp: App {
             "accentHue": EditorialTheme.defaultAccentHue,
             "targetLapCount": RaceMetrics.defaultTargetLapCount,
         ])
+        #if DEBUG
+        _oklchSanityCheck()
+        #endif
     }
 
     var body: some Scene {

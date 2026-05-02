@@ -3,6 +3,8 @@
 Date: 2026-05-02
 Scope: iOS app (`app/HDZap`) only. No firmware changes.
 
+> **Status:** the implementation diverged from this design in a few UX-driven ways during in-device review. The plan doc (`../plans/2026-05-02-settings-view-reconstruction.md`) has the "what shipped vs. what was planned" addendum at the top — read that for the canonical shipped layout. Highlights: TX UID Capture is its own section (not merged into Pairing); Race time is a Slider (not a Stepper); Bluetooth section dedupes the connected peripheral via a new `connectedIdentifier`; Send Test OSD now sends the iPhone time so each press visibly changes.
+
 ## Goals
 
 Reconstruct the iOS settings sheet (currently `ConnectionView`) so it covers more than connection:

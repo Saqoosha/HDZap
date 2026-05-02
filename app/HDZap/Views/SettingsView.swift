@@ -468,9 +468,14 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Button("Apply") {
-                    bluetooth.recordPreviousUID(bluetooth.currentUID)
-                    _ = bluetooth.sendUIDConfig(mode: .manualUID(uid))
+                    // Stop the sniff first so a stray Bind packet during
+                    // the alert doesn't overwrite `capturedTXUID`. The
+                    // Apply itself routes through the same pendingApply
+                    // alert as Manual UID — without it the operator can
+                    // accidentally change pairings with a single tap and
+                    // not realise lap times stopped reaching the goggle.
                     _ = bluetooth.stopTXSniff()
+                    pendingApply = PendingApply(mode: .manualUID(uid), resolvedUID: uid)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!bluetooth.isReady)

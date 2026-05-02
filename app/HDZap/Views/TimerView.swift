@@ -15,7 +15,7 @@ struct TimerView: View {
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
     private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }
 
-    @State private var showConnection = false
+    @State private var showSettings = false
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
     /// lap consumes the remaining window. Cleared on START and RESET.
@@ -94,7 +94,7 @@ struct TimerView: View {
 
             actionDock
         }
-        .sheet(isPresented: $showConnection) {
+        .sheet(isPresented: $showSettings) {
             SettingsView()
         }
         .onAppear {
@@ -103,13 +103,24 @@ struct TimerView: View {
         .onChange(of: targetLapCount) { _, _ in
             handleTargetLapCountChange()
         }
+        .onChange(of: raceSessionLimit) { _, _ in
+            // Race time is part of the metric inputs (target pace,
+            // remaining-window pace projection). When the operator
+            // bumps it after laps already exist, the displayed Diff/
+            // Need/Bank and the pre-rendered OSD lines must be
+            // recomputed against the new window — otherwise the
+            // goggle and the iPhone disagree on the same race.
+            if let metrics = refreshMetricsSnapshot() {
+                bluetooth.sendOSDText(lines: metrics.osdLines)
+            }
+        }
     }
 
     // MARK: - Masthead
 
     private var masthead: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text("Time Attack · 90s")
+            Text("Time Attack · \(raceSessionLimit)s")
                 .monoCap(size: 9.5, tracking: 2.0)
 
             Text("•")
@@ -127,7 +138,7 @@ struct TimerView: View {
             Spacer()
 
             Button {
-                showConnection = true
+                showSettings = true
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 14, weight: .medium))
@@ -135,7 +146,7 @@ struct TimerView: View {
                     .frame(width: 30, height: 30)
                     .background(EditorialTheme.ink.opacity(0.06), in: Circle())
             }
-            .accessibilityLabel("Connection settings")
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 8)
@@ -201,7 +212,7 @@ struct TimerView: View {
             Text("BLE OFF · Laps won't reach the goggle")
                 .monoCap(size: 9, tracking: 1.4, color: EditorialTheme.sub)
             Spacer()
-            Button("OPEN") { showConnection = true }
+            Button("OPEN") { showSettings = true }
                 .monoCap(size: 9, tracking: 1.4, color: EditorialTheme.ink)
                 .buttonStyle(.plain)
         }
@@ -246,13 +257,15 @@ struct TimerView: View {
                         Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
                     }
 
-                // Tick marks every 10s
+                // Tick marks every 10s — count derived from the
+                // configured race time so 60/90/120/180s all read
+                // "every 10s" rather than "evenly spaced 8 ticks".
                 GeometryReader { geo in
-                    ForEach(1..<9, id: \.self) { i in
+                    ForEach(Array(stride(from: 10, to: raceSessionLimit, by: 10)), id: \.self) { sec in
                         Rectangle()
                             .fill(EditorialTheme.hairStrong)
                             .frame(width: 1)
-                            .offset(x: geo.size.width * Double(i) / 9)
+                            .offset(x: geo.size.width * Double(sec) / Double(raceSessionLimit))
                     }
                 }
 
@@ -281,11 +294,9 @@ struct TimerView: View {
             HStack {
                 Text("0").monoCap(size: 8.5, tracking: 1.5)
                 Spacer()
-                Text("30").monoCap(size: 8.5, tracking: 1.5)
+                Text("\(raceSessionLimit / 2)").monoCap(size: 8.5, tracking: 1.5)
                 Spacer()
-                Text("60").monoCap(size: 8.5, tracking: 1.5)
-                Spacer()
-                Text("90").monoCap(size: 8.5, tracking: 1.5)
+                Text("\(raceSessionLimit)").monoCap(size: 8.5, tracking: 1.5)
             }
         }
     }

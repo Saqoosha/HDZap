@@ -220,19 +220,33 @@ void loop() {
         }
     }
 
-    if (g_osd_text_received) {
+    {
+        // Re-check the flag *inside* the mux. The bare-volatile read
+        // outside is a fast path so the loop doesn't grab the spinlock
+        // every tick, but a fresh row-0 BLE write between that read and
+        // the critical section would clear the flag + zero the staging
+        // buffer. Without the inner re-check we'd memcpy a half-zeroed
+        // frame and render garbage on the goggle.
         char rows[OSDTextDisplay::ROW_COUNT][OSDTextDisplay::ROW_TEXT_MAX + 1];
-        portENTER_CRITICAL(&g_ble_mux);
-        memcpy(rows, g_osd_text_rows, sizeof(rows));
-        g_osd_text_received = false;
-        portEXIT_CRITICAL(&g_ble_mux);
+        bool ready = false;
+        if (g_osd_text_received) {
+            portENTER_CRITICAL(&g_ble_mux);
+            ready = g_osd_text_received;
+            if (ready) {
+                memcpy(rows, g_osd_text_rows, sizeof(rows));
+                g_osd_text_received = false;
+            }
+            portEXIT_CRITICAL(&g_ble_mux);
+        }
 
-        osdTextDisplay.setRows(rows);
-        if (!espnow_ready) {
-            stickDisplay.showMessage("ESPNOW DOWN", stickDisplay.colorErr());
-        } else {
-            stickDisplay.clearMessage();
-            requestRender(RenderContent::OSD_TEXT);
+        if (ready) {
+            osdTextDisplay.setRows(rows);
+            if (!espnow_ready) {
+                stickDisplay.showMessage("ESPNOW DOWN", stickDisplay.colorErr());
+            } else {
+                stickDisplay.clearMessage();
+                requestRender(RenderContent::OSD_TEXT);
+            }
         }
     }
 
