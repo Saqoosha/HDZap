@@ -9,25 +9,29 @@
 /* Begin PBXBuildFile section */
 		085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 612031ED1450E491C5A43621 /* EditorialTheme.swift */; };
 		12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E32709696D474AA71F7C90 /* UIDUtils.swift */; };
+		3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63119602A4C7217E6D0C00A1 /* OKLCH.swift */; };
 		6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DB96B10D57102797F555BE /* BluetoothManager.swift */; };
 		7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFF7583FD58A10FE7357025 /* HDZapApp.swift */; };
 		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
-		AF773A47DF49EB060B3F86D2 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2062084A9870D0142658BC24 /* ConnectionView.swift */; };
+		8F9FA17CF494FA2673B7B305 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */; };
 		B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4A2435CB82ED37EA712928 /* LapTimer.swift */; };
+		BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */; };
 		CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D706FE213381CDC8D3EC0893 /* TimerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		2062084A9870D0142658BC24 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
 		2E0D671093AF13888B5701D3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2E4A2435CB82ED37EA712928 /* LapTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapTimer.swift; sourceTree = "<group>"; };
 		37DB96B10D57102797F555BE /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
 		3AA9BB23D795AA5162829B3C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3BFF7583FD58A10FE7357025 /* HDZapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDZapApp.swift; sourceTree = "<group>"; };
 		612031ED1450E491C5A43621 /* EditorialTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialTheme.swift; sourceTree = "<group>"; };
+		63119602A4C7217E6D0C00A1 /* OKLCH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OKLCH.swift; sourceTree = "<group>"; };
 		66E32709696D474AA71F7C90 /* UIDUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIDUtils.swift; sourceTree = "<group>"; };
 		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
+		F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -50,9 +54,9 @@
 		3802ABB4F858BEDF7105AAC6 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				2062084A9870D0142658BC24 /* ConnectionView.swift */,
 				2E0D671093AF13888B5701D3 /* ContentView.swift */,
 				612031ED1450E491C5A43621 /* EditorialTheme.swift */,
+				F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */,
 				D706FE213381CDC8D3EC0893 /* TimerView.swift */,
 			);
 			path = Views;
@@ -63,6 +67,7 @@
 			children = (
 				37DB96B10D57102797F555BE /* BluetoothManager.swift */,
 				2E4A2435CB82ED37EA712928 /* LapTimer.swift */,
+				D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -82,6 +87,7 @@
 		8CBD2DCE416C511DC56F7DB0 /* Utils */ = {
 			isa = PBXGroup;
 			children = (
+				63119602A4C7217E6D0C00A1 /* OKLCH.swift */,
 				66E32709696D474AA71F7C90 /* UIDUtils.swift */,
 			);
 			path = Utils;
@@ -147,11 +153,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */,
-				AF773A47DF49EB060B3F86D2 /* ConnectionView.swift in Sources */,
 				8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */,
 				085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */,
 				7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */,
 				B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */,
+				3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */,
+				BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */,
+				8F9FA17CF494FA2673B7B305 /* SettingsView.swift in Sources */,
 				CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */,
 				12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */,
 			);

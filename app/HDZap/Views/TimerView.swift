@@ -9,23 +9,28 @@ import SwiftUI
 struct TimerView: View {
     @Environment(LapTimer.self) private var lapTimer
     @Environment(BluetoothManager.self) private var bluetooth
+    @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
+    @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
+    @Environment(\.accentHue) private var accentHue: Double
+    private var accent: Color { EditorialTheme.accent(hue: accentHue) }
+    private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }
 
     @State private var showConnection = false
     /// Captured once at the moment a lap is recorded. Kept stable so the
-    /// displayed projection doesn't tick down every frame as the in-flight
+    /// displayed projection/diff doesn't tick every frame as the in-flight
     /// lap consumes the remaining window. Cleared on START and RESET.
-    @State private var paceSnapshot: Int?
+    @State private var metricsSnapshot: RaceMetrics?
     /// Set when the user taps STOP with at least one recorded lap so the
     /// view flips to the result/done summary. STOP with no laps just pauses
     /// the timer — no point showing an empty results screen. Cleared by RESET.
     @State private var manuallyEnded = false
 
-    private var timeUp: Bool { lapTimer.elapsedTime >= EditorialTheme.sessionLimit }
+    private var timeUp: Bool { lapTimer.elapsedTime >= sessionLimit }
     private var sessionEnded: Bool {
         manuallyEnded || (!lapTimer.isRunning && timeUp)
     }
-    private var remaining: TimeInterval { max(0, EditorialTheme.sessionLimit - lapTimer.elapsedTime) }
-    private var progress: Double { min(1, lapTimer.elapsedTime / EditorialTheme.sessionLimit) }
+    private var remaining: TimeInterval { max(0, sessionLimit - lapTimer.elapsedTime) }
+    private var progress: Double { min(1, lapTimer.elapsedTime / sessionLimit) }
     private var bestTime: TimeInterval? {
         guard let i = lapTimer.bestLapIndex else { return nil }
         return lapTimer.laps[i].time
@@ -37,7 +42,13 @@ struct TimerView: View {
         guard !lapTimer.laps.isEmpty else { return 0 }
         return lapTimer.laps.reduce(0) { $0 + $1.time } / Double(lapTimer.laps.count)
     }
-    private var pace: Int? { paceSnapshot }
+    private var clampedTargetLapCount: Int {
+        RaceMetrics.clampedTargetLapCount(targetLapCount)
+    }
+    private var targetSummaryValue: String {
+        let targetLapSec = RaceMetrics.targetLapSeconds(for: clampedTargetLapCount, sessionLimit: sessionLimit)
+        return "\(clampedTargetLapCount)L@\(RaceMetrics.seconds(targetLapSec, decimals: 2))"
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -84,7 +95,13 @@ struct TimerView: View {
             actionDock
         }
         .sheet(isPresented: $showConnection) {
-            ConnectionView()
+            SettingsView()
+        }
+        .onAppear {
+            clampTargetLapCountSetting()
+        }
+        .onChange(of: targetLapCount) { _, _ in
+            handleTargetLapCountChange()
         }
     }
 
@@ -101,10 +118,10 @@ struct TimerView: View {
 
             HStack(spacing: 6) {
                 StatusDot(active: lapTimer.isRunning && !sessionEnded,
-                          color: timeUp ? EditorialTheme.accent : (lapTimer.isRunning ? EditorialTheme.accent : EditorialTheme.dim))
+                          color: timeUp ? accent : (lapTimer.isRunning ? accent : EditorialTheme.dim))
                 Text(stateLabel)
                     .monoCap(size: 9.5, tracking: 1.5,
-                             color: timeUp ? EditorialTheme.accent : EditorialTheme.sub)
+                             color: timeUp ? accent : EditorialTheme.sub)
             }
 
             Spacer()
@@ -146,7 +163,7 @@ struct TimerView: View {
         return HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11))
-                .foregroundStyle(EditorialTheme.accent)
+                .foregroundStyle(accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text(message)
                     .font(.editorialMono(10, weight: .regular))
@@ -172,7 +189,7 @@ struct TimerView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 8)
-        .background(EditorialTheme.accent.opacity(0.08))
+        .background(accent.opacity(0.08))
         .overlay(alignment: .bottom) {
             Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
         }
@@ -214,7 +231,7 @@ struct TimerView: View {
                     Text(EditorialFormat.time(remaining, msDigits: 2))
                         .font(.editorialMono(10))
                         .monospacedDigit()
-                        .foregroundStyle(timeUp ? EditorialTheme.accent : EditorialTheme.ink)
+                        .foregroundStyle(timeUp ? accent : EditorialTheme.ink)
                 }
             }
 
@@ -242,7 +259,7 @@ struct TimerView: View {
                 // Fill
                 GeometryReader { geo in
                     Rectangle()
-                        .fill(EditorialTheme.accent)
+                        .fill(accent)
                         .frame(width: max(0, geo.size.width * progress))
                         .animation(.linear(duration: 0.08), value: progress)
 
@@ -251,7 +268,7 @@ struct TimerView: View {
                         let pulsing = lapTimer.isRunning && progress < 1
                         let beat = Int(ctx.date.timeIntervalSinceReferenceDate / 0.45) % 2
                         Rectangle()
-                            .fill(progress >= 1 ? EditorialTheme.accent : EditorialTheme.ink)
+                            .fill(progress >= 1 ? accent : EditorialTheme.ink)
                             .frame(width: 2)
                             .offset(x: geo.size.width * progress - 1, y: -3)
                             .frame(height: geo.size.height + 6)
@@ -302,7 +319,7 @@ struct TimerView: View {
                         .monoCap(size: 9, tracking: 2.0)
                 }
                 BigTime(seconds: currentLapMs,
-                        accent: timeUp ? EditorialTheme.accent : EditorialTheme.ink,
+                        accent: timeUp ? accent : EditorialTheme.ink,
                         size: 64, msSize: 22)
             }
         }
@@ -312,12 +329,12 @@ struct TimerView: View {
         let total = lapTimer.laps.reduce(0) { $0 + $1.time }
         return HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: -4) {
-                Text("Laps").monoCap(size: 9, tracking: 2.0, color: EditorialTheme.accent)
+                Text("Laps").monoCap(size: 9, tracking: 2.0, color: accent)
                 Text(String(format: "%02d", lapTimer.laps.count))
                     .font(.editorialDisplay(64, weight: .light))
                     .monospacedDigit()
                     .tracking(-2)
-                    .foregroundStyle(EditorialTheme.accent)
+                    .foregroundStyle(accent)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: -4) {
@@ -335,16 +352,23 @@ struct TimerView: View {
     // MARK: - Summary band
 
     private var summaryBand: some View {
-        HStack(spacing: 0) {
-            SummaryColumn(label: "Pace",
-                          value: pace.map { "→\(String(format: "%02d", $0))" } ?? "—",
+        let metrics = metricsSnapshot
+        return HStack(spacing: 0) {
+            SummaryColumn(label: "Target",
+                          value: targetSummaryValue,
                           highlight: true, isFirst: true, isLast: false)
-            SummaryColumn(label: "Best",
-                          value: bestTime.map { EditorialFormat.timeShort($0) } ?? "—",
+            SummaryColumn(label: "Pace",
+                          value: metrics?.paceDisplay ?? "—",
                           highlight: false, isFirst: false, isLast: false)
             SummaryColumn(label: "Avg",
-                          value: avgTime > 0 ? EditorialFormat.timeShort(avgTime) : "—",
-                          highlight: false, isFirst: false, isLast: true)
+                          value: metrics?.avgDisplay ?? (avgTime > 0 ? EditorialFormat.timeShort(avgTime) : "—"),
+                          highlight: false, isFirst: false, isLast: false)
+            SummaryColumn(label: "Diff",
+                          value: metrics?.diffDisplay ?? "—",
+                          highlight: metrics?.splitState == .need, isFirst: false, isLast: false)
+            SummaryColumn(label: metrics?.splitLabel ?? "Need",
+                          value: metrics?.splitValue ?? "—",
+                          highlight: metrics?.splitState == .need, isFirst: false, isLast: true)
         }
         .padding(.vertical, 10)
         .padding(.trailing, 8)
@@ -477,13 +501,13 @@ struct TimerView: View {
     }
 
     private var primaryFill: Color {
-        primaryDisabled ? Color(white: 0.6) : EditorialTheme.accent
+        primaryDisabled ? Color(white: 0.6) : accent
     }
 
     private var primaryShadowColor: Color {
         primaryDisabled
             ? EditorialTheme.ink.opacity(0.18)
-            : EditorialTheme.accent.opacity(0.34)
+            : accent.opacity(0.34)
     }
 
     private func primaryAction() {
@@ -496,7 +520,7 @@ struct TimerView: View {
         } else {
             // Fresh START — wipe stale projection from a previous run so
             // the summary band doesn't briefly show the old pace value.
-            paceSnapshot = nil
+            metricsSnapshot = nil
             lapTimer.start()
         }
     }
@@ -511,7 +535,7 @@ struct TimerView: View {
                 manuallyEnded = true
                 // Stale projection from the in-flight lap would otherwise
                 // outlive the run. The achieved count is the truthful pace.
-                paceSnapshot = lapTimer.laps.count
+                refreshMetricsSnapshot(paceOverride: lapTimer.laps.count)
             }
         } else {
             // iOS state is the source of truth — clear it regardless of
@@ -522,7 +546,7 @@ struct TimerView: View {
                 bluetooth.sendOSDControl(command: .resetLaps)
             }
             lapTimer.reset()
-            paceSnapshot = nil
+            metricsSnapshot = nil
             manuallyEnded = false
         }
     }
@@ -532,29 +556,39 @@ struct TimerView: View {
     /// but never rolls back the lap — the operator's tap is what counts,
     /// and the goggle catching up (or not) is downstream concern.
     private func recordLap() {
-        guard let lap = lapTimer.lap() else { return }
-        // `UInt32(x)` traps on overflow or negatives — clamp via Int64 so a
-        // pathological multi-hour session can't crash the app.
-        let rawMs = Int64((lap.time * 1000).rounded())
-        let timeMs = UInt32(clamping: rawMs)
-        // Wire format is u8 lap num. Firmware caps display at MAX_LAPS=99;
-        // iOS keeps counting but truncating wraps at 256. Only a concern
-        // for runaway sessions — firmware caps its own display.
-        let lapByte = UInt8(truncatingIfNeeded: lap.id)
-        bluetooth.sendLapTime(lapNum: lapByte, timeMs: timeMs)
-        // Snapshot pace at the moment of the lap. `ceil(remaining / avg)`
-        // counts every lap that fits in the remaining window — including
-        // the in-flight lap that just started AND the partial lap the
-        // operator will tap as FINAL when time-up hits mid-lap. `floor`
-        // dropped that final partial lap on every session whose total
-        // didn't divide evenly into `avg`. At the FINAL tap itself
-        // (`timeUp`), `remaining == 0` and the projection collapses to
-        // `laps.count`.
-        let avg = lapTimer.laps.reduce(0) { $0 + $1.time } / Double(lapTimer.laps.count)
-        guard avg > 0 else { return }
-        let remainingFuture = max(0, remaining)
-        let future = Int((remainingFuture / avg).rounded(.up))
-        paceSnapshot = lapTimer.laps.count + future
+        guard lapTimer.lap() != nil else { return }
+
+        if let metrics = refreshMetricsSnapshot() {
+            bluetooth.sendOSDText(lines: metrics.osdLines)
+        }
+    }
+
+    private func clampTargetLapCountSetting() {
+        let clamped = RaceMetrics.clampedTargetLapCount(targetLapCount)
+        if targetLapCount != clamped {
+            targetLapCount = clamped
+        }
+    }
+
+    private func handleTargetLapCountChange() {
+        let clamped = RaceMetrics.clampedTargetLapCount(targetLapCount)
+        if targetLapCount != clamped {
+            targetLapCount = clamped
+            return
+        }
+        if let metrics = refreshMetricsSnapshot() {
+            bluetooth.sendOSDText(lines: metrics.osdLines)
+        }
+    }
+
+    @discardableResult
+    private func refreshMetricsSnapshot(paceOverride: Int? = nil) -> RaceMetrics? {
+        let metrics = RaceMetrics(laps: lapTimer.laps,
+                                  targetLapCount: clampedTargetLapCount,
+                                  sessionLimit: sessionLimit,
+                                  paceOverride: paceOverride)
+        metricsSnapshot = metrics
+        return metrics
     }
 }
 
@@ -624,20 +658,21 @@ private struct SummaryColumn: View {
     let highlight: Bool
     let isFirst: Bool
     let isLast: Bool
+    @Environment(\.accentHue) private var accentHue: Double
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label).monoCap(size: 9, tracking: 1.6)
+            Text(label).monoCap(size: 8.5, tracking: 1.2)
             Text(value)
-                .font(.editorialMono(18, weight: .medium))
+                .font(.editorialMono(14, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(highlight ? EditorialTheme.accent : EditorialTheme.ink)
+                .foregroundStyle(highlight ? EditorialTheme.accent(hue: accentHue) : EditorialTheme.ink)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+                .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, isFirst ? 0 : 12)
-        .padding(.trailing, isLast ? 0 : 12)
+        .padding(.leading, isFirst ? 0 : 8)
+        .padding(.trailing, isLast ? 0 : 8)
         .overlay(alignment: .trailing) {
             if !isLast {
                 Rectangle().fill(EditorialTheme.hair).frame(width: 0.5)
@@ -653,6 +688,8 @@ private struct EditorialLapRow: View {
     let isBest: Bool
     let delta: TimeInterval
     var height: CGFloat = 42
+    @Environment(\.accentHue) private var accentHue: Double
+    private var accent: Color { EditorialTheme.accent(hue: accentHue) }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -666,12 +703,12 @@ private struct EditorialLapRow: View {
                 Text(EditorialFormat.time(lap.time, msDigits: 2))
                     .font(.editorialMono(18, weight: .medium))
                     .monospacedDigit()
-                    .foregroundStyle(isBest ? EditorialTheme.accent : EditorialTheme.ink)
+                    .foregroundStyle(isBest ? accent : EditorialTheme.ink)
                 if isBest {
                     Text("★")
                         .font(.editorialMono(11))
                         .tracking(1.4)
-                        .foregroundStyle(EditorialTheme.accent)
+                        .foregroundStyle(accent)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -679,7 +716,7 @@ private struct EditorialLapRow: View {
             Text(isBest ? "·BEST" : EditorialFormat.delta(delta))
                 .font(.editorialMono(13))
                 .monospacedDigit()
-                .foregroundStyle(isBest ? EditorialTheme.accent : EditorialTheme.sub)
+                .foregroundStyle(isBest ? accent : EditorialTheme.sub)
                 .frame(width: 72, alignment: .trailing)
         }
         .frame(height: height)
@@ -699,6 +736,7 @@ private struct LapTrendChartVertical: View {
     let bestIdx: Int?
     let worstT: TimeInterval
     let rowHeight: CGFloat
+    @Environment(\.accentHue) private var accentHue: Double
 
     var body: some View {
         let totalH = CGFloat(laps.count) * rowHeight
@@ -735,7 +773,7 @@ private struct LapTrendChartVertical: View {
                     let x = max(2, CGFloat(lap.time / span) * w)
                     let y = (CGFloat(display) + 0.5) * rowHeight
                     Circle()
-                        .fill(isBest ? EditorialTheme.accent : EditorialTheme.ink)
+                        .fill(isBest ? EditorialTheme.accent(hue: accentHue) : EditorialTheme.ink)
                         .frame(width: isBest ? 7 : 4.5, height: isBest ? 7 : 4.5)
                         .overlay(
                             Circle().stroke(EditorialTheme.paper, lineWidth: isBest ? 1.5 : 1)
@@ -747,4 +785,3 @@ private struct LapTrendChartVertical: View {
         .frame(height: max(rowHeight, totalH))
     }
 }
-
