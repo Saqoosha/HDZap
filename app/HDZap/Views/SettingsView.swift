@@ -95,8 +95,8 @@ struct SettingsView: View {
     /// — both banners reach the same user, so the strings should not drift.
     private func errorBacklogLine(remaining: Int, suppressed: Int) -> String {
         var parts: [String] = []
-        if remaining > 0 { parts.append("+\(remaining) more queued") }
-        if suppressed > 0 { parts.append("+\(suppressed) suppressed") }
+        if remaining > 0 { parts.append(String(localized: "+\(remaining) more queued")) }
+        if suppressed > 0 { parts.append(String(localized: "+\(suppressed) suppressed")) }
         return parts.joined(separator: " · ")
     }
 
@@ -341,8 +341,14 @@ struct SettingsView: View {
                         // moment we want to surface to the user.
                         let showParsed = !manualUIDText.contains(":") || normalized != raw
                         if showParsed {
-                            let label = (normalized != raw) ? "Normalized" : "Parsed"
-                            Text("\(label): \(formatUID(normalized))")
+                            // Two distinct keys ("Normalized: %@" / "Parsed: %@")
+                            // rather than "%@: %@" so each label translates
+                            // independently — Japanese expresses these as
+                            // 「正規化済み」/「解析結果」.
+                            let parsedKey: LocalizedStringKey = (normalized != raw)
+                                ? "Normalized: \(formatUID(normalized))"
+                                : "Parsed: \(formatUID(normalized))"
+                            Text(parsedKey)
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
@@ -566,10 +572,13 @@ struct SettingsView: View {
             let restoreVisible = bluetooth.currentUID != nil
                 && bluetooth.previousUID != nil
                 && bluetooth.previousUID != bluetooth.currentUID
-            let restoreHint = restoreVisible
-                ? " — try again, or use Restore previous goggle."
-                : " — try again."
-            Label("No verification result. The M5Stick may be disconnected\(restoreHint)",
+            // Whole-sentence keys (rather than splicing in a localized
+            // suffix) so translators can rephrase the restore hint in
+            // place — Japanese inverts the clause order.
+            let timeoutKey: LocalizedStringKey = restoreVisible
+                ? "No verification result. The M5Stick may be disconnected — try again, or use Restore previous goggle."
+                : "No verification result. The M5Stick may be disconnected — try again."
+            Label(timeoutKey,
                   systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
         }
@@ -612,19 +621,18 @@ struct SettingsView: View {
 
     private var batteryCaption: String {
         guard let pct = bluetooth.batteryPercent else { return "—" }
-        let pctStr = "\(pct)%"
-        if bluetooth.isCharging { return "\(pctStr) · Charging" }
+        if bluetooth.isCharging { return String(localized: "\(pct)% · Charging") }
         switch bluetooth.batteryAlarm {
         case .critical:
             return bluetooth.batterySilenced
-                ? "\(pctStr) · Critical (silenced)"
-                : "\(pctStr) · Critical — press button on device to silence"
+                ? String(localized: "\(pct)% · Critical (silenced)")
+                : String(localized: "\(pct)% · Critical — press button on device to silence")
         case .low:
             return bluetooth.batterySilenced
-                ? "\(pctStr) · Low (silenced)"
-                : "\(pctStr) · Low — press button on device to silence"
+                ? String(localized: "\(pct)% · Low (silenced)")
+                : String(localized: "\(pct)% · Low — press button on device to silence")
         case .none:
-            return pctStr
+            return String(localized: "\(pct)%")
         }
     }
 
@@ -797,8 +805,8 @@ struct SettingsView: View {
 
     private var applyAlertTitle: String {
         switch pendingApply?.mode {
-        case .newPairing: return "Pair with a new goggle?"
-        default: return "Change goggle pairing?"
+        case .newPairing: return String(localized: "Pair with a new goggle?")
+        default: return String(localized: "Change goggle pairing?")
         }
     }
 
@@ -809,20 +817,20 @@ struct SettingsView: View {
         // doesn't care about the IDs themselves — they care that the
         // goggle stops showing lap times. The hex IDs are still shown
         // as a postscript so a power user can verify what's happening.
-        let from = bluetooth.currentUID.map(formatUID) ?? "unknown"
+        let from = bluetooth.currentUID.map(formatUID) ?? String(localized: "unknown")
         switch pending.mode {
         case .bindPhrase, .manualUID:
-            let to = pending.resolvedUID.map(formatUID) ?? "unknown"
-            return """
+            let to = pending.resolvedUID.map(formatUID) ?? String(localized: "unknown")
+            return String(localized: """
             Lap times will stop appearing on your current goggle and start going to a new one.
 
             Make sure your goggle is set up to receive from the new pairing — otherwise nothing will show up.
 
             From: \(from)
             To:   \(to)
-            """
+            """)
         case .newPairing:
-            return """
+            return String(localized: """
             This switches the M5Stick to a fresh pairing ID and broadcasts it to your goggle in one step.
 
             Make sure your goggle is in bind mode (ELRS menu → Bind) BEFORE tapping Apply, otherwise the goggle won't pick up the new pairing.
@@ -830,7 +838,7 @@ struct SettingsView: View {
             If your goggle's backpack was flashed with a fixed bind phrase, the goggle will silently revert to that on its next reboot — use Restore previous goggle to get lap times back.
 
             Current pairing: \(from)
-            """
+            """)
         }
     }
 }
