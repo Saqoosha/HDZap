@@ -155,8 +155,12 @@ struct TimerView: View {
         // session is in flight. The bottom three rows are sent only on
         // lap record (and on session-limit change), so a tick costs one
         // BLE write and a 2-packet ESP-NOW cycle (writeString + draw).
+        // Skip while the Settings sheet is up — explicit operator
+        // actions there (Test OSD, Clear OSD, Reset Laps) shouldn't
+        // be immediately overwritten by a stale TIME LEFT.
         .onReceive(osdTick) { _ in
             guard lapTimer.isRunning && !sessionEnded && bluetooth.isReady else { return }
+            guard !showSettings else { return }
             sendTimeLeftRow()
         }
     }
@@ -613,7 +617,15 @@ struct TimerView: View {
             // whether the goggle ack'd the reset packet. The `lastError`
             // surfaces a failed write so the operator knows the OSD may
             // still show the old table until they reconnect.
-            if !lapTimer.laps.isEmpty {
+            //
+            // The 1Hz tick now writes TIME LEFT every second a session
+            // is in flight, so a START → STOP → RESET sequence with
+            // zero recorded laps still leaves a `TIME LEFT NN` row on
+            // the goggle. Trigger the reset whenever the session
+            // actually started (`elapsedTime > 0`), not just when laps
+            // exist; otherwise the operator returns to a "ready" state
+            // on the phone but the goggle keeps showing stale text.
+            if !lapTimer.laps.isEmpty || lapTimer.elapsedTime > 0 {
                 bluetooth.sendOSDControl(command: .resetLaps)
             }
             lapTimer.reset()
@@ -636,17 +648,19 @@ struct TimerView: View {
     }
 
     /// Push the TIME LEFT row to the goggle. Padded so a shorter value
-    /// (e.g. 9S after 45S) cleanly overwrites the prior text without a
-    /// firmware-side clear.
+    /// (e.g. `TIME LEFT 9` after `TIME LEFT 45`) cleanly overwrites the
+    /// prior text without a firmware-side clear.
     private func sendTimeLeftRow() {
         bluetooth.sendOSDRow(row: 0,
                              text: RaceMetrics.timeLeftRow(remainingSec: remaining))
     }
 
     /// Push the bottom three rows (LAP / AVG / DIFF) when a lap is
-    /// recorded or the race window changes. Pre-lap there's nothing
-    /// meaningful to display, so the rows are left as the goggle's
-    /// existing content (or blank if Clear OSD wiped it).
+    /// recorded, the session limit changes, or the operator changes
+    /// the target lap count (which feeds back into AVG/DIFF rendering).
+    /// Pre-lap there's nothing meaningful to display, so the rows are
+    /// left as the goggle's existing content (or blank if Clear OSD
+    /// wiped it).
     private func sendMetricRows() {
         guard let metrics = metricsSnapshot else { return }
         let rows = metrics.osdMetricRows

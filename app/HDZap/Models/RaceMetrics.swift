@@ -70,9 +70,11 @@ struct RaceMetrics: Equatable {
     static let osdRowWidths: [Int] = [13, 14, 19, 19]
 
     /// TIME LEFT row, padded so the centered position is stable as the
-    /// digit count changes (1 → 99 → 0). The "S" suffix was dropped:
-    /// on the HDZero glyph set it renders as a 5 and gets read as part
-    /// of the number ("45S" → "455").
+    /// digit count changes across the full session-limit range (single,
+    /// double, and triple digit values; the SettingsView slider goes up
+    /// to 180s). The "S" suffix was dropped: on the HDZero glyph set
+    /// `S` renders as a `5` and gets read as part of the number
+    /// (`45S` → `455`).
     static func timeLeftRow(remainingSec: TimeInterval) -> String {
         let secs = max(0, Int(remainingSec.rounded()))
         return padOSD("TIME LEFT \(secs)", width: osdRowWidths[0])
@@ -167,11 +169,6 @@ struct RaceMetrics: Equatable {
         let clean = abs(seconds) < threshold ? 0 : seconds
         let format = "%+.\(decimals)f"
         return String(format: format, locale: Locale(identifier: "en_US_POSIX"), clean)
-    }
-
-    static func fitOSD(_ line: String) -> String {
-        guard line.count > osdRowMaxBytes else { return line }
-        return String(line.prefix(osdRowMaxBytes))
     }
 
     private func compactDiffLine(diff: String, label: String) -> String {

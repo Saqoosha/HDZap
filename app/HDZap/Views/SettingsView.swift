@@ -520,6 +520,12 @@ struct SettingsView: View {
                                                      width: RaceMetrics.osdRowWidths[1])),
                     (row: 2, text: RaceMetrics.padOSD("\(timeStr).\(String(format: "%03d", ms))",
                                                      width: RaceMetrics.osdRowWidths[2])),
+                    // Send row 3 too so a stale DIFF row left over from
+                    // a previous race doesn't sit underneath the test
+                    // marker (the firmware no longer clears the goggle
+                    // overlay between writes).
+                    (row: 3, text: RaceMetrics.padOSD("",
+                                                     width: RaceMetrics.osdRowWidths[3])),
                 ])
             }
             .disabled(!bluetooth.isReady)

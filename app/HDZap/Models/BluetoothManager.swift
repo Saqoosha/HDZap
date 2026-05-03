@@ -311,9 +311,14 @@ class BluetoothManager: NSObject {
         return write(data: data, to: osdTextUUID)
     }
 
-    /// Send a batch of OSD rows. Identical to looping over `sendOSDRow`
-    /// — kept as a one-shot helper so callers that want to refresh
-    /// multiple rows at once stay readable.
+    /// Send a batch of OSD rows. Bails on the first failed write and
+    /// returns false — earlier rows in the batch are already queued
+    /// against the goggle by then, so callers should treat a partial
+    /// failure as "the goggle has rows up to the failed one and the
+    /// rest are stale". Kept simple over an aggregate sent/total
+    /// return so the existing `_ = bluetooth.sendOSDRows(...)` call
+    /// sites still type-check; if richer error UX is needed later,
+    /// surface a sticky "goggle stale" flag on the manager.
     @discardableResult
     func sendOSDRows(_ rows: [(row: Int, text: String)]) -> Bool {
         for entry in rows {
@@ -649,11 +654,16 @@ extension BluetoothManager: CBPeripheralDelegate {
             lastError = "Status frame unexpected size (\(n)B, expected ≥8). Firmware/app version mismatch?"
             return
         }
-        // Format: [connected:u8][uid:6bytes][test_result:u8]
-        // The lap_count byte was removed when the firmware retired its own
-        // lap-display path; iOS owns lap state directly now.
+        // New firmware sends 8B: [connected:u8][uid:6bytes][test_result:u8].
+        // Older firmware (before the lap_display retirement) sends 9B
+        // with [connected:u8][uid:6bytes][lap_count:u8][test_result:u8],
+        // so the test_result byte index depends on frame length. Reading
+        // the wrong byte here would make a successful Test OSD probe
+        // look like .none on older firmware and break the pairing-flow
+        // auto-rollback. Length-discriminate instead of pinning byte 7.
         currentUID = Array(data[1...6])
-        lastTestResult = TestResult(rawValue: data[7]) ?? .none
+        let testResultByte: UInt8 = data.count >= 9 ? data[8] : data[7]
+        lastTestResult = TestResult(rawValue: testResultByte) ?? .none
         // Bump even when the encoded value matches — observers want to
         // know "a fresh frame landed" not "a different result".
         testResultRevision &+= 1

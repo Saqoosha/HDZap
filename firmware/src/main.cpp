@@ -9,6 +9,19 @@
 #include "ble_service.h" // includes tx_sniff.h transitively
 #include "battery_monitor.h"
 
+// Keep the two parallel definitions of the OSD-text wire format in
+// lockstep. ble_service.h owns `OSD_TEXT_ROW_COUNT / OSD_TEXT_ROW_MAX`
+// (sizing the global staging buffer and BLE callback validation);
+// osd_text_display.h owns `ROW_COUNT / ROW_TEXT_MAX` (sizing the
+// renderer's own row buffer plus the local stack array memcpy'd
+// from the global). A silent drift would let `memcpy(rows,
+// g_osd_text_rows, sizeof(rows))` truncate or read OOB depending
+// on which side moved first.
+static_assert(OSDTextDisplay::ROW_COUNT == OSD_TEXT_ROW_COUNT,
+              "OSD text row count mismatch between ble_service.h and osd_text_display.h");
+static_assert(OSDTextDisplay::ROW_TEXT_MAX == OSD_TEXT_ROW_MAX,
+              "OSD text row max length mismatch between ble_service.h and osd_text_display.h");
+
 uint8_t g_uid[6] = {};
 static OSD osd;
 static OSDTextDisplay osdTextDisplay;
@@ -28,22 +41,30 @@ static bool espnow_ready = false;
 // WAITING_ACK is a retry; re-entering from IDLE is a fresh cycle.
 //
 // Retry granularity is the *whole render cycle*, not the individual
-// failed packet: a mid-cycle failure (e.g. clear + 3 writes land but
-// writeString #4 drops) leaves the goggle OSD buffer in an inconsistent
-// partial state. The renderer is idempotent — it pulls from the staged
-// in-memory row buffer — so a fresh clear+writes+draw restores a
-// known-good state regardless of which packet died.
+// failed packet: a mid-cycle failure (e.g. writeString #2 lands but
+// writeString #3 drops) leaves the goggle OSD buffer with a partial
+// frame. The renderer is idempotent against the staged dirty rows —
+// a fresh re-render of the same dirty bits restores a known-good
+// state regardless of which packet died. (No clear is involved — the
+// goggle's overlay buffer keeps prior rows; we deliberately *don't*
+// wipe it between cycles so untouched rows stay put.)
 //
-// Verify window sizing: a full cycle is up to 10 packets; ESP-NOW
-// serializes unicast sends per peer at ~a few ms each plus MAC retry
-// time (tens of ms worst case). 200 ms gives comfortable margin without
-// making the user wait too long for the feedback strip to settle.
+// Verify window sizing: a full cycle dispatches at most 4 dirty rows
+// + 1 draw = 5 packets. ESP-NOW serializes unicast sends per peer at
+// ~a few ms each plus MAC retry time (tens of ms worst case). 200 ms
+// gives comfortable margin without making the user wait too long for
+// the feedback strip to settle.
 enum class RenderState : uint8_t { IDLE, PENDING, WAITING_ACK };
 static RenderState g_render_state = RenderState::IDLE;
 static uint32_t g_render_after_ms = 0;
 static uint32_t g_render_verify_after_ms = 0;
 static uint32_t g_render_fail_baseline = 0;
 static uint8_t  g_render_retries_left = 0;
+// Dirty bitmap snapshot taken at dispatch time. Verify-success /
+// give-up paths use this to surgically clear only the bits we
+// actually dispatched, leaving any bits that arrived from concurrent
+// BLE writes during WAITING_ACK in place for the next cycle.
+static uint8_t  g_render_dispatched_mask = 0;
 
 static constexpr uint32_t RENDER_VERIFY_MS        = 200;
 static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
@@ -277,14 +298,31 @@ void loop() {
         }
 
         if (dirty) {
+            // OR-merge the staged rows into the display's dirty mask.
+            // We never overwrite — a BLE write that lands during a
+            // WAITING_ACK window would otherwise lose its bit when the
+            // pending verify finally clears m_dirty on success.
             osdTextDisplay.setDirtyRows(dirty, rows);
             if (!espnow_ready) {
                 stickDisplay.showMessage("ESPNOW DOWN", stickDisplay.colorErr());
             } else {
                 stickDisplay.clearMessage();
-                requestRender();
             }
         }
+    }
+
+    // --- Dispatch new content while idle --------------------------------
+    // Catch-up trigger: if the state machine is IDLE and the display
+    // has dirty rows that haven't been delivered yet, request a render.
+    // This unifies three previously separate edges:
+    //   - a fresh BLE write just merged dirty bits
+    //   - ESP-NOW was down at dispatch and just came back up
+    //   - a previous WAITING_ACK cycle finished and a new BLE write
+    //     arrived in the meantime
+    // Without this, a row written during WAITING_ACK would sit in
+    // m_dirty unrendered until the next BLE edge.
+    if (g_render_state == RenderState::IDLE && espnow_ready && osdTextDisplay.hasDirty()) {
+        requestRender();
     }
 
     // --- Render dispatch -------------------------------------------------
@@ -299,6 +337,11 @@ void loop() {
             cancelRender();
         } else {
             g_render_fail_baseline = g_espnow_sent_fail;
+            // Snapshot the bits we're about to dispatch BEFORE render()
+            // (which may surface late callbacks that race a concurrent
+            // BLE write). Verify-success then clears only this snapshot,
+            // not whatever arrived during the verify window.
+            g_render_dispatched_mask = osdTextDisplay.dirty();
             bool queued = osdTextDisplay.render();
             if (!queued) {
                 // esp_now_send returned non-OK for at least one packet in
@@ -311,6 +354,12 @@ void loop() {
                     g_render_after_ms = millis() + RENDER_RETRY_BACKOFF_MS;
                     stickDisplay.showMessage("RETRY", stickDisplay.colorOrange());
                 } else {
+                    // Give up on this cycle. Drop the dispatched bits —
+                    // otherwise the IDLE catch-up trigger would
+                    // immediately re-fire and we'd loop forever. Bits
+                    // that arrived after dispatch survive for the next
+                    // cycle.
+                    osdTextDisplay.clearDirtyBits(g_render_dispatched_mask);
                     cancelRender();
                     Serial.println("Render queue failed, retries exhausted");
                     stickDisplay.showMessage("OSD LOST", stickDisplay.colorErr());
@@ -333,8 +382,11 @@ void loop() {
     if (g_render_state == RenderState::WAITING_ACK && millis() >= g_render_verify_after_ms) {
         uint32_t newFails = g_espnow_sent_fail - g_render_fail_baseline;
         if (newFails == 0) {
-            // All packets delivered at the MAC layer. Strip was
-            // optimistically cleared on dispatch; nothing to redraw.
+            // All dispatched packets delivered at the MAC layer. Clear
+            // *only* the bits we dispatched — bits that arrived from
+            // BLE writes during the verify window need to survive so
+            // the IDLE catch-up trigger picks them up next iteration.
+            osdTextDisplay.clearDirtyBits(g_render_dispatched_mask);
             g_render_state = RenderState::IDLE;
         } else if (g_render_retries_left > 0) {
             g_render_retries_left--;
@@ -344,6 +396,11 @@ void loop() {
                           (unsigned)newFails, g_render_retries_left);
             stickDisplay.showMessage("RETRY", stickDisplay.colorOrange());
         } else {
+            // Give up on the dispatched bits so we don't wedge in an
+            // infinite IDLE→PENDING→fail loop with the same stale rows;
+            // any new bits accumulated during the verify window survive
+            // and start a fresh cycle next iteration.
+            osdTextDisplay.clearDirtyBits(g_render_dispatched_mask);
             cancelRender();
             Serial.printf("ESP-NOW delivery gave up after %u retries (%u fail(s) last cycle)\n",
                           MAX_RENDER_RETRIES, (unsigned)newFails);

@@ -36,9 +36,10 @@
 //   g_staged_uid + g_uid_config_requested     (UID config staging)
 //   g_osd_text_rows + g_osd_text_dirty        (iOS-owned goggle OSD text;
 //       per-row staging with a dirty bitmask so iOS can refresh just one
-//       row at a time — TIME LEFT ticks every second without rerendering
-//       the full 4-row frame, slashing the ESP-NOW packet cycle from 6
-//       to 2 for that update)
+//       row at a time. The goggle's MSP DisplayPort overlay buffer keeps
+//       prior rows between writes, so a single dirty row only costs
+//       writeString + draw (2 ESP-NOW packets) — TIME LEFT can tick
+//       every second without rerendering the lap/avg/diff rows below)
 //   g_uid                                     (6 bytes; main loop writes
 //       under the mux in applyStagedUid, BLE task reads under the mux in
 //       ble_update_status so the notify frame never carries a torn pair)
@@ -239,8 +240,14 @@ class OSDControlCallback : public BLECharacteristicCallbacks {
 class OSDTextCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
-        if (val.length() < 1) {
-            Serial.println("OSDText: empty payload (need at least row byte)");
+        // Reject row-only writes. iOS always pads each row to a fixed
+        // width before sending, so an empty-text payload only reaches
+        // here through a buggy caller — rather than silently staging
+        // an empty string and emitting a 2-packet "do nothing" cycle
+        // that doesn't visibly clear the prior row, fail loud.
+        if (val.length() < 2) {
+            Serial.printf("OSDText: short payload (%u bytes, need row + text)\n",
+                          (unsigned)val.length());
             return;
         }
 
