@@ -15,6 +15,7 @@
 		7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFF7583FD58A10FE7357025 /* HDZapApp.swift */; };
 		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
 		8F9FA17CF494FA2673B7B305 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* LapAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F7A8B9C0D1E2 /* LapAnnouncer.swift */; };
 		B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4A2435CB82ED37EA712928 /* LapTimer.swift */; };
 		B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12757F8C010AFDC40357896D /* RaceShareCard.swift */; };
 		BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */; };
@@ -25,6 +26,7 @@
 		12757F8C010AFDC40357896D /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
 		2E0D671093AF13888B5701D3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2E4A2435CB82ED37EA712928 /* LapTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapTimer.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F7A8B9C0D1E2 /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
 		37DB96B10D57102797F555BE /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
 		3AA9BB23D795AA5162829B3C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3BFF7583FD58A10FE7357025 /* HDZapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDZapApp.swift; sourceTree = "<group>"; };
@@ -71,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				37DB96B10D57102797F555BE /* BluetoothManager.swift */,
+				F1A2B3C4D5E6F7A8B9C0D1E2 /* LapAnnouncer.swift */,
 				2E4A2435CB82ED37EA712928 /* LapTimer.swift */,
 				D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */,
 			);
@@ -175,6 +178,7 @@
 				8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */,
 				085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */,
 				7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* LapAnnouncer.swift in Sources */,
 				B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */,
 				3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */,
 				BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */,
