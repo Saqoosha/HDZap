@@ -592,6 +592,12 @@ struct TimerView: View {
             metricsSnapshot = nil
             lastLapWasFinal = false
             lapTimer.start()
+            // Audio cue for the start of the race; also warms the audio
+            // session so the first lap announcement doesn't pay the
+            // setActive(true) round-trip.
+            if lapTTSEnabled {
+                announcer.announceStart()
+            }
         }
     }
 

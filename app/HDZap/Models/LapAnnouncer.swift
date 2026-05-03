@@ -164,6 +164,17 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         speak(finalPhrase(lapCount: lapCount, totalTime: totalTime, bestLapTime: bestLapTime))
     }
 
+    /// Announces the race start ("Start" / "スタート") so the operator
+    /// gets an audio cue when they tap START. Doubles as a warm-up for
+    /// the audio session so the first lap announcement isn't delayed by
+    /// the initial `setActive(true)` round-trip.
+    func announceStart() {
+        switch currentLanguage() {
+        case .english: speak("Start")
+        case .japanese: speak("スタート")
+        }
+    }
+
     /// Drops any in-flight or queued speech.
     func cancel() {
         let stopped = synthesizer.stopSpeaking(at: .immediate)
@@ -323,23 +334,52 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func finalPhrase(lapCount: Int, totalTime: TimeInterval, bestLapTime: TimeInterval?) -> String {
-        let totalStr = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"),
-                              max(0, totalTime))
         let bestStr = bestLapTime.map {
             String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), max(0, $0))
         }
-        switch currentLanguage() {
+        let language = currentLanguage()
+        switch language {
         case .english:
             if let bestStr {
-                return "Race complete. \(lapCount) laps in \(totalStr). Best lap \(bestStr)."
+                let totalEN = englishMinSecString(totalTime)
+                return "\(lapCount) laps in \(totalEN). Best lap was \(bestStr) seconds."
             }
             return "Race complete. No laps recorded."
         case .japanese:
             if let bestStr {
-                return "レース終了。\(lapCount)ラップ、合計\(totalStr)秒。ベストラップ\(bestStr)秒。"
+                let totalJP = japaneseMinSecString(totalTime)
+                return "\(lapCount)周 \(totalJP)、ベストラップは\(bestStr)秒でした"
             }
             return "レース終了。ラップ記録なし。"
         }
+    }
+
+    /// Splits seconds into a "M minute(s) SS.SS seconds" string for the
+    /// English race summary. Drops the minute portion when total < 60 so
+    /// `45.66` doesn't read as "zero minutes forty-five point six six".
+    private func englishMinSecString(_ time: TimeInterval) -> String {
+        let total = max(0, time)
+        let minutes = Int(total / 60)
+        let seconds = total - Double(minutes) * 60
+        let secStr = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), seconds)
+        if minutes > 0 {
+            return "\(minutes) minute\(minutes == 1 ? "" : "s") \(secStr) seconds"
+        }
+        return "\(secStr) seconds"
+    }
+
+    /// Same split for Japanese — produces "M分SS.SS秒" or just "SS.SS秒"
+    /// when total < 60. The Siri/Otoya voices read "1分45.66秒" naturally
+    /// as "いっぷんよんじゅうごてんろくろくびょう".
+    private func japaneseMinSecString(_ time: TimeInterval) -> String {
+        let total = max(0, time)
+        let minutes = Int(total / 60)
+        let seconds = total - Double(minutes) * 60
+        let secStr = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), seconds)
+        if minutes > 0 {
+            return "\(minutes)分\(secStr)秒"
+        }
+        return "\(secStr)秒"
     }
 
     private func phrase(for lap: Lap, isBest: Bool) -> String {
