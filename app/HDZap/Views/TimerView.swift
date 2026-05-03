@@ -206,8 +206,8 @@ struct TimerView: View {
     /// as a misleading `"+0 more queued"`.
     private func errorSummaryLine(queued: Int, suppressed: Int) -> String {
         var parts: [String] = []
-        if queued > 0 { parts.append("+\(queued) more queued") }
-        if suppressed > 0 { parts.append("+\(suppressed) suppressed") }
+        if queued > 0 { parts.append(String(localized: "+\(queued) more queued")) }
+        if suppressed > 0 { parts.append(String(localized: "+\(suppressed) suppressed")) }
         return parts.joined(separator: " · ")
     }
 
