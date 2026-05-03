@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     iOS: "18.0"
   xcodeVersion: "16.4"
+  developmentLanguage: en
 settings:
   base:
     SWIFT_VERSION: "5.9"
