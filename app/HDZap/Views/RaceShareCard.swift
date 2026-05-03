@@ -1,9 +1,8 @@
 import SwiftUI
 
 /// Standalone snapshot view rendered offscreen via `ImageRenderer` to produce
-/// the PNG that the share sheet hands off. Mirrors the on-screen result layout
-/// (doneBlock + summary band + lap list + trend sparkline) but excludes the
-/// masthead, session bar, action dock, and BLE/error strips — those carry no
+/// the PNG that the share sheet hands off. Intentionally omits the masthead,
+/// session bar, action dock, and BLE/error strips because they carry no
 /// meaning once the race is over.
 ///
 /// Fixed 1080pt width so `ImageRenderer.scale = 3` yields a 3240px PNG that
