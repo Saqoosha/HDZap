@@ -45,16 +45,17 @@ TX UID capture is passive — the TX's existing goggle binding is unaffected. Sc
 
 ## BLE Protocol
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d479`
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. The UUID is bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics without a phone reboot.
 
 | Characteristic | UUID suffix | Direction | Format |
 |---|---|---|---|
 | UID Config | `...d481` | Write | `[mode:u8][data...]` |
 | Bind Command | `...d482` | Write | `[0x01]` |
-| Lap Time | `...d483` | Write | `[lap:u8][ms:u32 LE]` |
 | OSD Control | `...d484` | Write | `[cmd:u8]` |
-| Status | `...d485` | Read+Notify | `[conn:u8][uid:6][laps:u8][test:u8]` |
+| Status | `...d485` | Read+Notify | `[conn:u8][uid:6][test:u8]` |
 | TX Sniff | `...d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6]` |
+| OSD Text | `...d487` | Write | `[row:u8][ascii:1-19B]`; rows 0..3 stage one bottom-anchored 4-row text frame |
+| Battery | `...d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced)]` |
 
 UID Config modes: `0x01` bind phrase, `0x02` raw 6-byte UID, `0x03` new pairing (ESP32 MAC).
 OSD commands: `0x01` clear, `0x02` reset laps, `0x03` test OSD.

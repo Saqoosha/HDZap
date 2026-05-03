@@ -16,6 +16,9 @@ enum OSDCommand: UInt8 {
 private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
+// CHR_LAP_TIME_UUID (...d483) was retired when the firmware switched to the
+// iOS-owned OSD text path; iOS now formats and sends the full 4-row OSD frame
+// itself, so the lap-frame characteristic is gone from the firmware GATT.
 private let osdControlUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d484")
 private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
@@ -46,7 +49,6 @@ class BluetoothManager: NSObject {
     /// active connection without exposing the full `CBPeripheral`.
     var connectedIdentifier: UUID? { connectedPeripheral?.identifier }
     private(set) var currentUID: [UInt8]?
-    private(set) var lapCount: UInt8 = 0
     /// Latest Test OSD outcome from the firmware status notify.
     /// Encodes the `g_last_test_result` byte:
     ///   .none      = no test result yet (or the firmware byte was 0)
@@ -293,17 +295,34 @@ class BluetoothManager: NSObject {
         return write(data: Data([0x01]), to: bindCommandUUID)
     }
 
+    /// Send a single OSD row. Firmware writeStrings just this row plus
+    /// a draw, no clear — relies on the goggle keeping prior overlay
+    /// content. Caller pre-pads `text` to a stable width per row so
+    /// the centered position is invariant across updates (otherwise
+    /// shorter text leaves the prior longer text's tail visible).
     @discardableResult
-    func sendOSDText(lines: [String]) -> Bool {
-        guard lines.count == 3 else {
-            lastError = "OSD text needs exactly 3 rows, got \(lines.count)."
+    func sendOSDRow(row: Int, text: String) -> Bool {
+        guard (0..<4).contains(row) else {
+            lastError = "OSD row \(row) out of range (0..3)."
             return false
         }
+        var data = Data([UInt8(row)])
+        data.append(Self.osdASCIIData(for: text))
+        return write(data: data, to: osdTextUUID)
+    }
 
-        for (row, line) in lines.enumerated() {
-            var data = Data([UInt8(row)])
-            data.append(Self.osdASCIIData(for: line))
-            guard write(data: data, to: osdTextUUID) else { return false }
+    /// Send a batch of OSD rows. Bails on the first failed write and
+    /// returns false — earlier rows in the batch are already queued
+    /// against the goggle by then, so callers should treat a partial
+    /// failure as "the goggle has rows up to the failed one and the
+    /// rest are stale". Kept simple over an aggregate sent/total
+    /// return so the existing `_ = bluetooth.sendOSDRows(...)` call
+    /// sites still type-check; if richer error UX is needed later,
+    /// surface a sticky "goggle stale" flag on the manager.
+    @discardableResult
+    func sendOSDRows(_ rows: [(row: Int, text: String)]) -> Bool {
+        for entry in rows {
+            guard sendOSDRow(row: entry.row, text: entry.text) else { return false }
         }
         return true
     }
@@ -587,7 +606,6 @@ extension BluetoothManager: CBPeripheralDelegate {
             // keep rendering values the firmware may have already changed.
             if characteristic.uuid == statusUUID {
                 currentUID = nil
-                lapCount = 0
             }
             if characteristic.uuid == batteryUUID {
                 resetBatteryState()
@@ -629,26 +647,29 @@ extension BluetoothManager: CBPeripheralDelegate {
         guard let data = characteristic.value, data.count >= 8 else {
             // Short frame points at firmware/app version skew — surface as
             // actionable error and invalidate the derived fields so the UI
-            // doesn't keep showing a UID/lapCount that no longer reflects
-            // the firmware.
+            // doesn't keep showing a UID that no longer reflects the
+            // firmware.
             let n = characteristic.value?.count ?? 0
             currentUID = nil
-            lapCount = 0
             lastError = "Status frame unexpected size (\(n)B, expected ≥8). Firmware/app version mismatch?"
             return
         }
-        // Format: [connected:u8][uid:6bytes][lap_count:u8][test_result:u8?]
-        // The test_result byte was added in firmware commit "auto-test
-        // result in status notify"; older firmware sends 8 bytes and we
-        // simply leave lastTestResult at its previous value.
+        // Frame layout depends on firmware version:
+        //   8 bytes (current): [connected:u8][uid:6][test_result:u8]
+        //                      → test_result at index 7
+        //   9 bytes (legacy):  [connected:u8][uid:6][lap_count:u8][test_result:u8]
+        //                      → test_result at index 8
+        // Pinning byte 7 unconditionally would let an old-firmware
+        // status frame's lap_count count as a test result and break
+        // the pairing-flow auto-rollback (e.g. lap_count == 2 reads
+        // as .lost and rolls back a successful pairing). Discriminate
+        // on length instead.
         currentUID = Array(data[1...6])
-        lapCount = data[7]
-        if data.count >= 9 {
-            lastTestResult = TestResult(rawValue: data[8]) ?? .none
-            // Bump even when the encoded value matches — observers want
-            // to know "a fresh frame landed" not "a different result".
-            testResultRevision &+= 1
-        }
+        let testResultByte: UInt8 = data.count >= 9 ? data[8] : data[7]
+        lastTestResult = TestResult(rawValue: testResultByte) ?? .none
+        // Bump even when the encoded value matches — observers want to
+        // know "a fresh frame landed" not "a different result".
+        testResultRevision &+= 1
     }
 
     /// Composed error message that keeps the underlying NSError domain +

@@ -47,10 +47,10 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - `ble_service.h` — BLE GATT server, stages payloads + sets flags for main loop
 - `bind.h` — ELRS bind protocol, stateless (broadcast via espnow_link)
 - `tx_sniff.h` — ESP-NOW recv callback for TX UID capture; sniff_start/stop register/unregister the global recv_cb slot; g_sniff_uid + g_sniff_captured guarded by g_sniff_mux
-- `lap_display.h` — lap formatting + OSD rendering. `render()` is idempotent (pulls from in-memory lap history) so retries are safe.
+- `osd_text_display.h` — iOS-owned 4-row goggle OSD text. Per-row dirty bitmap; `render()` writeStrings just the dirty rows + draw (no clear), and the goggle's overlay buffer keeps prior content between writes. `m_dirty` survives across retries so the state machine can re-emit the same bits; `clearDirtyBits(mask)` is the surgical drop, called from main.cpp on verify-success / give-up.
 - `nvs_store.h` — UID persistence, namespace "hdzero"
-- `stick_display.h` — M5StickS3 LCD status display, no business logic
-- `main.cpp` — event loop; consumes staged BLE data under `g_ble_mux`, runs heavy work (NVS, ESP-NOW reinit) outside the BLE task, and hosts the render-retry state machine (`IDLE` → `PENDING` → `WAITING_ACK`). Lap delivery uses MAC-layer feedback from `esp_now_register_send_cb` (counters in `espnow_link.h`) — if any packet in a cycle fails to deliver, `render()` is re-dispatched up to `MAX_RENDER_RETRIES` times (granularity = whole cycle, because mid-cycle failure leaves the OSD buffer partially written). `cancelRender()` drops the cycle when stale state would be rendered (UID change, OSD clear, laps reset).
+- `stick_display.h` — M5StickS3 LCD status display, no business logic. `sleepPanel()` / `wakePanel()` / `isPanelAsleep()` own the panel power state for issue #5 phase 1; `sleepPanel()` calls `M5.Display.sleep()` only — do NOT prepend `setBrightness(0)` or it corrupts LGFX's `_brightness` cache and `wakeup()` restores brightness=0. `wakePanel()` waits 5 ms after `wakeup()` (ST7789 SLPOUT settling) then forces a full repaint.
+- `main.cpp` — event loop; consumes staged BLE data under `g_ble_mux`, runs heavy work (NVS, ESP-NOW reinit) outside the BLE task, and hosts the render-retry state machine (`IDLE` → `PENDING` → `WAITING_ACK`). Snapshots the dispatched dirty mask at render time so verify-success can clear *only* the bits we sent (BLE writes during WAITING_ACK survive). OSD delivery uses MAC-layer feedback from `esp_now_register_send_cb` (counters in `espnow_link.h`) — if any packet in a cycle fails to deliver, `render()` is re-dispatched up to `MAX_RENDER_RETRIES` times. The `IDLE && hasDirty → requestRender` catch-up trigger picks up bits that arrived during a verify window or while ESP-NOW was down. `cancelRender()` drops the cycle when stale state would be rendered (UID change, OSD clear, laps reset). Owns the LCD idle-timeout (`IDLE_TIMEOUT_MS` = 30 s) and `markActivity()` helper; activity = button press OR OSD-text dirty-row arrival, BLE config events deliberately don't count.
 
 ## Conventions
 
@@ -60,6 +60,7 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - `CBCentralManager` delegate queue MUST be main (`queue: nil`). `BluetoothManager` is `@MainActor`; `recordError` runtime-asserts main-actor isolation.
 - NVS namespace: "hdzero"; keys: `"uid"` (6 bytes) + `"init"` (sentinel for torn-save detection). Save order is remove sentinel → write uid → write sentinel; loadUid warns but still returns a present uid when the sentinel is absent (fail-soft — dropping a valid UID on every torn save would be worse than a log line).
 - Unicast MAC invariant: `uid[0] & 0x01 == 0` at every assignment site
+- `M5.BtnA/B.wasPressed()` is non-consuming (pure read of a latched edge), so multiple consumers can observe the same press in one tick — current pattern: `markActivity()` (LCD wake) + `batteryMonitor.silence()` (alarm silence; no-ops when tier==None) both fire on the same edge. Don't add a "consume" wrapper — the multi-observer model is the design.
 
 ## Hardware
 

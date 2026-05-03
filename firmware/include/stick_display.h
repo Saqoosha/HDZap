@@ -133,6 +133,11 @@ public:
 
     void update() {
         M5.update();
+        // While asleep, skip update()'s own time-driven repaints
+        // (lap-flash and takeover expiry). External show*() callers
+        // still write to GRAM behind the dark panel; wakePanel() does
+        // a full repaint so those are eventually overdrawn.
+        if (m_panelAsleep) return;
         uint32_t now = millis();
 
         if (m_lapFlashUntilMs && now >= m_lapFlashUntilMs) {
@@ -149,6 +154,36 @@ public:
             drawLapBand();
         }
     }
+
+    /// Power-saving panel-off state (issue #5 phase 1). Idempotent.
+    /// `M5.Display.sleep()` internally issues `_panel->setBrightness(0)`
+    /// without touching LGFX's `_brightness` cache, so `wakeup()` later
+    /// restores the original brightness on its own — no need to capture
+    /// or re-apply it here. The full repaint on wake covers any external
+    /// `show*()` calls that wrote to GRAM behind the dark panel.
+    void sleepPanel() {
+        if (m_panelAsleep) return;
+        m_panelAsleep = true;
+        M5.Display.sleep();
+    }
+
+    void wakePanel() {
+        if (!m_panelAsleep) return;
+        m_panelAsleep = false;
+        M5.Display.wakeup();
+        // ST7789 SLPOUT requires ~5 ms before the next command per the
+        // datasheet; M5GFX's setSleep() doesn't insert it. Without this
+        // wait, the first draw bytes after wakeup can be dropped and the
+        // panel comes back blank until the next render edge.
+        delay(5);
+        M5.Display.fillScreen(TFT_BLACK);
+        drawHairlines();
+        drawUidBand();
+        drawLapBand();
+        drawStrip();
+    }
+
+    bool isPanelAsleep() const { return m_panelAsleep; }
 
     // Palette accessors — main.cpp uses these to pass strip colors to
     // showMessage() without depending on TFT_* names.
@@ -196,6 +231,7 @@ private:
     // -1 = unknown (not polled yet, or PMIC reported -1). 0..100 valid.
     int8_t m_battPct = -1;
     bool m_battCharging = false;
+    bool m_panelAsleep = false;
 
     // Palette is filled by begin(); zero-init keeps pre-begin reads safe
     // (everything renders as black until begin() runs).
