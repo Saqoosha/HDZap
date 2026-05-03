@@ -1,13 +1,17 @@
 import SwiftUI
 
 /// Standalone snapshot view rendered offscreen via `ImageRenderer` to produce
-/// the PNG that the share sheet hands off. Intentionally omits the masthead,
-/// session bar, action dock, and BLE/error strips because they carry no
-/// meaning once the race is over.
+/// the PNG that the share sheet hands off. Mirrors `TimerView`'s post-race
+/// layout — same paddings, row heights, summary band, and hero typography —
+/// so the shared image reads as the screen the operator was watching, plus a
+/// card-only header/footer for context once the masthead and action dock are
+/// stripped.
 ///
-/// Fixed 1080pt width so `ImageRenderer.scale = 3` yields a 3240px PNG that
-/// looks crisp on retina displays regardless of which device the user shared
-/// from.
+/// Width matches a typical iPhone (393pt) so `ImageRenderer.scale = 3` yields
+/// a 1179px PNG with the same aspect ratio as the device. Bumping the width
+/// in isolation makes the card look "too wide" vs. the screen because the
+/// internal column widths and row heights stay the same — keep this aligned
+/// with `TimerView` if you change either side.
 struct RaceShareCard: View {
     let laps: [Lap]
     let bestLapIndex: Int?
@@ -17,7 +21,7 @@ struct RaceShareCard: View {
     let sessionLimit: TimeInterval
     let generatedAt: Date
 
-    static let width: CGFloat = 1080
+    static let width: CGFloat = 393
 
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
 
@@ -52,29 +56,29 @@ struct RaceShareCard: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .padding(.horizontal, 36)
-                .padding(.top, 36)
-
-            doneBlock
-                .padding(.horizontal, 36)
-                .padding(.top, 32)
-
-            summaryBand
-                .padding(.horizontal, 36)
-                .padding(.top, 28)
-
-            lapHeader
-                .padding(.horizontal, 36)
+                .padding(.horizontal, 24)
                 .padding(.top, 24)
 
+            doneBlock
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+
+            summaryBand
+                .padding(.horizontal, 24)
+                .padding(.top, 18)
+
+            lapHeader
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+
             lapRowsWithTrend
-                .padding(.horizontal, 36)
+                .padding(.horizontal, 24)
                 .padding(.top, 4)
 
             footer
-                .padding(.horizontal, 36)
-                .padding(.top, 28)
-                .padding(.bottom, 36)
+                .padding(.horizontal, 24)
+                .padding(.top, 18)
+                .padding(.bottom, 24)
         }
         .frame(width: Self.width)
         .background(EditorialTheme.paper)
@@ -86,12 +90,12 @@ struct RaceShareCard: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             Text("HDZap · Time Attack \(Int(sessionLimit))s")
-                .monoCap(size: 12, tracking: 2.2, color: EditorialTheme.ink)
+                .monoCap(size: 9.5, tracking: 2.0, color: EditorialTheme.ink)
             Spacer()
             Text("Race Result")
-                .monoCap(size: 12, tracking: 2.2, color: accent)
+                .monoCap(size: 9.5, tracking: 2.0, color: accent)
         }
-        .padding(.bottom, 10)
+        .padding(.bottom, 8)
         .overlay(alignment: .bottom) {
             Rectangle().fill(EditorialTheme.ink).frame(height: 1)
         }
@@ -100,20 +104,20 @@ struct RaceShareCard: View {
     private var doneBlock: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: -4) {
-                Text("Laps").monoCap(size: 11, tracking: 2.0, color: accent)
+                Text("Laps").monoCap(size: 9, tracking: 2.0, color: accent)
                 Text(String(format: "%02d", laps.count))
-                    .font(.editorialDisplay(96, weight: .light))
+                    .font(.editorialDisplay(64, weight: .light))
                     .monospacedDigit()
                     .tracking(-2)
                     .foregroundStyle(accent)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: -4) {
-                Text("Total Time").monoCap(size: 11, tracking: 2.0)
+                Text("Total Time").monoCap(size: 9, tracking: 2.0)
                 BigTime(seconds: totalTime,
                         accent: EditorialTheme.ink,
-                        size: 96,
-                        msSize: 32)
+                        size: 64,
+                        msSize: 22)
             }
         }
     }
@@ -136,7 +140,7 @@ struct RaceShareCard: View {
                           value: metrics?.splitValue ?? "—",
                           highlight: metrics?.splitState == .need, isFirst: false, isLast: true)
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .padding(.trailing, 8)
         .overlay(alignment: .top) {
             Rectangle().fill(EditorialTheme.ink).frame(height: 1)
@@ -146,18 +150,18 @@ struct RaceShareCard: View {
         }
     }
 
-    private static let lapRowHeight: CGFloat = 56
-    private static let trendColumnWidth: CGFloat = 220
+    private static let lapRowHeight: CGFloat = 42
+    private static let trendColumnWidth: CGFloat = 110
 
     private var lapHeader: some View {
-        HStack(spacing: 12) {
-            Text("#").monoCap(size: 12, tracking: 1.6).frame(width: 36, alignment: .leading)
-            Text("Split").monoCap(size: 12, tracking: 1.6).frame(maxWidth: .infinity, alignment: .leading)
-            Text("Δ Best").monoCap(size: 12, tracking: 1.6).frame(width: 110, alignment: .trailing)
-            Text("Trend").monoCap(size: 12, tracking: 1.6)
+        HStack(spacing: 10) {
+            Text("#").monoCap(size: 10, tracking: 1.6).frame(width: 26, alignment: .leading)
+            Text("Split").monoCap(size: 10, tracking: 1.6).frame(maxWidth: .infinity, alignment: .leading)
+            Text("Δ Best").monoCap(size: 10, tracking: 1.6).frame(width: 72, alignment: .trailing)
+            Text("Trend").monoCap(size: 10, tracking: 1.6)
                 .frame(width: Self.trendColumnWidth, alignment: .center)
         }
-        .padding(.bottom, 8)
+        .padding(.bottom, 6)
         .overlay(alignment: .bottom) {
             Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
         }
@@ -167,11 +171,11 @@ struct RaceShareCard: View {
     private var lapRowsWithTrend: some View {
         if laps.isEmpty {
             Text("No laps")
-                .monoCap(size: 13, tracking: 1.2, color: EditorialTheme.dim)
+                .monoCap(size: 11, tracking: 1.2, color: EditorialTheme.dim)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
+                .padding(.vertical, 24)
         } else {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 8) {
                 VStack(spacing: 0) {
                     ForEach(Array(laps.enumerated().reversed()), id: \.element.id) { realIdx, lap in
                         let isBest = realIdx == bestLapIndex
@@ -196,12 +200,12 @@ struct RaceShareCard: View {
     private var footer: some View {
         HStack {
             Text(Self.timestampFormatter.string(from: generatedAt))
-                .monoCap(size: 10, tracking: 1.6, color: EditorialTheme.dim)
+                .monoCap(size: 8.5, tracking: 1.4, color: EditorialTheme.dim)
             Spacer()
             Text("hdzap")
-                .monoCap(size: 10, tracking: 1.6, color: EditorialTheme.dim)
+                .monoCap(size: 8.5, tracking: 1.4, color: EditorialTheme.dim)
         }
-        .padding(.top, 10)
+        .padding(.top, 8)
         .overlay(alignment: .top) {
             Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
         }
