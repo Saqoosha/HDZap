@@ -10,8 +10,10 @@ import UIKit
 struct TimerView: View {
     @Environment(LapTimer.self) private var lapTimer
     @Environment(BluetoothManager.self) private var bluetooth
+    @Environment(LapAnnouncer.self) private var announcer
     @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
+    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
     @Environment(\.accentHue) private var accentHue: Double
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
     private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }
@@ -574,8 +576,12 @@ struct TimerView: View {
             // Set before recordLap() so the .sensoryFeedback closure sees
             // the FINAL classification regardless of when SwiftUI re-evals.
             lastLapWasFinal = true
-            recordLap()
+            // Suppress the per-lap callout on the final lap; the just-
+            // recorded lap is folded into the race-end summary phrase
+            // (see `announceFinalIfNeeded(lastLap:)`).
+            let finalLap = recordLap(announce: false)
             lapTimer.stop()
+            announceFinalIfNeeded(lastLap: finalLap)
         } else if lapTimer.isRunning {
             lastLapWasFinal = false
             recordLap()
@@ -585,6 +591,12 @@ struct TimerView: View {
             metricsSnapshot = nil
             lastLapWasFinal = false
             lapTimer.start()
+            // Audio cue for the start of the race; also warms the audio
+            // session so the first lap announcement doesn't pay the
+            // setActive(true) round-trip.
+            if lapTTSEnabled {
+                announcer.announceStart()
+            }
         }
     }
 
@@ -599,6 +611,7 @@ struct TimerView: View {
                 // Stale projection from the in-flight lap would otherwise
                 // outlive the run. The achieved count is the truthful pace.
                 refreshMetricsSnapshot(paceOverride: lapTimer.laps.count)
+                announceFinalIfNeeded()
             }
         } else {
             // iOS state is the source of truth — clear it regardless of
@@ -616,6 +629,10 @@ struct TimerView: View {
             if !lapTimer.laps.isEmpty || lapTimer.elapsedTime > 0 {
                 bluetooth.sendOSDControl(command: .resetLaps)
             }
+            // Silence any in-flight announcement before wiping state — a
+            // stale "Lap 5, 12.34" trailing into the next session would be
+            // disorienting since the visible state was just cleared.
+            announcer.cancel()
             lapTimer.reset()
             metricsSnapshot = nil
             manuallyEnded = false
@@ -627,13 +644,48 @@ struct TimerView: View {
     /// the source of truth; a BLE write failure surfaces via `lastError`
     /// but never rolls back the lap — the operator's tap is what counts,
     /// and the goggle catching up (or not) is downstream concern.
-    private func recordLap() {
-        guard lapTimer.lap() != nil else { return }
+    @discardableResult
+    private func recordLap(announce: Bool = true) -> Lap? {
+        guard let lap = lapTimer.lap() else { return nil }
         refreshMetricsSnapshot()
         sendMetricRows()
         // Refresh TIME LEFT alongside the lap — keeps the top row in
         // sync without waiting up to a second for the next tick.
         sendTimeLeftRow()
+
+        if announce && lapTTSEnabled {
+            // `bestLapIndex` is recomputed against `lap` since `lapTimer.lap()`
+            // already appended; index N-1 is the lap we just recorded, so an
+            // equality check tells us whether it's the new best. On a tie with
+            // an earlier lap, `min(by:)` keeps pointing at the earlier index
+            // — the tied lap is **not** announced as best, matching the
+            // visual highlight in the lap list.
+            // Lap 1 is trivially the best (only one), so suppress the
+            // "best lap" suffix until we have at least one prior lap to
+            // compare against — otherwise every race opens with an
+            // unearned victory call.
+            let isBest = lapTimer.laps.count > 1
+                && lapTimer.bestLapIndex == lapTimer.laps.count - 1
+            announcer.announceLap(lap, isBest: isBest)
+        }
+        return lap
+    }
+
+    /// Speaks the race-over summary (lap count + best lap) if TTS is
+    /// enabled. Called when the session transitions to ended via either
+    /// the final-lap or manual-STOP path. The end-of-race callout is
+    /// distinct from the per-lap announcement — it's the one the operator
+    /// will care about if they only get to hear one thing per race.
+    /// `lastLap` is non-nil only on the FINAL-button path; the manual-STOP
+    /// path passes nil because the previous LAP tap already announced the
+    /// most-recent lap.
+    private func announceFinalIfNeeded(lastLap: Lap? = nil) {
+        guard lapTTSEnabled, !lapTimer.laps.isEmpty else { return }
+        let totalTime = lapTimer.laps.reduce(0) { $0 + $1.time }
+        announcer.announceFinal(lastLap: lastLap,
+                                lapCount: lapTimer.laps.count,
+                                totalTime: totalTime,
+                                bestLapTime: bestTime)
     }
 
     /// Push the TIME LEFT row to the goggle. Padded so a shorter value
