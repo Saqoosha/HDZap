@@ -343,8 +343,8 @@ struct SettingsView: View {
                         if showParsed {
                             // Two distinct keys ("Normalized: %@" / "Parsed: %@")
                             // rather than "%@: %@" so each label translates
-                            // independently — Japanese expresses these as
-                            // 「正規化済み」/「解析結果」.
+                            // independently — the labels are not always
+                            // equivalent across languages.
                             let parsedKey: LocalizedStringKey = (normalized != raw)
                                 ? "Normalized: \(formatUID(normalized))"
                                 : "Parsed: \(formatUID(normalized))"
@@ -582,8 +582,8 @@ struct SettingsView: View {
                 && bluetooth.previousUID != nil
                 && bluetooth.previousUID != bluetooth.currentUID
             // Whole-sentence keys (rather than splicing in a localized
-            // suffix) so translators can rephrase the restore hint in
-            // place — Japanese inverts the clause order.
+            // suffix) so the trailing hint can be rephrased in context —
+            // suffix concatenation traps translators into a fixed order.
             let timeoutKey: LocalizedStringKey = restoreVisible
                 ? "No verification result. The M5Stick may be disconnected — try again, or use Restore previous goggle."
                 : "No verification result. The M5Stick may be disconnected — try again."
@@ -629,7 +629,12 @@ struct SettingsView: View {
     }
 
     private var batteryCaption: String {
-        guard let pct = bluetooth.batteryPercent else { return "—" }
+        guard let raw = bluetooth.batteryPercent else { return "—" }
+        // Cast UInt8 → Int so the catalog-lookup key uses %lld. Without
+        // the cast, Foundation's LocalizationValue picks %u for UInt8,
+        // which never hits the %lld%%-keyed JP entries — every caption
+        // would silently fall back to English on a JP device.
+        let pct = Int(raw)
         if bluetooth.isCharging { return String(localized: "\(pct)% · Charging") }
         switch bluetooth.batteryAlarm {
         case .critical:

@@ -94,6 +94,50 @@
         }
       }
     },
+    "%lld is out of range — decimal bytes must be 0–255." : {
+      "comment" : "Manual UID validation error: a decimal byte was outside 0–255.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld は範囲外 — 10 進数のバイトは 0〜255 でなければなりません。"
+          }
+        }
+      }
+    },
+    "'%@' is not a valid decimal number." : {
+      "comment" : "Manual UID validation error: a token couldn't parse as decimal.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は有効な 10 進数ではありません。"
+          }
+        }
+      }
+    },
+    "'%@' is not a valid hex byte (00–FF)." : {
+      "comment" : "Manual UID validation error: a token couldn't parse as a hex byte.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は有効な 16 進数バイト(00–FF)ではありません。"
+          }
+        }
+      }
+    },
+    "UID must be 6 bytes (got %lld parts). Use hex 60:D2:53:8A:B2:00 or decimal 96 210 83 138 178 0." : {
+      "comment" : "Manual UID validation error: wrong number of bytes parsed.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UID は 6 バイトである必要があります(検出: %lld 個)。16 進数 60:D2:53:8A:B2:00 か 10 進数 96 210 83 138 178 0 を使用してください。"
+          }
+        }
+      }
+    },
     "96,210,83,138,178,0 or 60:D2:53:8A:B2:00" : {
       "comment" : "TextField placeholder showing the two accepted UID input formats.",
       "localizations" : {
@@ -377,7 +421,7 @@
         }
       }
     },
-    "Lap times will stop appearing on your current goggle and start going to a new one.\n\nMake sure your goggle is set up to receive from the new pairing — otherwise nothing will show up.\n\nFrom: %1$@\nTo:   %2$@" : {
+    "Lap times will stop appearing on your current goggle and start going to a new one.\n\nMake sure your goggle is set up to receive from the new pairing — otherwise nothing will show up.\n\nFrom: %@\nTo:   %@" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {

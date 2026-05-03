@@ -7,10 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		00C0FFEE000000000000A001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 00C0FFEE000000000000B001 /* Localizable.xcstrings */; };
 		085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 612031ED1450E491C5A43621 /* EditorialTheme.swift */; };
 		12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E32709696D474AA71F7C90 /* UIDUtils.swift */; };
 		3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63119602A4C7217E6D0C00A1 /* OKLCH.swift */; };
+		374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */; };
 		6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DB96B10D57102797F555BE /* BluetoothManager.swift */; };
 		7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFF7583FD58A10FE7357025 /* HDZapApp.swift */; };
 		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
@@ -22,7 +22,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		00C0FFEE000000000000B001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		12757F8C010AFDC40357896D /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
 		2E0D671093AF13888B5701D3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2E4A2435CB82ED37EA712928 /* LapTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapTimer.swift; sourceTree = "<group>"; };
@@ -32,6 +31,7 @@
 		612031ED1450E491C5A43621 /* EditorialTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialTheme.swift; sourceTree = "<group>"; };
 		63119602A4C7217E6D0C00A1 /* OKLCH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OKLCH.swift; sourceTree = "<group>"; };
 		66E32709696D474AA71F7C90 /* UIDUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIDUtils.swift; sourceTree = "<group>"; };
+		6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
@@ -82,7 +82,7 @@
 			children = (
 				3BFF7583FD58A10FE7357025 /* HDZapApp.swift */,
 				3AA9BB23D795AA5162829B3C /* Info.plist */,
-				00C0FFEE000000000000B001 /* Localizable.xcstrings */,
+				6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */,
 				42E89D1EA471AA0231C57139 /* Models */,
 				8CBD2DCE416C511DC56F7DB0 /* Utils */,
 				3802ABB4F858BEDF7105AAC6 /* Views */,
@@ -107,7 +107,7 @@
 			buildConfigurationList = 8B6D3238A62B20FD5B9A93C5 /* Build configuration list for PBXNativeTarget "HDZap" */;
 			buildPhases = (
 				8EB8D7AD4FF9BE9D97BB5DFE /* Sources */,
-				00C0FFEE000000000000C001 /* Resources */,
+				5EC44E9D8BC3FA63073F8E7E /* Resources */,
 			);
 			buildRules = (
 			);
@@ -156,11 +156,11 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		00C0FFEE000000000000C001 /* Resources */ = {
+		5EC44E9D8BC3FA63073F8E7E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				00C0FFEE000000000000A001 /* Localizable.xcstrings in Resources */,
+				374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

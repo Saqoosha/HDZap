@@ -16,13 +16,13 @@ enum UIDParseError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .wrongPartCount(let got):
-            return "UID must be 6 bytes (got \(got) parts). Use hex 60:D2:53:8A:B2:00 or decimal 96 210 83 138 178 0."
+            return String(localized: "UID must be 6 bytes (got \(got) parts). Use hex 60:D2:53:8A:B2:00 or decimal 96 210 83 138 178 0.")
         case .invalidHex(let part):
-            return "'\(part)' is not a valid hex byte (00–FF)."
+            return String(localized: "'\(part)' is not a valid hex byte (00–FF).")
         case .invalidDecimal(let part):
-            return "'\(part)' is not a valid decimal number."
+            return String(localized: "'\(part)' is not a valid decimal number.")
         case .decimalOutOfRange(let value):
-            return "\(value) is out of range — decimal bytes must be 0–255."
+            return String(localized: "\(value) is out of range — decimal bytes must be 0–255.")
         }
     }
 }
