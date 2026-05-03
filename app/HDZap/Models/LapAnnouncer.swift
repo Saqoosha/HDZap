@@ -6,6 +6,7 @@ import Foundation
 /// silently disconnect the two — both reach for the same constants.
 enum LapAnnouncerDefaults {
     static let enabledKey = "lapTTSEnabled"
+    static let languageKey = "lapTTSLanguage"
     static let voiceIdentifierKey = "lapTTSVoiceIdentifier"
     static let rateKey = "lapTTSRate"
     static let pitchKey = "lapTTSPitch"
@@ -21,6 +22,56 @@ enum LapAnnouncerDefaults {
     static let maxRate: Float = 0.65  // > 0.65 chops decimals together
     static let minPitch: Float = 0.75
     static let maxPitch: Float = 1.5
+
+    /// Resolved at app launch from `Locale.current` — Japanese users get JP
+    /// announcements out of the box, everyone else falls back to English.
+    /// Stored as the language's raw value so it can be passed straight to
+    /// `UserDefaults.register(defaults:)`.
+    static var defaultLanguageRaw: String {
+        LapAnnouncerLanguage.systemDefault.rawValue
+    }
+}
+
+/// Language used for both the announcement phrase and the voice picker
+/// filter. The picker only shows voices that match the selected language —
+/// asking a Japanese voice to read "Lap 5" produces unintelligible output,
+/// so they're kept apart by construction.
+enum LapAnnouncerLanguage: String, CaseIterable, Identifiable {
+    case english = "en"
+    case japanese = "ja"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .english: return "English"
+        case .japanese: return "日本語"
+        }
+    }
+
+    /// Prefix used to filter `AVSpeechSynthesisVoice.speechVoices()`.
+    /// Apple uses BCP-47 like `en-US`, `en-GB`, `ja-JP` — the two-letter
+    /// language tag is the common stem.
+    var voiceLanguagePrefix: String { rawValue }
+
+    /// Voice tag used when no per-language voice has been picked yet.
+    /// `AVSpeechSynthesisVoice(language:)` resolves this to the system's
+    /// preferred voice for that locale.
+    var fallbackVoiceLanguage: String {
+        switch self {
+        case .english: return "en-US"
+        case .japanese: return "ja-JP"
+        }
+    }
+
+    /// Picks the announcement language from the system locale on first
+    /// launch. Anything that isn't an explicit Japanese device defaults to
+    /// English — the announcement text needs to match the chosen voice and
+    /// adding a third language is a follow-up, not a silent fallback.
+    static var systemDefault: LapAnnouncerLanguage {
+        let lang = Locale.current.language.languageCode?.identifier ?? "en"
+        return lang == "ja" ? .japanese : .english
+    }
 }
 
 /// Speaks lap times through the device speaker so the operator gets audio
@@ -44,9 +95,11 @@ final class LapAnnouncer {
 
     /// Used by the Settings "Test voice" button so the user can preview the
     /// current voice/rate/pitch combo and confirm the phone isn't muted
-    /// before relying on it during a race.
+    /// before relying on it during a race. Uses lap 3 + 12.34s + best so all
+    /// three phrase pieces (lap number, time, best-lap suffix) are exercised.
     func announceTest() {
-        speak("Lap 3, 12.34, best lap")
+        let sample = Lap(id: 3, time: 12.34)
+        speak(phrase(for: sample, isBest: true))
     }
 
     /// Drop any in-flight or queued speech. Called from RESET so a stale
@@ -84,16 +137,26 @@ final class LapAnnouncer {
         try? session.setActive(true, options: [])
     }
 
+    private func currentLanguage() -> LapAnnouncerLanguage {
+        let raw = UserDefaults.standard.string(forKey: LapAnnouncerDefaults.languageKey)
+            ?? LapAnnouncerDefaults.defaultLanguageRaw
+        return LapAnnouncerLanguage(rawValue: raw) ?? .english
+    }
+
     private func currentVoice() -> AVSpeechSynthesisVoice? {
+        let language = currentLanguage()
         let id = UserDefaults.standard.string(forKey: LapAnnouncerDefaults.voiceIdentifierKey) ?? ""
-        if !id.isEmpty, let voice = AVSpeechSynthesisVoice(identifier: id) {
+
+        // Honor the saved voice only if it matches the current announcement
+        // language. Without this check, switching language would happily
+        // hand a `ja-JP` phrase to an `en-US` voice (or vice versa) and the
+        // engine would mispronounce numerals into nonsense.
+        if !id.isEmpty,
+           let voice = AVSpeechSynthesisVoice(identifier: id),
+           voice.language.hasPrefix(language.voiceLanguagePrefix) {
             return voice
         }
-        // Fall back to the system's preferred en-US voice. We deliberately
-        // pin to en-US rather than `Locale.current` because the announcement
-        // text ("Lap 5, 12.34") is English; a Japanese system voice asked to
-        // read English numerals mispronounces them.
-        return AVSpeechSynthesisVoice(language: "en-US")
+        return AVSpeechSynthesisVoice(language: language.fallbackVoiceLanguage)
     }
 
     private func currentRate() -> Float {
@@ -115,43 +178,64 @@ final class LapAnnouncer {
         // Two decimals matches what most pilots can act on — milliseconds
         // are too granular to parse by ear in the half-second the operator
         // has between laps. AVSpeechSynthesizer reads "12.34" naturally as
-        // "twelve point three four" with the en-US voice.
+        // "twelve point three four" (en) / "12てん34" (ja).
         let timeStr = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"),
                              max(0, lap.time))
-        if isBest {
-            return "Lap \(lap.id), \(timeStr), best lap"
+        switch currentLanguage() {
+        case .english:
+            return isBest
+                ? "Lap \(lap.id), \(timeStr), best lap"
+                : "Lap \(lap.id), \(timeStr)"
+        case .japanese:
+            // Idiomatic FPV-racing phrasing in Japanese: "ラップN" matches
+            // the on-screen counter, "ベストラップ" is the standard call for
+            // a new fastest lap on circuit race broadcasts.
+            return isBest
+                ? "ラップ\(lap.id)、\(timeStr)、ベストラップ"
+                : "ラップ\(lap.id)、\(timeStr)"
         }
-        return "Lap \(lap.id), \(timeStr)"
     }
 }
 
 /// Catalogs the installed speech voices so SettingsView can render a Picker.
-/// Filtered to English voices because the announcement text is English; a
-/// non-English voice asked to read "Lap 5, 12.34" mispronounces it.
+/// Filtered to the selected announcement language because asking a voice to
+/// read text in the wrong language ("Lap 5, 12.34" through a `ja-JP` voice,
+/// or vice versa) produces unintelligible output.
 struct LapAnnouncerVoiceCatalog {
     struct Entry: Identifiable, Hashable {
         let id: String          // AVSpeechSynthesisVoice.identifier
         let displayName: String // "Samantha (en-US, Enhanced)"
         let language: String
+        /// Drives sort order so Premium voices float to the top of the
+        /// picker — they're the highest-quality option (iOS 17+ Siri voices
+        /// land here) and most users want them picked first when installed.
+        let qualityRank: Int
     }
 
-    static func availableEnglishVoices() -> [Entry] {
+    /// Lists installed voices for `language`, sorted Premium → Enhanced →
+    /// Default, then alphabetically by name. The picker also exposes a
+    /// "System default" entry for `id == ""`, so this list can be empty
+    /// without breaking selection.
+    static func availableVoices(for language: LapAnnouncerLanguage) -> [Entry] {
         AVSpeechSynthesisVoice.speechVoices()
-            .filter { $0.language.hasPrefix("en") }
+            .filter { $0.language.hasPrefix(language.voiceLanguagePrefix) }
             .map { v in
                 let qualityTag: String
+                let rank: Int
                 switch v.quality {
-                case .premium: qualityTag = ", Premium"
-                case .enhanced: qualityTag = ", Enhanced"
-                default: qualityTag = ""
+                case .premium: qualityTag = ", Premium"; rank = 0
+                case .enhanced: qualityTag = ", Enhanced"; rank = 1
+                default: qualityTag = ""; rank = 2
                 }
                 return Entry(
                     id: v.identifier,
                     displayName: "\(v.name) (\(v.language)\(qualityTag))",
-                    language: v.language
+                    language: v.language,
+                    qualityRank: rank
                 )
             }
             .sorted { lhs, rhs in
+                if lhs.qualityRank != rhs.qualityRank { return lhs.qualityRank < rhs.qualityRank }
                 if lhs.language != rhs.language { return lhs.language < rhs.language }
                 return lhs.displayName < rhs.displayName
             }

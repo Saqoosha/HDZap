@@ -12,6 +12,7 @@ struct HDZapApp: App {
             "accentHue": EditorialTheme.defaultAccentHue,
             "targetLapCount": RaceMetrics.defaultTargetLapCount,
             LapAnnouncerDefaults.enabledKey: false,
+            LapAnnouncerDefaults.languageKey: LapAnnouncerDefaults.defaultLanguageRaw,
             LapAnnouncerDefaults.announceBestKey: true,
             LapAnnouncerDefaults.rateKey: Double(LapAnnouncerDefaults.defaultRate),
             LapAnnouncerDefaults.pitchKey: Double(LapAnnouncerDefaults.defaultPitch),

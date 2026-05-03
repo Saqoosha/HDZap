@@ -24,6 +24,8 @@ struct SettingsView: View {
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
     @AppStorage("accentHue") private var accentHue: Double = EditorialTheme.defaultAccentHue
     @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
+    @AppStorage(LapAnnouncerDefaults.languageKey) private var ttsLanguageRaw
+        = LapAnnouncerDefaults.defaultLanguageRaw
     @AppStorage(LapAnnouncerDefaults.announceBestKey) private var announceBest = true
     @AppStorage(LapAnnouncerDefaults.voiceIdentifierKey) private var voiceIdentifier = ""
     @AppStorage(LapAnnouncerDefaults.rateKey) private var ttsRate: Double
@@ -262,17 +264,32 @@ struct SettingsView: View {
     }
 
     private var audioSection: some View {
-        // Voice catalog is captured once per sheet presentation. The list only
-        // changes when iOS downloads a new voice (settings → accessibility),
-        // which can't happen while this sheet is up — refreshing on every
-        // body re-eval would just churn through `speechVoices()`.
-        let voices = LapAnnouncerVoiceCatalog.availableEnglishVoices()
+        // Snapshot the language and voice list once per body eval. The list
+        // only changes when iOS downloads a new voice or the user picks a
+        // new language above — both flows trigger a body re-eval, so we
+        // don't need a more elaborate cache.
+        let language = LapAnnouncerLanguage(rawValue: ttsLanguageRaw) ?? .english
+        let voices = LapAnnouncerVoiceCatalog.availableVoices(for: language)
         let voiceMissing = !voiceIdentifier.isEmpty
             && !voices.contains(where: { $0.id == voiceIdentifier })
+        let hasPremium = voices.contains(where: { $0.qualityRank == 0 })
         return Section {
             Toggle("Announce lap times", isOn: $lapTTSEnabled)
 
             if lapTTSEnabled {
+                Picker("Language", selection: $ttsLanguageRaw) {
+                    ForEach(LapAnnouncerLanguage.allCases) { lang in
+                        Text(lang.displayName).tag(lang.rawValue)
+                    }
+                }
+                .onChange(of: ttsLanguageRaw) { _, _ in
+                    // The previously-picked voice almost certainly belongs
+                    // to the old language; clear it so the picker falls
+                    // back to "System default" for the new language rather
+                    // than getting silently overridden by `currentVoice()`.
+                    voiceIdentifier = ""
+                }
+
                 Toggle("Say \"best lap\" on new best", isOn: $announceBest)
 
                 Picker("Voice", selection: $voiceIdentifier) {
@@ -280,6 +297,26 @@ struct SettingsView: View {
                     ForEach(voices) { voice in
                         Text(voice.displayName).tag(voice.id)
                     }
+                }
+
+                if voices.isEmpty {
+                    // No voices installed at all for the selected language —
+                    // most common cause is the user picked a language whose
+                    // base voice was never bundled (rare) or trimmed during
+                    // an iOS reinstall. Point them at Settings and surface
+                    // the issue so they don't blame the announcer.
+                    Text("No voices installed for this language. Install one from iOS Settings → Accessibility → search \"Voices\".")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else if !hasPremium && language == .japanese {
+                    // Japanese-specific nudge: the compact Kyoko/Otoya
+                    // voices that ship by default are markedly worse than
+                    // Siri Voice 1 / Voice 2 (~480 MB). Worth pointing the
+                    // user at the better option since the size difference
+                    // is the only reason not to install it.
+                    Text("Tip: install a Premium ja-JP voice (Siri Voice 1/2 or Kyoko/Otoya Enhanced) for noticeably better quality.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if voiceMissing {
@@ -329,6 +366,7 @@ struct SettingsView: View {
                     Button("Reset", role: .destructive) {
                         ttsRate = Double(LapAnnouncerDefaults.defaultRate)
                         ttsPitch = Double(LapAnnouncerDefaults.defaultPitch)
+                        ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
                         voiceIdentifier = ""
                         announceBest = true
                     }
