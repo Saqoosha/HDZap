@@ -61,12 +61,44 @@ struct RaceMetrics: Equatable {
         "\(paceLaps)L"
     }
 
-    var osdLines: [String] {
+    /// Padding width per OSD row. Fixed widths matter because the goggle
+    /// keeps prior overlay content between writes (we don't clear before
+    /// each row update); a shorter new value would leave stale chars
+    /// from the previous frame trailing the centered text. Padding to
+    /// a stable width per row pins the centered position so updates
+    /// always overwrite the same span.
+    static let osdRowWidths: [Int] = [13, 14, 19, 19]
+
+    /// TIME LEFT row, padded so the centered position is stable as the
+    /// digit count changes across the full session-limit range (single,
+    /// double, and triple digit values; the SettingsView slider goes up
+    /// to 180s). The "S" suffix was dropped: on the HDZero glyph set
+    /// `S` renders as a `5` and gets read as part of the number
+    /// (`45S` → `455`).
+    static func timeLeftRow(remainingSec: TimeInterval) -> String {
+        let secs = max(0, Int(remainingSec.rounded()))
+        return padOSD("TIME LEFT \(secs)", width: osdRowWidths[0])
+    }
+
+    /// Bottom three rows derived from the latest lap, padded so they
+    /// can overlay prior content without leftover chars. Sent only
+    /// when a lap is recorded — independent of the TIME LEFT tick.
+    var osdMetricRows: [String] {
         [
-            Self.fitOSD("LAP \(lapNumber) \(Self.seconds(lastLapSec, decimals: 3))"),
-            Self.fitOSD(osdAverageLine),
-            Self.fitOSD(osdDiffLine)
+            Self.padOSD("LAP \(lapNumber) \(Self.seconds(lastLapSec, decimals: 3))",
+                        width: Self.osdRowWidths[1]),
+            Self.padOSD(osdAverageLine, width: Self.osdRowWidths[2]),
+            Self.padOSD(osdDiffLine, width: Self.osdRowWidths[3])
         ]
+    }
+
+    /// Pad to `width` with trailing spaces (or truncate to `width` if
+    /// the source is longer). Caps at `osdRowMaxBytes` regardless so
+    /// the BLE payload always fits the firmware's per-row limit.
+    static func padOSD(_ line: String, width: Int) -> String {
+        let cap = min(width, osdRowMaxBytes)
+        if line.count >= cap { return String(line.prefix(cap)) }
+        return line + String(repeating: " ", count: cap - line.count)
     }
 
     private var osdAverageLine: String {
@@ -137,11 +169,6 @@ struct RaceMetrics: Equatable {
         let clean = abs(seconds) < threshold ? 0 : seconds
         let format = "%+.\(decimals)f"
         return String(format: format, locale: Locale(identifier: "en_US_POSIX"), clean)
-    }
-
-    static func fitOSD(_ line: String) -> String {
-        guard line.count > osdRowMaxBytes else { return line }
-        return String(line.prefix(osdRowMaxBytes))
     }
 
     private func compactDiffLine(diff: String, label: String) -> String {
