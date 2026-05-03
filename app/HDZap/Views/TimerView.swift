@@ -576,13 +576,12 @@ struct TimerView: View {
             // Set before recordLap() so the .sensoryFeedback closure sees
             // the FINAL classification regardless of when SwiftUI re-evals.
             lastLapWasFinal = true
-            // Skip the per-lap callout on the final lap — the race-end
-            // summary that fires next is the one the operator wants to
-            // hear, and back-to-back announcements would just preempt
-            // each other.
-            recordLap(announce: false)
+            // Suppress the per-lap callout on the final lap; the just-
+            // recorded lap is folded into the race-end summary phrase
+            // (see `announceFinalIfNeeded(lastLap:)`).
+            let finalLap = recordLap(announce: false)
             lapTimer.stop()
-            announceFinalIfNeeded()
+            announceFinalIfNeeded(lastLap: finalLap)
         } else if lapTimer.isRunning {
             lastLapWasFinal = false
             recordLap()
@@ -645,8 +644,9 @@ struct TimerView: View {
     /// the source of truth; a BLE write failure surfaces via `lastError`
     /// but never rolls back the lap — the operator's tap is what counts,
     /// and the goggle catching up (or not) is downstream concern.
-    private func recordLap(announce: Bool = true) {
-        guard let lap = lapTimer.lap() else { return }
+    @discardableResult
+    private func recordLap(announce: Bool = true) -> Lap? {
+        guard let lap = lapTimer.lap() else { return nil }
         refreshMetricsSnapshot()
         sendMetricRows()
         // Refresh TIME LEFT alongside the lap — keeps the top row in
@@ -663,6 +663,7 @@ struct TimerView: View {
             let isBest = lapTimer.bestLapIndex == lapTimer.laps.count - 1
             announcer.announceLap(lap, isBest: isBest)
         }
+        return lap
     }
 
     /// Speaks the race-over summary (lap count + best lap) if TTS is
@@ -670,10 +671,14 @@ struct TimerView: View {
     /// the final-lap or manual-STOP path. The end-of-race callout is
     /// distinct from the per-lap announcement — it's the one the operator
     /// will care about if they only get to hear one thing per race.
-    private func announceFinalIfNeeded() {
+    /// `lastLap` is non-nil only on the FINAL-button path; the manual-STOP
+    /// path passes nil because the previous LAP tap already announced the
+    /// most-recent lap.
+    private func announceFinalIfNeeded(lastLap: Lap? = nil) {
         guard lapTTSEnabled, !lapTimer.laps.isEmpty else { return }
         let totalTime = lapTimer.laps.reduce(0) { $0 + $1.time }
-        announcer.announceFinal(lapCount: lapTimer.laps.count,
+        announcer.announceFinal(lastLap: lastLap,
+                                lapCount: lapTimer.laps.count,
                                 totalTime: totalTime,
                                 bestLapTime: bestTime)
     }

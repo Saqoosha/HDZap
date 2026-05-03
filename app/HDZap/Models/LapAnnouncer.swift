@@ -155,13 +155,23 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         speak(phrase(for: sample, isBest: true))
     }
 
-    /// Announces the race-over summary: lap count + total race time +
-    /// best-lap time. Called once when the session transitions to ended
-    /// (time-up final lap or manual STOP with laps recorded).
-    /// `bestLapTime == nil` when no laps were recorded — caller should
-    /// skip in that case, but we degrade gracefully if not.
-    func announceFinal(lapCount: Int, totalTime: TimeInterval, bestLapTime: TimeInterval?) {
-        speak(finalPhrase(lapCount: lapCount, totalTime: totalTime, bestLapTime: bestLapTime))
+    /// Announces the race-over summary: optional last lap + total lap
+    /// count + total race time + best-lap time. Called once when the
+    /// session transitions to ended.
+    ///
+    /// Pass `lastLap` on the FINAL-button path so the just-recorded
+    /// lap is folded into a single utterance (the per-lap callout is
+    /// suppressed so it doesn't preempt the summary). Pass `nil` from
+    /// the manual-STOP path — that lap was already announced by the
+    /// previous LAP tap.
+    func announceFinal(lastLap: Lap?,
+                       lapCount: Int,
+                       totalTime: TimeInterval,
+                       bestLapTime: TimeInterval?) {
+        speak(finalPhrase(lastLap: lastLap,
+                          lapCount: lapCount,
+                          totalTime: totalTime,
+                          bestLapTime: bestLapTime))
     }
 
     /// Announces the race start ("Start" / "スタート") so the operator
@@ -333,24 +343,31 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         return min(LapAnnouncerDefaults.maxPitch, max(LapAnnouncerDefaults.minPitch, value))
     }
 
-    private func finalPhrase(lapCount: Int, totalTime: TimeInterval, bestLapTime: TimeInterval?) -> String {
+    private func finalPhrase(lastLap: Lap?,
+                             lapCount: Int,
+                             totalTime: TimeInterval,
+                             bestLapTime: TimeInterval?) -> String {
         let bestStr = bestLapTime.map {
             String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), max(0, $0))
         }
-        let language = currentLanguage()
-        switch language {
+        let lastLapStr = lastLap.map {
+            String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), max(0, $0.time))
+        }
+        switch currentLanguage() {
         case .english:
-            if let bestStr {
-                let totalEN = englishMinSecString(totalTime)
-                return "\(lapCount) laps in \(totalEN). Best lap was \(bestStr) seconds."
+            guard let bestStr else { return "Race complete. No laps recorded." }
+            let totalEN = englishMinSecString(totalTime)
+            if let lastLap, let lastLapStr {
+                return "Lap \(lastLap.id), \(lastLapStr) seconds. Total \(lapCount) laps in \(totalEN). Best lap was \(bestStr) seconds."
             }
-            return "Race complete. No laps recorded."
+            return "\(lapCount) laps in \(totalEN). Best lap was \(bestStr) seconds."
         case .japanese:
-            if let bestStr {
-                let totalJP = japaneseMinSecString(totalTime)
-                return "\(lapCount)周 \(totalJP)、ベストラップは\(bestStr)秒でした"
+            guard let bestStr else { return "レース終了。ラップ記録なし。" }
+            let totalJP = japaneseMinSecString(totalTime)
+            if let lastLap, let lastLapStr {
+                return "ラップ\(lastLap.id) \(lastLapStr)秒、トータル\(lapCount)周、\(totalJP)、ベストラップは\(bestStr)秒でした"
             }
-            return "レース終了。ラップ記録なし。"
+            return "\(lapCount)周 \(totalJP)、ベストラップは\(bestStr)秒でした"
         }
     }
 
