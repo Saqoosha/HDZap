@@ -87,6 +87,22 @@ public:
         startTakeover(TakeoverKind::Bind, ok);
     }
 
+    /// Battery readout shown in the UID band's top row, anchored to the
+    /// left of the BLE pill. Idempotent: a setBattery call with the same
+    /// values is a cheap cache compare, no redraw. Updates only the
+    /// current widget slot — the rest of the UID band is untouched.
+    /// Correctness across BLE pill width changes (BLE → BLE OFF) relies
+    /// on `drawUidBand()` repainting the full band whenever BLE state
+    /// flips, so a stale wider widget can't leave ghost pixels behind.
+    void setBattery(int8_t percent, bool charging) {
+        if (percent < -1) percent = -1;
+        if (percent > 100) percent = 100;
+        if (percent == m_battPct && charging == m_battCharging) return;
+        m_battPct = percent;
+        m_battCharging = charging;
+        drawBatteryWidget();
+    }
+
     /// Sticky message strip — persists across UID / lap redraws until
     /// clearMessage() is called. Surfaces radio / NVS failures across
     /// BLE events.
@@ -107,6 +123,13 @@ public:
         m_msg[0] = 0;
         drawStrip();
     }
+
+    /// Read-only access to the current sticky message text. Empty string
+    /// when nothing is shown. Callers use this to scope a `clearMessage()`
+    /// to "only if my own message is still up" — without this, e.g. a
+    /// battery-recovery clear would silently drop an unrelated `RADIO
+    /// DOWN` / `OSD LOST` that arrived in the meantime.
+    const char* currentMessage() const { return m_msg; }
 
     void update() {
         M5.update();
@@ -169,6 +192,10 @@ private:
 
     char m_msg[32] = {};
     uint16_t m_msgColor = 0;
+
+    // -1 = unknown (not polled yet, or PMIC reported -1). 0..100 valid.
+    int8_t m_battPct = -1;
+    bool m_battCharging = false;
 
     // Palette is filled by begin(); zero-init keeps pre-begin reads safe
     // (everything renders as black until begin() runs).
@@ -267,6 +294,68 @@ private:
         M5.Display.setFont(&fonts::Font0);
         M5.Display.setTextSize(1);
         M5.Display.setTextWrap(true);
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+
+        drawBatteryWidget();
+    }
+
+    void drawBatteryWidget() {
+        // Anchor the right edge of the widget 8 px left of the BLE pill's
+        // dot. The BLE label width changes (BLE → BLE OFF), so the widget
+        // slides too — the widget's own wipe rect is sized to the worst
+        // case so a prior wider label can't leave ghost pixels behind.
+        const char* bleLabel = m_bleConnected ? "BLE" : "BLE OFF";
+        int labelW = (int)strlen(bleLabel) * 6;
+        int blePillLeftPx = m_w - 14 - labelW;  // leftmost pixel of the BLE dot
+        int xRight = blePillLeftPx - 8;
+
+        constexpr int kIconBodyW = 12;
+        constexpr int kIconTipW  = 2;
+        constexpr int kIconTotalW = kIconBodyW + kIconTipW;
+        constexpr int kIconH     = 6;
+        constexpr int kIconY     = 7;          // visually centered with the 8 px Font0 row at y=6
+        constexpr int kIconInnerMaxW = kIconBodyW - 2;
+        constexpr int kIconInnerH    = kIconH - 2;
+        constexpr int kGap       = 4;
+        constexpr int kTextChars = 4;          // " 87%" / "100%" / " --%"
+        constexpr int kTextW     = kTextChars * 6;
+        constexpr int kWidgetW   = kIconTotalW + kGap + kTextW;
+        constexpr int kWipeH     = 14;         // strictly above the UID hero slot at y=18
+
+        int xLeft = xRight - kWidgetW;
+        // Widest BLE-label position is "BLE OFF"; using the actual current
+        // xLeft is fine because every drawUidBand wipes the full band first
+        // and every standalone setBattery call uses the same xLeft until
+        // the BLE state changes (which forces a full drawUidBand redraw).
+        M5.Display.fillRect(xLeft, kUidBandY, kWidgetW, kWipeH, TFT_BLACK);
+
+        uint16_t color;
+        if (m_battPct < 0)            color = m_colDim;
+        else if (m_battCharging)      color = m_colCyan;
+        else if (m_battPct < 20)      color = m_colErr;
+        else if (m_battPct < 40)      color = m_colWarn;
+        else                          color = m_colOk;
+
+        int xIcon = xLeft;
+        M5.Display.drawRect(xIcon, kIconY, kIconBodyW, kIconH, color);
+        M5.Display.fillRect(xIcon + kIconBodyW, kIconY + 2, kIconTipW, 2, color);
+        if (m_battPct >= 0) {
+            int fillW = (m_battPct * kIconInnerMaxW + 50) / 100;
+            if (fillW < 0) fillW = 0;
+            if (fillW > kIconInnerMaxW) fillW = kIconInnerMaxW;
+            if (fillW > 0) {
+                M5.Display.fillRect(xIcon + 1, kIconY + 1, fillW, kIconInnerH, color);
+            }
+        }
+
+        M5.Display.setFont(&fonts::Font0);
+        M5.Display.setTextSize(1);
+        M5.Display.setTextColor(color, TFT_BLACK);
+        M5.Display.setCursor(xIcon + kIconTotalW + kGap, 6);
+        char buf[8];
+        if (m_battPct < 0) snprintf(buf, sizeof(buf), " --%%");
+        else               snprintf(buf, sizeof(buf), "%3d%%", (int)m_battPct);
+        M5.Display.print(buf);
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
     }
 
