@@ -110,6 +110,14 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// either failure leaves the flag false so the next utterance retries
     /// instead of silently never reactivating.
     private var sessionConfigured = false
+    /// Serial queue for AVAudioSession syscalls. `setActive(true)` blocks
+    /// 50–200ms, `setActive(false)` blocks 100–300ms (it sends ducking-end
+    /// notifications to other audio apps). Running them on the main actor
+    /// produced a visible UI hitch right after each lap announcement
+    /// finished. The queue is serial so an activate / deactivate pair can't
+    /// reorder against each other on a fast lap-tap-then-finish sequence.
+    private let audioSessionQueue = DispatchQueue(label: "sh.saqoo.HDZap.LapAnnouncer.audioSession",
+                                                  qos: .userInitiated)
 
     /// Set when AVAudioSession activation throws so the UI can show a
     /// banner like "Audio unavailable — announcements muted". Cleared on
@@ -145,6 +153,15 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     func announceTest() {
         let sample = Lap(id: 3, time: 12.34)
         speak(phrase(for: sample, isBest: true))
+    }
+
+    /// Announces the race-over summary: lap count + total race time +
+    /// best-lap time. Called once when the session transitions to ended
+    /// (time-up final lap or manual STOP with laps recorded).
+    /// `bestLapTime == nil` when no laps were recorded — caller should
+    /// skip in that case, but we degrade gracefully if not.
+    func announceFinal(lapCount: Int, totalTime: TimeInterval, bestLapTime: TimeInterval?) {
+        speak(finalPhrase(lapCount: lapCount, totalTime: totalTime, bestLapTime: bestLapTime))
     }
 
     /// Drops any in-flight or queued speech.
@@ -200,45 +217,51 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// Bluetooth devices from staying ducked between announcements.
     private func configureSessionIfNeeded() {
         guard !sessionConfigured else { return }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true, options: [])
-            sessionConfigured = true
-            lastAudioError = nil
-        } catch {
-            // Don't latch sessionConfigured = true — the next utterance
-            // should retry. Most likely cause: another app holds an
-            // exclusive audio category (Voice Memos recording, active
-            // call). A race operator can't read Console.app from their
-            // pocket, so we also surface the error to the UI via
-            // `lastAudioError` and fire a haptic so they know audio
-            // didn't take.
-            log.error("AVAudioSession activation failed: \(error.localizedDescription, privacy: .public)")
-            lastAudioError = "Audio unavailable: \(error.localizedDescription)"
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        // Optimistically mark configured so a fast double-tap doesn't queue
+        // the activation twice. The background result reverts the flag if
+        // the syscall fails so the next utterance retries.
+        sessionConfigured = true
+        audioSessionQueue.async { [weak self] in
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+                try session.setActive(true, options: [])
+                Task { @MainActor [weak self] in
+                    self?.lastAudioError = nil
+                }
+            } catch {
+                // Most likely cause: another app holds an exclusive audio
+                // category (Voice Memos recording, active call). A race
+                // operator can't read Console.app from their pocket, so we
+                // also surface the error to the UI via `lastAudioError`
+                // and fire a haptic so they know audio didn't take.
+                log.error("AVAudioSession activation failed: \(error.localizedDescription, privacy: .public)")
+                Task { @MainActor [weak self] in
+                    self?.sessionConfigured = false
+                    self?.lastAudioError = "Audio unavailable: \(error.localizedDescription)"
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                }
+            }
         }
     }
 
     private func deactivateSession() {
         guard sessionConfigured else { return }
         // A new utterance can land between `didCancel` / `didFinish` being
-        // queued (off-main) and this Task running on the main actor. If the
-        // synth is mid-speech, deactivating now would cut audio off — let
-        // the next `didFinish` / `didCancel` retry instead.
+        // queued (off-main) and this method running on the main actor. If
+        // the synth is mid-speech, deactivating now would cut audio off —
+        // let the next `didFinish` / `didCancel` retry instead.
         guard !synthesizer.isSpeaking else { return }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setActive(false, options: [.notifyOthersOnDeactivation])
-            sessionConfigured = false
-        } catch {
-            log.error("AVAudioSession deactivation failed: \(error.localizedDescription, privacy: .public)")
-            // Reset to false so the next utterance reruns the full
-            // `setCategory` + `setActive(true)` path. A redundant reactivate
-            // is microseconds; a stuck `sessionConfigured = true` would
-            // silently disable TTS without re-logging in
-            // `configureSessionIfNeeded`.
-            sessionConfigured = false
+        sessionConfigured = false
+        audioSessionQueue.async {
+            do {
+                try AVAudioSession.sharedInstance()
+                    .setActive(false, options: [.notifyOthersOnDeactivation])
+            } catch {
+                log.error("AVAudioSession deactivation failed: \(error.localizedDescription, privacy: .public)")
+                // `sessionConfigured` is already false — next utterance
+                // reactivates fresh, which is the right recovery path.
+            }
         }
     }
 
@@ -297,6 +320,26 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         let raw = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.pitchKey) as? Double
         let value = raw.map(Float.init) ?? LapAnnouncerDefaults.defaultPitch
         return min(LapAnnouncerDefaults.maxPitch, max(LapAnnouncerDefaults.minPitch, value))
+    }
+
+    private func finalPhrase(lapCount: Int, totalTime: TimeInterval, bestLapTime: TimeInterval?) -> String {
+        let totalStr = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"),
+                              max(0, totalTime))
+        let bestStr = bestLapTime.map {
+            String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), max(0, $0))
+        }
+        switch currentLanguage() {
+        case .english:
+            if let bestStr {
+                return "Race complete. \(lapCount) laps in \(totalStr). Best lap \(bestStr)."
+            }
+            return "Race complete. No laps recorded."
+        case .japanese:
+            if let bestStr {
+                return "レース終了。\(lapCount)ラップ、合計\(totalStr)秒。ベストラップ\(bestStr)秒。"
+            }
+            return "レース終了。ラップ記録なし。"
+        }
     }
 
     private func phrase(for lap: Lap, isBest: Bool) -> String {
