@@ -18,10 +18,18 @@ struct PendingApply: Identifiable {
 
 struct SettingsView: View {
     @Environment(BluetoothManager.self) private var bluetooth
+    @Environment(LapAnnouncer.self) private var announcer
     @Environment(\.dismiss) private var dismiss
     @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
     @AppStorage("accentHue") private var accentHue: Double = EditorialTheme.defaultAccentHue
+    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
+    @AppStorage(LapAnnouncerDefaults.announceBestKey) private var announceBest = true
+    @AppStorage(LapAnnouncerDefaults.voiceIdentifierKey) private var voiceIdentifier = ""
+    @AppStorage(LapAnnouncerDefaults.rateKey) private var ttsRate: Double
+        = Double(LapAnnouncerDefaults.defaultRate)
+    @AppStorage(LapAnnouncerDefaults.pitchKey) private var ttsPitch: Double
+        = Double(LapAnnouncerDefaults.defaultPitch)
 
     @State private var selectedMode: UIDConfigMode = .bindPhrase
     @State private var bindPhrase = ""
@@ -59,6 +67,7 @@ struct SettingsView: View {
                 errorSection
                 raceSection
                 appearanceSection
+                audioSection
                 bluetoothSection
                 currentUIDSection
                 pairingSection
@@ -249,6 +258,98 @@ struct SettingsView: View {
         } footer: {
             Text("Target pace is race time ÷ (target lap − 1).")
                 .font(.caption2)
+        }
+    }
+
+    private var audioSection: some View {
+        // Voice catalog is captured once per sheet presentation. The list only
+        // changes when iOS downloads a new voice (settings → accessibility),
+        // which can't happen while this sheet is up — refreshing on every
+        // body re-eval would just churn through `speechVoices()`.
+        let voices = LapAnnouncerVoiceCatalog.availableEnglishVoices()
+        let voiceMissing = !voiceIdentifier.isEmpty
+            && !voices.contains(where: { $0.id == voiceIdentifier })
+        return Section {
+            Toggle("Announce lap times", isOn: $lapTTSEnabled)
+
+            if lapTTSEnabled {
+                Toggle("Say \"best lap\" on new best", isOn: $announceBest)
+
+                Picker("Voice", selection: $voiceIdentifier) {
+                    Text("System default").tag("")
+                    ForEach(voices) { voice in
+                        Text(voice.displayName).tag(voice.id)
+                    }
+                }
+
+                if voiceMissing {
+                    // The previously-picked voice was uninstalled (or the
+                    // user restored to a different device that doesn't have
+                    // it). Surface the situation so they don't think the
+                    // announcer is silently misbehaving.
+                    Text("Selected voice is no longer installed — falling back to the system default.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Rate")
+                        Spacer()
+                        Text(String(format: "%.2f", ttsRate))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: $ttsRate,
+                        in: Double(LapAnnouncerDefaults.minRate)...Double(LapAnnouncerDefaults.maxRate),
+                        step: 0.05
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Pitch")
+                        Spacer()
+                        Text(String(format: "%.2f", ttsPitch))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: $ttsPitch,
+                        in: Double(LapAnnouncerDefaults.minPitch)...Double(LapAnnouncerDefaults.maxPitch),
+                        step: 0.05
+                    )
+                }
+
+                HStack {
+                    Button("Test voice") { announcer.announceTest() }
+                        .buttonStyle(.bordered)
+                    Spacer()
+                    Button("Reset", role: .destructive) {
+                        ttsRate = Double(LapAnnouncerDefaults.defaultRate)
+                        ttsPitch = Double(LapAnnouncerDefaults.defaultPitch)
+                        voiceIdentifier = ""
+                        announceBest = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        } header: {
+            Text("Audio")
+        } footer: {
+            // Two notes the operator wouldn't otherwise know:
+            // 1. Why announcements still play with the ringer off (the
+            //    answer is the AVAudioSession `.playback` category we set —
+            //    cued here so the behavior doesn't read as a bug).
+            // 2. Why a voice they expect to see isn't in the picker — iOS
+            //    ships only a base voice; better-quality voices are an
+            //    opt-in download.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Plays through the speaker even when the ringer switch is silent. Other audio is briefly ducked during each announcement.")
+                Text("More voices: Settings → Accessibility → Spoken Content → Voices.")
+            }
+            .font(.caption2)
         }
     }
 

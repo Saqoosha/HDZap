@@ -10,8 +10,10 @@ import UIKit
 struct TimerView: View {
     @Environment(LapTimer.self) private var lapTimer
     @Environment(BluetoothManager.self) private var bluetooth
+    @Environment(LapAnnouncer.self) private var announcer
     @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
+    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
     @Environment(\.accentHue) private var accentHue: Double
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
     private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }
@@ -600,6 +602,10 @@ struct TimerView: View {
             if !lapTimer.laps.isEmpty {
                 bluetooth.sendOSDControl(command: .resetLaps)
             }
+            // Silence any in-flight announcement before wiping state — a
+            // stale "Lap 5, 12.34" trailing into the next session would be
+            // disorienting since the visible state was just cleared.
+            announcer.cancel()
             lapTimer.reset()
             metricsSnapshot = nil
             manuallyEnded = false
@@ -611,10 +617,18 @@ struct TimerView: View {
     /// but never rolls back the lap — the operator's tap is what counts,
     /// and the goggle catching up (or not) is downstream concern.
     private func recordLap() {
-        guard lapTimer.lap() != nil else { return }
+        guard let lap = lapTimer.lap() else { return }
 
         if let metrics = refreshMetricsSnapshot() {
             bluetooth.sendOSDText(lines: metrics.osdLines)
+        }
+
+        if lapTTSEnabled {
+            // bestLapIndex is recomputed against `lap` since lapTimer.lap()
+            // already appended; index N-1 is the lap we just recorded, so
+            // an equality check tells us whether it's the new best.
+            let isBest = lapTimer.bestLapIndex == lapTimer.laps.count - 1
+            announcer.announceLap(lap, isBest: isBest)
         }
     }
 
