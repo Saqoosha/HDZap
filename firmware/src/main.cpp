@@ -337,12 +337,16 @@ void loop() {
             cancelRender();
         } else {
             g_render_fail_baseline = g_espnow_sent_fail;
-            // Snapshot the bits we're about to dispatch BEFORE render()
-            // (which may surface late callbacks that race a concurrent
-            // BLE write). Verify-success then clears only this snapshot,
-            // not whatever arrived during the verify window.
+            // Snapshot the bits we're about to dispatch and pass them
+            // explicitly to render(). A concurrent BLE write that
+            // OR-merges new bits into m_dirty between this snapshot
+            // and the actual MSP packet writes would otherwise hitch
+            // a ride and be sent here too — those bits stay live in
+            // m_dirty and the next IDLE catch-up picks them up cleanly.
+            // Single-byte volatile read is atomic on ESP32, so the
+            // snapshot itself doesn't need the BLE mux.
             g_render_dispatched_mask = osdTextDisplay.dirty();
-            bool queued = osdTextDisplay.render();
+            bool queued = osdTextDisplay.render(g_render_dispatched_mask);
             if (!queued) {
                 // esp_now_send returned non-OK for at least one packet in
                 // the cycle (queue-level failure — typically NO_MEM or

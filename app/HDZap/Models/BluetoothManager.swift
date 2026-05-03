@@ -654,13 +654,16 @@ extension BluetoothManager: CBPeripheralDelegate {
             lastError = "Status frame unexpected size (\(n)B, expected ≥8). Firmware/app version mismatch?"
             return
         }
-        // New firmware sends 8B: [connected:u8][uid:6bytes][test_result:u8].
-        // Older firmware (before the lap_display retirement) sends 9B
-        // with [connected:u8][uid:6bytes][lap_count:u8][test_result:u8],
-        // so the test_result byte index depends on frame length. Reading
-        // the wrong byte here would make a successful Test OSD probe
-        // look like .none on older firmware and break the pairing-flow
-        // auto-rollback. Length-discriminate instead of pinning byte 7.
+        // Frame layout depends on firmware version:
+        //   8 bytes (current): [connected:u8][uid:6][test_result:u8]
+        //                      → test_result at index 7
+        //   9 bytes (legacy):  [connected:u8][uid:6][lap_count:u8][test_result:u8]
+        //                      → test_result at index 8
+        // Pinning byte 7 unconditionally would let an old-firmware
+        // status frame's lap_count count as a test result and break
+        // the pairing-flow auto-rollback (e.g. lap_count == 2 reads
+        // as .lost and rolls back a successful pairing). Discriminate
+        // on length instead.
         currentUID = Array(data[1...6])
         let testResultByte: UInt8 = data.count >= 9 ? data[8] : data[7]
         lastTestResult = TestResult(rawValue: testResultByte) ?? .none

@@ -78,26 +78,32 @@ public:
     /// machine returns to IDLE.
     bool hasDirty() const { return m_dirty != 0; }
 
-    bool render() {
+    /// Emit only the rows in `mask`. Caller passes the dispatched
+    /// snapshot so a concurrent BLE write that OR-merges new bits into
+    /// `m_dirty` between dispatch and the actual MSP packet writes
+    /// doesn't get sent here too — those bits live on in `m_dirty` and
+    /// the next IDLE catch-up trigger picks them up cleanly. Callers
+    /// that have no specific mask in mind can pass `dirty()`.
+    bool render(uint8_t mask) {
         if (!m_osd) return false;
-        // No-op when called with nothing dirty. Defensive — shouldn't
+        // No-op when there's nothing to send. Defensive — shouldn't
         // happen under the normal `request render only when dirty`
         // policy, but a stray retry path or a future caller bug would
         // otherwise emit a draw on top of a stale buffer.
-        if (m_dirty == 0) return true;
+        if (mask == 0) return true;
         bool ok = true;
         for (uint8_t i = 0; i < ROW_COUNT; i++) {
-            if (m_dirty & (uint8_t)(1 << i)) {
+            if (mask & (uint8_t)(1 << i)) {
                 ok = writeCentered(OSD_ROWS - ROW_COUNT + i, m_rows[i]) && ok;
             }
         }
         ok = m_osd->draw() && ok;
         if (!ok) Serial.println("osd_text_display: render incomplete, OSD may be stale");
         // Intentionally leave `m_dirty` set: the render-retry state
-        // machine in main.cpp may re-enter with the same dirty mask
-        // if MAC-layer delivery failed. Caller clears it via
-        // clearDirty() once verify confirms success, or via clear()
-        // on an explicit OSD reset.
+        // machine in main.cpp may re-enter with the same dispatched
+        // mask if MAC-layer delivery failed. Caller clears bits via
+        // clearDirtyBits(mask) once verify confirms success, or via
+        // clear() on an explicit OSD reset.
         return ok;
     }
 
