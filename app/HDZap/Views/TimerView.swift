@@ -642,9 +642,12 @@ struct TimerView: View {
         sendTimeLeftRow()
 
         if lapTTSEnabled {
-            // bestLapIndex is recomputed against `lap` since lapTimer.lap()
-            // already appended; index N-1 is the lap we just recorded, so
-            // an equality check tells us whether it's the new best.
+            // `bestLapIndex` is recomputed against `lap` since `lapTimer.lap()`
+            // already appended; index N-1 is the lap we just recorded, so an
+            // equality check tells us whether it's the new best. On a tie with
+            // an earlier lap, `min(by:)` keeps pointing at the earlier index
+            // — the tied lap is **not** announced as best, matching the
+            // visual highlight in the lap list.
             let isBest = lapTimer.bestLapIndex == lapTimer.laps.count - 1
             announcer.announceLap(lap, isBest: isBest)
         }

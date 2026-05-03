@@ -264,15 +264,17 @@ struct SettingsView: View {
     }
 
     private var audioSection: some View {
-        // Snapshot the language and voice list once per body eval. The list
-        // only changes when iOS downloads a new voice or the user picks a
-        // new language above — both flows trigger a body re-eval, so we
-        // don't need a more elaborate cache.
+        // Re-snapshot the voice list on every body eval — language picker
+        // changes trigger this via `@AppStorage`. A voice installed in
+        // iOS Settings while we're on screen won't show up until something
+        // else drives a re-eval (toggling the section, dismissing and
+        // reopening Settings); acceptable since installing a voice also
+        // requires leaving the app.
         let language = LapAnnouncerLanguage(rawValue: ttsLanguageRaw) ?? .english
         let voices = LapAnnouncerVoiceCatalog.availableVoices(for: language)
         let voiceMissing = !voiceIdentifier.isEmpty
             && !voices.contains(where: { $0.id == voiceIdentifier })
-        let hasPremium = voices.contains(where: { $0.qualityRank == 0 })
+        let hasPremium = voices.contains(where: { $0.quality == .premium })
         return Section {
             Toggle("Announce lap times", isOn: $lapTTSEnabled)
 
@@ -311,9 +313,9 @@ struct SettingsView: View {
                 } else if !hasPremium && language == .japanese {
                     // Japanese-specific nudge: the compact Kyoko/Otoya
                     // voices that ship by default are markedly worse than
-                    // Siri Voice 1 / Voice 2 (~480 MB). Worth pointing the
-                    // user at the better option since the size difference
-                    // is the only reason not to install it.
+                    // Siri Voice 1 / Voice 2. Worth pointing the user at
+                    // the better option — bundle sizes vary across iOS
+                    // releases so we don't quote a number here.
                     Text("Tip: install a Premium ja-JP voice (Siri Voice 1/2 or Kyoko/Otoya Enhanced) for noticeably better quality.")
                         .font(.caption)
                         .foregroundStyle(.secondary)

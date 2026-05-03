@@ -839,6 +839,17 @@
         }
       }
     },
+    "Japanese" : {
+      "comment" : "Language picker option (ja).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日本語"
+          }
+        }
+      }
+    },
     "Language" : {
       "comment" : "Language picker label in the Audio section.",
       "localizations" : {

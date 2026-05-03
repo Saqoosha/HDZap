@@ -12,14 +12,18 @@ enum LapAnnouncerDefaults {
     static let pitchKey = "lapTTSPitch"
     static let announceBestKey = "lapTTSAnnounceBest"
 
-    /// `0.5` matches `AVSpeechUtteranceDefaultSpeechRate` (a runtime value
-    /// we can't put in a static let). Captured here so SettingsView can
-    /// register it via `UserDefaults.register(defaults:)` without importing
-    /// AVFoundation just for the constant.
+    /// `0.5` is the value of `AVSpeechUtteranceDefaultSpeechRate` (iOS 18).
+    /// Hardcoded so HDZapApp and SettingsView can register and bind the
+    /// default without transitively importing AVFoundation. Re-verify if
+    /// Apple changes the constant in a future SDK.
     static let defaultRate: Float = 0.5
     static let defaultPitch: Float = 1.0
-    static let minRate: Float = 0.3   // < 0.3 trails into incomprehensible
-    static let maxRate: Float = 0.65  // > 0.65 chops decimals together
+    /// Empirical bounds on iOS 18 with Siri Voice 2 (en-US/ja-JP):
+    /// below 0.30 the voice trails into incomprehensible mush; above 0.65
+    /// the engine chops sub-second decimals together. Re-test if Apple
+    /// retunes the rate curve (changed materially between iOS 13 and 16).
+    static let minRate: Float = 0.3
+    static let maxRate: Float = 0.65
     static let minPitch: Float = 0.75
     static let maxPitch: Float = 1.5
 
@@ -42,10 +46,14 @@ enum LapAnnouncerLanguage: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
+    /// `LocalizedStringResource` (not `String`) so the SwiftUI picker label
+    /// goes through the catalog. A plain `String` here would dispatch to
+    /// `Text(_ content: String)`, which skips localization — leaving the
+    /// xcstrings entry as dead code.
+    var displayName: LocalizedStringResource {
         switch self {
         case .english: return "English"
-        case .japanese: return "日本語"
+        case .japanese: return "Japanese"
         }
     }
 
@@ -68,6 +76,8 @@ enum LapAnnouncerLanguage: String, CaseIterable, Identifiable {
     /// launch. Anything that isn't an explicit Japanese device defaults to
     /// English — the announcement text needs to match the chosen voice and
     /// adding a third language is a follow-up, not a silent fallback.
+    /// Read once at first launch via `register(defaults:)`; the operator
+    /// can override (or switch back) via Settings → Audio → Language.
     static var systemDefault: LapAnnouncerLanguage {
         let lang = Locale.current.language.languageCode?.identifier ?? "en"
         return lang == "ja" ? .japanese : .english
@@ -79,14 +89,23 @@ enum LapAnnouncerLanguage: String, CaseIterable, Identifiable {
 /// AVAudioSession; activation is deferred until the first announcement so
 /// the audio session isn't disturbed for users who never enable TTS.
 ///
-/// Voice / rate / pitch are read from UserDefaults at speak time — the
-/// SettingsView writes them via @AppStorage, and the announcer picks up the
-/// latest value on the next lap without any explicit wiring.
+/// SettingsView is the writer for voice / rate / pitch / language; this
+/// class is the reader. Both reach for the same `LapAnnouncerDefaults.*`
+/// keys, and every setting is read fresh inside `speak()` so Settings
+/// edits apply on the next lap with no explicit wiring.
 @MainActor
 @Observable
-final class LapAnnouncer {
+final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private let synthesizer = AVSpeechSynthesizer()
+    /// True only after `setCategory` *and* `setActive(true)` succeed —
+    /// either failure leaves the flag false so the next utterance retries
+    /// instead of silently never reactivating.
     private var sessionConfigured = false
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
 
     func announceLap(_ lap: Lap, isBest: Bool) {
         let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool ?? true
@@ -109,6 +128,24 @@ final class LapAnnouncer {
         synthesizer.stopSpeaking(at: .immediate)
     }
 
+    // MARK: - AVSpeechSynthesizerDelegate
+
+    /// Deactivate the audio session as soon as the utterance ends so other
+    /// apps' audio fully un-ducks instead of staying suppressed for the
+    /// rest of the app's lifetime. `.notifyOthersOnDeactivation` cues
+    /// background-audio apps to ramp back up promptly.
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                       didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.deactivateSession() }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                       didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.deactivateSession() }
+    }
+
+    // MARK: - Internals
+
     private func speak(_ phrase: String) {
         configureSessionIfNeeded()
         // Drop the previous utterance: if laps fire faster than the synth
@@ -129,12 +166,37 @@ final class LapAnnouncer {
     /// announcements still play when the ringer switch is set to silent,
     /// which matters because the phone is often in a chest pocket / on a
     /// table during a race and the operator can't reach the switch.
+    /// `.spokenAudio` mode signals "this is speech, not music" so iOS keeps
+    /// Bluetooth devices from staying ducked between announcements.
     private func configureSessionIfNeeded() {
         guard !sessionConfigured else { return }
-        sessionConfigured = true
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-        try? session.setActive(true, options: [])
+        do {
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setActive(true, options: [])
+            sessionConfigured = true
+        } catch {
+            // Don't latch sessionConfigured = true here — the next utterance
+            // should retry. Most likely cause: another app holds an
+            // exclusive audio category (Voice Memos recording, active
+            // call). Logging keeps a Console.app trail when "TTS is silent
+            // mid-race" gets reported.
+            print("LapAnnouncer: AVAudioSession activation failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func deactivateSession() {
+        guard sessionConfigured else { return }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setActive(false, options: [.notifyOthersOnDeactivation])
+            sessionConfigured = false
+        } catch {
+            print("LapAnnouncer: AVAudioSession deactivation failed: \(error.localizedDescription)")
+            // Leave sessionConfigured = true — the session is still active
+            // even though we couldn't clean up. Next utterance will reuse
+            // it via the `guard !sessionConfigured` short-circuit.
+        }
     }
 
     private func currentLanguage() -> LapAnnouncerLanguage {
@@ -151,26 +213,39 @@ final class LapAnnouncer {
         // language. Without this check, switching language would happily
         // hand a `ja-JP` phrase to an `en-US` voice (or vice versa) and the
         // engine would mispronounce numerals into nonsense.
-        if !id.isEmpty,
-           let voice = AVSpeechSynthesisVoice(identifier: id),
-           voice.language.hasPrefix(language.voiceLanguagePrefix) {
-            return voice
+        if !id.isEmpty {
+            if let voice = AVSpeechSynthesisVoice(identifier: id) {
+                if voice.language.hasPrefix(language.voiceLanguagePrefix) {
+                    return voice
+                }
+                // Voice exists but is the wrong language — silent fall-through
+                // is fine here (e.g. mid-language-switch race window).
+            } else {
+                // Saved identifier no longer resolves: voice was uninstalled
+                // or the device was restored to a phone that doesn't have
+                // it. SettingsView's `voiceMissing` banner covers the UX,
+                // but log so the issue shows up in `log stream` output too.
+                print("LapAnnouncer: saved voice '\(id)' no longer installed; using system default for \(language.fallbackVoiceLanguage).")
+            }
         }
         return AVSpeechSynthesisVoice(language: language.fallbackVoiceLanguage)
     }
 
     private func currentRate() -> Float {
-        // @AppStorage stores Double; AVSpeechUtterance.rate is Float. Read as
-        // Double (0 means "key absent" — fall back to the default rather than
-        // letting the synth try rate=0, which trails to silence).
-        let raw = UserDefaults.standard.double(forKey: LapAnnouncerDefaults.rateKey)
-        let value = raw == 0 ? LapAnnouncerDefaults.defaultRate : Float(raw)
+        // `@AppStorage` stores Double; `AVSpeechUtterance.rate` is Float.
+        // Use `object(forKey:) as? Double` (matching `announceBest`) so a
+        // genuine value of `0.0` and "key absent" stay distinguishable —
+        // `register(defaults:)` already supplies the default, but routing
+        // through the same nil-check protects against a stale plist or a
+        // legacy debug build that wrote 0 directly.
+        let raw = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.rateKey) as? Double
+        let value = raw.map(Float.init) ?? LapAnnouncerDefaults.defaultRate
         return min(LapAnnouncerDefaults.maxRate, max(LapAnnouncerDefaults.minRate, value))
     }
 
     private func currentPitch() -> Float {
-        let raw = UserDefaults.standard.double(forKey: LapAnnouncerDefaults.pitchKey)
-        let value = raw == 0 ? LapAnnouncerDefaults.defaultPitch : Float(raw)
+        let raw = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.pitchKey) as? Double
+        let value = raw.map(Float.init) ?? LapAnnouncerDefaults.defaultPitch
         return min(LapAnnouncerDefaults.maxPitch, max(LapAnnouncerDefaults.minPitch, value))
     }
 
@@ -202,14 +277,39 @@ final class LapAnnouncer {
 /// read text in the wrong language ("Lap 5, 12.34" through a `ja-JP` voice,
 /// or vice versa) produces unintelligible output.
 struct LapAnnouncerVoiceCatalog {
+    /// Voice quality tier. Sort order matches the integer raw value (lower =
+    /// higher quality) so the Picker can show Premium first. iOS 17+ Siri
+    /// voices land in `.premium`, the legacy "Enhanced" downloadables in
+    /// `.enhanced`, the compact base voices in `.standard`.
+    enum Quality: Int, Comparable {
+        case premium = 0
+        case enhanced = 1
+        case standard = 2
+
+        static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+
+        init(_ quality: AVSpeechSynthesisVoiceQuality) {
+            switch quality {
+            case .premium: self = .premium
+            case .enhanced: self = .enhanced
+            default: self = .standard
+            }
+        }
+
+        var displayTag: String {
+            switch self {
+            case .premium: return ", Premium"
+            case .enhanced: return ", Enhanced"
+            case .standard: return ""
+            }
+        }
+    }
+
     struct Entry: Identifiable, Hashable {
         let id: String          // AVSpeechSynthesisVoice.identifier
         let displayName: String // "Samantha (en-US, Enhanced)"
         let language: String
-        /// Drives sort order so Premium voices float to the top of the
-        /// picker — they're the highest-quality option (iOS 17+ Siri voices
-        /// land here) and most users want them picked first when installed.
-        let qualityRank: Int
+        let quality: Quality
     }
 
     /// Lists installed voices for `language`, sorted Premium → Enhanced →
@@ -220,22 +320,16 @@ struct LapAnnouncerVoiceCatalog {
         AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.hasPrefix(language.voiceLanguagePrefix) }
             .map { v in
-                let qualityTag: String
-                let rank: Int
-                switch v.quality {
-                case .premium: qualityTag = ", Premium"; rank = 0
-                case .enhanced: qualityTag = ", Enhanced"; rank = 1
-                default: qualityTag = ""; rank = 2
-                }
+                let quality = Quality(v.quality)
                 return Entry(
                     id: v.identifier,
-                    displayName: "\(v.name) (\(v.language)\(qualityTag))",
+                    displayName: "\(v.name) (\(v.language)\(quality.displayTag))",
                     language: v.language,
-                    qualityRank: rank
+                    quality: quality
                 )
             }
             .sorted { lhs, rhs in
-                if lhs.qualityRank != rhs.qualityRank { return lhs.qualityRank < rhs.qualityRank }
+                if lhs.quality != rhs.quality { return lhs.quality < rhs.quality }
                 if lhs.language != rhs.language { return lhs.language < rhs.language }
                 return lhs.displayName < rhs.displayName
             }
