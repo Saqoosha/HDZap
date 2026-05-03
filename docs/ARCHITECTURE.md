@@ -30,39 +30,43 @@ User taps LAP button
       [row=2]["D+1.00 NEED -0.2/L"]
   → [BLE air gap]
   → ESP32 BLE callback: OSDTextCallback.onWrite()
-  → Stages three already-formatted rows under g_ble_mux
-  → Main loop detects flag
-  → OSDTextDisplay.setRows(rows)
-  → requestRender(RenderContent::OSD_TEXT) — state machine handles dispatch + retry:
-      [PENDING] snapshot g_espnow_sent_fail baseline
+  → Stages the row under g_ble_mux: copies into g_osd_text_rows[row]
+    and OR-merges (1 << row) into g_osd_text_dirty.
+  → Main loop snapshots dirty + rows under the mux, calls
+    OSDTextDisplay.setDirtyRows(dirty, rows) which OR-merges the bits
+    into m_dirty. State machine catch-up trigger fires when
+    state == IDLE && espnow_ready && hasDirty():
+      [PENDING] snapshot dispatched dirty mask + g_espnow_sent_fail
       [PENDING → dispatch] OSDTextDisplay.render():
-          → osd.clear()         → MSPv2 [MSP_DP_CLEAR]    → ESP-NOW queue
-          → osd.writeString()×3 → MSPv2 [MSP_DP_WRITE]×3  → ESP-NOW queue
-          → osd.draw()          → MSPv2 [MSP_DP_DRAW]     → ESP-NOW queue
+          → osd.writeString()×N → MSPv2 [MSP_DP_WRITE]×N → ESP-NOW queue   (N = popcount(dirty))
+          → osd.draw()          → MSPv2 [MSP_DP_DRAW]   → ESP-NOW queue
+        m_dirty is left intact so MAC-layer retries re-emit the same bits.
       [WAITING_ACK] wait RENDER_VERIFY_MS for send-cb results
       [VERIFY] newFails = g_espnow_sent_fail - baseline
-          newFails == 0          → IDLE (delivered)
+          newFails == 0          → clearDirtyBits(dispatched), IDLE (delivered)
           newFails > 0, retries  → PENDING after RENDER_RETRY_BACKOFF_MS
-          retries exhausted      → IDLE + "OSD LOST" strip
+          retries exhausted      → clearDirtyBits(dispatched), IDLE + "OSD LOST" strip
   → Goggle backpack receives, forwards via UART to main SoC
-  → OSD overlay rendered on video feed
+  → MSP DisplayPort overlay buffer keeps prior rows between writeStrings
+    (we never send DP_CLEAR mid-session); OSD overlay rendered on video feed
 ```
 
 **Delivery tracking**: `esp_now_register_send_cb` populates `g_espnow_sent_ok` /
 `g_espnow_sent_fail` from the WiFi task context. Single-word uint32_t is atomic
 on ESP32; reader uses `volatile` without a mux. Retry granularity is the whole
 render cycle (not individual packets) because mid-cycle failure leaves the
-goggle OSD buffer partially written — a fresh clear+writes+draw restores a
-known-good state because both renderers pull from staged in-memory state.
+goggle OSD buffer with a partial frame — a fresh re-render of the same staged
+dirty rows restores a known-good state regardless of which packet died.
 
 **Cancellation**: `cancelRender()` drops the state machine when stale state
 would be rendered: UID change (`applyStagedUid`), OSD clear, laps reset. Late
-callbacks from an in-flight cycle are simply ignored.
+callbacks from an in-flight cycle are simply ignored. `osdTextDisplay.clear()`
+in the laps-reset path also drops staged rows + the dirty mask so a 1Hz
+TIME LEFT tick can't re-paint right after the operator wiped the OSD.
 
-The legacy Lap Time characteristic and `LapDisplay` path are retained for
-compatibility with older app builds. The current iOS app owns goggle OSD
-metrics and sends finished text; firmware does not calculate target pace,
-diff, need, or bank.
+iOS owns the entire goggle OSD layout. Firmware no longer formats laps —
+the legacy `LapDisplay` path and the Lap Time characteristic (`...d483`)
+were both retired when the OSD Text per-row path landed.
 
 ### TX UID Capture
 
@@ -141,9 +145,8 @@ main.cpp ──→ nvs_store.h (load/save UID) ──→ Preferences
   │     └── espnow_link.h (uid_from_bind_phrase helper)
   ├── bind.h ──→ msp.h (MSP_ELRS_BIND)
   │             └→ espnow_link.h (broadcast helper)
-  ├── lap_display.h ─────┐
-  ├── osd_text_display.h ├──→ osd.h ──→ msp.h (MSP_SET_OSD_ELEM)
-  │                      │             └→ espnow_link.h (send)
+  ├── osd_text_display.h ──→ osd.h ──→ msp.h (MSP_SET_OSD_ELEM)
+  │                                    └→ espnow_link.h (send)
   └── stick_display.h ──→ M5Unified (LCD status display only)
 ```
 
@@ -157,11 +160,12 @@ UIDConfigCallback.onWrite()  →   g_staged_uid + g_uid_config_requested
 
 BindCmdCallback.onWrite()    →   g_bind_requested                  → send_bind_packet
 
-LapTimeCallback.onWrite()    →   g_lap_num + g_lap_time_ms + g_lap_received
-                                 → main loop: addLap + requestRender → state machine
-
-OSDTextCallback.onWrite()    →   g_osd_text_rows[3] + g_osd_text_received
-                                 → main loop: OSDTextDisplay + requestRender(OSD_TEXT)
+OSDTextCallback.onWrite()    →   per-row staging: copies into
+                                 g_osd_text_rows[row]; OR-merges
+                                 (1<<row) into g_osd_text_dirty
+                                 → main loop snapshot under mux,
+                                 OSDTextDisplay.setDirtyRows (OR-merge),
+                                 IDLE catch-up trigger → state machine
 
 OSDControlCallback.onWrite() →   g_osd_clear_requested / reset_laps → main loop
                                  → cancelRender + osd.clear/reset
@@ -251,15 +255,17 @@ Three paths leave the connected state:
 
 ### BLE GATT
 
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics without a phone reboot.
+
 | Characteristic | UUID | Properties | Payload |
 |---|---|---|---|
 | UID Config | `f47ac10b-...-0e02b2c3d481` | Write | `[mode:u8][data:0-63B]` |
 | Bind Command | `f47ac10b-...-0e02b2c3d482` | Write | `[0x01]` |
-| Lap Time | `f47ac10b-...-0e02b2c3d483` | Write | Legacy path: `[lap:u8][ms:u32 LE]` = 5B |
 | OSD Control | `f47ac10b-...-0e02b2c3d484` | Write | `[cmd:u8]` |
-| Status | `f47ac10b-...-0e02b2c3d485` | Read+Notify | `[conn:u8][uid:6B][laps:u8][test:u8]` = 9B |
+| Status | `f47ac10b-...-0e02b2c3d485` | Read+Notify | `[conn:u8][uid:6B][test:u8]` = 8B |
 | TX Sniff | `f47ac10b-...-0e02b2c3d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6B]` on capture |
-| OSD Text | `f47ac10b-...-0e02b2c3d487` | Write | `[row:u8][ascii:1-19B]`; rows `0..2` stage one bottom-center text frame |
+| OSD Text | `f47ac10b-...-0e02b2c3d487` | Write | `[row:u8][ascii:1-19B]`; rows `0..3` stage one bottom-anchored 4-row text frame, dirty bits OR-merged on each write |
+| Battery | `f47ac10b-...-0e02b2c3d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced)]` |
 
 ### MSPv2 Packet Format
 
