@@ -4,7 +4,6 @@
 #include "espnow_link.h"
 #include "osd.h"
 #include "bind.h"
-#include "lap_display.h"
 #include "osd_text_display.h"
 #include "nvs_store.h"
 #include "ble_service.h" // includes tx_sniff.h transitively
@@ -12,7 +11,6 @@
 
 uint8_t g_uid[6] = {};
 static OSD osd;
-static LapDisplay lapDisplay;
 static OSDTextDisplay osdTextDisplay;
 static StickDisplay stickDisplay;
 static BatteryMonitor batteryMonitor;
@@ -32,18 +30,16 @@ static bool espnow_ready = false;
 // Retry granularity is the *whole render cycle*, not the individual
 // failed packet: a mid-cycle failure (e.g. clear + 3 writes land but
 // writeString #4 drops) leaves the goggle OSD buffer in an inconsistent
-// partial state. Both renderers are idempotent — they pull from staged
-// in-memory rows / lap history — so a fresh clear+writes+draw restores
-// a known-good state regardless of which packet died.
+// partial state. The renderer is idempotent — it pulls from the staged
+// in-memory row buffer — so a fresh clear+writes+draw restores a
+// known-good state regardless of which packet died.
 //
 // Verify window sizing: a full cycle is up to 10 packets; ESP-NOW
 // serializes unicast sends per peer at ~a few ms each plus MAC retry
 // time (tens of ms worst case). 200 ms gives comfortable margin without
 // making the user wait too long for the feedback strip to settle.
 enum class RenderState : uint8_t { IDLE, PENDING, WAITING_ACK };
-enum class RenderContent : uint8_t { LAPS, OSD_TEXT };
 static RenderState g_render_state = RenderState::IDLE;
-static RenderContent g_render_content = RenderContent::LAPS;
 static uint32_t g_render_after_ms = 0;
 static uint32_t g_render_verify_after_ms = 0;
 static uint32_t g_render_fail_baseline = 0;
@@ -53,9 +49,8 @@ static constexpr uint32_t RENDER_VERIFY_MS        = 200;
 static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
 static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 
-static void requestRender(RenderContent content = RenderContent::LAPS, uint32_t delay_ms = 0) {
+static void requestRender(uint32_t delay_ms = 0) {
     g_render_state = RenderState::PENDING;
-    g_render_content = content;
     g_render_after_ms = millis() + delay_ms;
     g_render_retries_left = MAX_RENDER_RETRIES;
 }
@@ -159,7 +154,6 @@ void setup() {
     }
 
     osd.begin(g_uid);
-    lapDisplay.begin(&osd);
     osdTextDisplay.begin(&osd);
 
     ble_init("HDZeroOSD");
@@ -263,63 +257,32 @@ void loop() {
         stickDisplay.showBindResult(ok);
     }
 
-    if (g_lap_received) {
-        uint8_t num;
-        uint32_t ms;
-        portENTER_CRITICAL(&g_ble_mux);
-        num = g_lap_num;
-        ms = g_lap_time_ms;
-        g_lap_received = false;
-        portEXIT_CRITICAL(&g_ble_mux);
-
-        Serial.printf("Lap %d: %lu ms\n", num, (unsigned long)ms);
-        bool stored = lapDisplay.addLap(num, ms);
-        stickDisplay.showLap(num, ms);
-        // Priority: radio dead > storage full > request a retryable
-        // dispatch. ESPNOW DOWN matters most (nothing reaches the
-        // goggle); LAPS FULL means storage is capped (lap lives on the
-        // phone but not here); otherwise hand off to the render state
-        // machine below, which handles dispatch, verify via send
-        // callback, retry, and the final success/failure strip.
-        if (!espnow_ready) {
-            stickDisplay.showMessage("ESPNOW DOWN", stickDisplay.colorErr());
-        } else if (!stored) {
-            stickDisplay.showMessage("LAPS FULL", stickDisplay.colorOrange());
-        } else {
-            // Optimistic: a successful new lap should not keep a stale
-            // "LAP RENDER FAIL" / "OSD LOST" visible. If the fresh
-            // cycle fails, the state machine re-populates the strip.
-            stickDisplay.clearMessage();
-            requestRender();
-        }
-    }
-
     {
-        // Re-check the flag *inside* the mux. The bare-volatile read
-        // outside is a fast path so the loop doesn't grab the spinlock
-        // every tick, but a fresh row-0 BLE write between that read and
-        // the critical section would clear the flag + zero the staging
-        // buffer. Without the inner re-check we'd memcpy a half-zeroed
-        // frame and render garbage on the goggle.
+        // Re-check the dirty bitmap *inside* the mux. The bare-volatile
+        // read outside is a fast path so the loop doesn't grab the
+        // spinlock every tick; a concurrent BLE write between that read
+        // and the critical section would otherwise leave the dirty bits
+        // half-cleared and we'd render whichever bits we happened to
+        // capture. Snapshot under the mux, dispatch outside.
         char rows[OSDTextDisplay::ROW_COUNT][OSDTextDisplay::ROW_TEXT_MAX + 1];
-        bool ready = false;
-        if (g_osd_text_received) {
+        uint8_t dirty = 0;
+        if (g_osd_text_dirty) {
             portENTER_CRITICAL(&g_ble_mux);
-            ready = g_osd_text_received;
-            if (ready) {
+            dirty = g_osd_text_dirty;
+            if (dirty) {
                 memcpy(rows, g_osd_text_rows, sizeof(rows));
-                g_osd_text_received = false;
+                g_osd_text_dirty = 0;
             }
             portEXIT_CRITICAL(&g_ble_mux);
         }
 
-        if (ready) {
-            osdTextDisplay.setRows(rows);
+        if (dirty) {
+            osdTextDisplay.setDirtyRows(dirty, rows);
             if (!espnow_ready) {
                 stickDisplay.showMessage("ESPNOW DOWN", stickDisplay.colorErr());
             } else {
                 stickDisplay.clearMessage();
-                requestRender(RenderContent::OSD_TEXT);
+                requestRender();
             }
         }
     }
@@ -336,9 +299,7 @@ void loop() {
             cancelRender();
         } else {
             g_render_fail_baseline = g_espnow_sent_fail;
-            bool queued = (g_render_content == RenderContent::OSD_TEXT)
-                        ? osdTextDisplay.render()
-                        : lapDisplay.render();
+            bool queued = osdTextDisplay.render();
             if (!queued) {
                 // esp_now_send returned non-OK for at least one packet in
                 // the cycle (queue-level failure — typically NO_MEM or
@@ -394,7 +355,8 @@ void loop() {
         g_osd_clear_requested = false;
         // Clearing the OSD and then letting a pending render repopulate
         // it would undo the user's intent, so cancel any in-flight cycle
-        // first. The next lap will re-arm requestRender() naturally.
+        // first. The next OSD-text frame will re-arm requestRender()
+        // naturally.
         cancelRender();
         if (!espnow_ready) {
             stickDisplay.showMessage("CLEAR: ESPNOW DOWN", stickDisplay.colorOrange());
@@ -408,9 +370,9 @@ void loop() {
     if (g_osd_test_requested) {
         g_osd_test_requested = false;
         // Debug button: one-shot "does ESP-NOW reach the goggle?" probe.
-        // Bypass the lap state machine (test should not repopulate a lap
-        // screen the user just cleared) and fire a single clear+write+draw
-        // cycle with synchronous delivery verification.
+        // Bypass the OSD-text state machine (test should not repopulate
+        // a screen the user just cleared) and fire a single
+        // clear+write+draw cycle with synchronous delivery verification.
         cancelRender();
         // Result is also pushed back to iOS via the status notify so the
         // pairing flow can auto-rollback on failure without asking the
@@ -486,12 +448,10 @@ void loop() {
 
     if (g_osd_reset_laps_requested) {
         g_osd_reset_laps_requested = false;
-        // Reset invalidates the lap history; a pending render would try
-        // to re-draw rows that no longer exist (or the "NO LAPS"
-        // placeholder on top of a freshly-cleared OSD), so drop the
-        // cycle before touching either side.
+        // Reset invalidates the staged OSD text; a pending render would
+        // re-draw rows on top of a freshly-cleared OSD, so drop the
+        // cycle before clearing.
         cancelRender();
-        lapDisplay.clear();
         osdTextDisplay.clear();
         if (!espnow_ready) {
             Serial.println("Laps reset (local only; ESP-NOW down)");

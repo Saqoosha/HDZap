@@ -513,10 +513,13 @@ struct SettingsView: View {
                 f.dateFormat = "HH:mm:ss"
                 let timeStr = f.string(from: now)
                 let ms = Int((now.timeIntervalSince1970 * 1000).rounded()) % 1000
-                _ = bluetooth.sendOSDText(lines: [
-                    "TEST OSD",
-                    dateStr,
-                    "\(timeStr).\(String(format: "%03d", ms))",
+                _ = bluetooth.sendOSDRows([
+                    (row: 0, text: RaceMetrics.padOSD("TEST OSD",
+                                                     width: RaceMetrics.osdRowWidths[0])),
+                    (row: 1, text: RaceMetrics.padOSD(dateStr,
+                                                     width: RaceMetrics.osdRowWidths[1])),
+                    (row: 2, text: RaceMetrics.padOSD("\(timeStr).\(String(format: "%03d", ms))",
+                                                     width: RaceMetrics.osdRowWidths[2])),
                 ])
             }
             .disabled(!bluetooth.isReady)
@@ -727,6 +730,12 @@ struct SettingsView: View {
         switch bluetooth.lastTestResult {
         case .ok:
             pairingPhase = .success
+            // Verify probe leaves "HDZERO TEST" at row 0 col 0 of the
+            // goggle OSD; clear it now so the operator doesn't have to
+            // hunt for the Clear OSD button after every successful pair.
+            // Fire-and-forget — failure surfaces via lastError but isn't
+            // worth blocking the success UX on.
+            _ = bluetooth.sendOSDControl(command: .clear)
             // Auto-clear the success badge after a moment — leave the
             // current UID section as the durable "what's set" indicator.
             try? await Task.sleep(nanoseconds: 4_000_000_000)
