@@ -12,7 +12,7 @@ Usage (run via the prepared venv at /tmp/ble-env):
     /tmp/ble-env/bin/python ble_test.py uid 96 210 83 138 178 158
     /tmp/ble-env/bin/python ble_test.py clear
     /tmp/ble-env/bin/python ble_test.py resetlaps
-    /tmp/ble-env/bin/python ble_test.py lap 1 12345         # send fake lap
+    /tmp/ble-env/bin/python ble_test.py osdrow 0 "TIME LEFT 45"   # write a single OSD row
 """
 
 import asyncio
@@ -23,12 +23,20 @@ from bleak import BleakClient, BleakScanner
 
 DEVICE_NAME = "HDZeroOSD"
 
-SERVICE_UUID    = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+# Service UUID is bumped on every GATT shape change to defeat iOS
+# CoreBluetooth's per-peripheral cache (without bonding, added/removed
+# characteristics are otherwise invisible until reboot). Match firmware
+# ble_service.h.
+SERVICE_UUID    = "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 UID_CONFIG_UUID = "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 BIND_CMD_UUID   = "f47ac10b-58cc-4372-a567-0e02b2c3d482"
-LAP_TIME_UUID   = "f47ac10b-58cc-4372-a567-0e02b2c3d483"
+# Lap Time characteristic (...d483) was retired when iOS took ownership
+# of the goggle OSD layout — laps are now formatted into OSD text rows
+# on the iPhone and pushed via the OSD Text characteristic below.
 OSD_CTRL_UUID   = "f47ac10b-58cc-4372-a567-0e02b2c3d484"
 STATUS_UUID     = "f47ac10b-58cc-4372-a567-0e02b2c3d485"
+OSD_TEXT_UUID   = "f47ac10b-58cc-4372-a567-0e02b2c3d487"
+BATTERY_UUID    = "f47ac10b-58cc-4372-a567-0e02b2c3d488"
 
 OSD_CMD_CLEAR = 0x01
 OSD_CMD_RESET = 0x02
@@ -116,10 +124,14 @@ async def cmd_uid(client, raw_tokens):
     print("Wrote uidConfig (mode 0x02). M5Stick should re-init ESP-NOW shortly.")
 
 
-async def cmd_lap(client, lap_num, time_ms):
-    payload = bytes([lap_num]) + int(time_ms).to_bytes(4, "little")
-    print(f"Sending lap {lap_num} @ {time_ms}ms ({payload.hex()})")
-    await client.write_gatt_char(LAP_TIME_UUID, payload, response=True)
+async def cmd_osdrow(client, row_num, text):
+    """Write a single OSD text row. iOS now owns the goggle OSD layout
+    end-to-end — there's no more "lap frame" wire format on BLE; each
+    row is sent independently as `[row:u8][ascii:N]` where rows 0..3
+    map to the bottom 4 OSD lines centered on screen."""
+    payload = bytes([row_num]) + text.encode("ascii", "replace")
+    print(f"Sending OSD row {row_num} = {text!r} ({payload.hex()})")
+    await client.write_gatt_char(OSD_TEXT_UUID, payload, response=True)
 
 
 async def main():
@@ -152,10 +164,10 @@ async def main():
             if not args:
                 raise SystemExit("uid requires 6 bytes (hex or decimal)")
             await cmd_uid(client, args)
-        elif cmd == "lap":
-            if len(args) != 2:
-                raise SystemExit("lap requires <lap_num> <time_ms>")
-            await cmd_lap(client, int(args[0]), int(args[1]))
+        elif cmd == "osdrow":
+            if len(args) < 2:
+                raise SystemExit("osdrow requires <row_num 0..3> <text...>")
+            await cmd_osdrow(client, int(args[0]), " ".join(args[1:]))
         else:
             raise SystemExit(f"unknown command: {cmd}")
 
