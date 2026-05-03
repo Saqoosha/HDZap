@@ -871,12 +871,12 @@
         }
       }
     },
-    "No voices installed for this language. Install one from iOS Settings → Accessibility → search \"Voices\"." : {
+    "No voices installed for this language. Install one from iOS Settings → Accessibility → Spoken Content → Voices." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この言語の音声がインストールされていません。iOS の設定 → アクセシビリティ →「声」で検索してインストールしてください。"
+            "value" : "この言語の音声がインストールされていません。設定 → アクセシビリティ → 読み上げコンテンツ → 声 からインストールしてください。"
           }
         }
       }
@@ -956,13 +956,13 @@
         }
       }
     },
-    "Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Voices for noticeably better quality." : {
+    "Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Spoken Content → Voices for noticeably better quality." : {
       "comment" : "Japanese-specific nudge in Audio settings — recommends Enhanced voices instead of the locked Siri voices.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ヒント: 設定 → アクセシビリティ → 声 から Kyoko / Otoya / O-ren (Enhanced) をインストールすると音質が大幅に向上します。"
+            "value" : "ヒント: 設定 → アクセシビリティ → 読み上げコンテンツ → 声 から Kyoko / Otoya / O-ren (Enhanced) をインストールすると音質が大幅に向上します。"
           }
         }
       }

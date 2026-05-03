@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 import os
 
 /// Subsystem-scoped logger so messages reach the unified logging system
@@ -18,16 +19,18 @@ enum LapAnnouncerDefaults {
     static let pitchKey = "lapTTSPitch"
     static let announceBestKey = "lapTTSAnnounceBest"
 
-    /// `0.5` is the value of `AVSpeechUtteranceDefaultSpeechRate` (iOS 18).
-    /// Hardcoded so HDZapApp and SettingsView can register and bind the
-    /// default without transitively importing AVFoundation. Re-verify if
-    /// Apple changes the constant in a future SDK.
+    /// Mirrors `AVSpeechUtteranceDefaultSpeechRate` (iOS 18 = 0.5). Hardcoded
+    /// so SettingsView and HDZapApp can register and bind the default
+    /// without transitively importing AVFoundation; debug-asserted at
+    /// `LapAnnouncer.init` so the next SDK that retunes the constant trips
+    /// a precondition rather than silently drifting.
     static let defaultRate: Float = 0.5
     static let defaultPitch: Float = 1.0
-    /// Empirical bounds on iOS 18 with Siri Voice 2 (en-US/ja-JP):
-    /// below 0.30 the voice trails into incomprehensible mush; above 0.65
-    /// the engine chops sub-second decimals together. Re-test if Apple
-    /// retunes the rate curve (changed materially between iOS 13 and 16).
+    /// Empirical bounds verified on iOS 18 with the system fallback voices
+    /// (Samantha en-US, Kyoko Enhanced ja-JP): below 0.30 the voice trails
+    /// into incomprehensible mush; above 0.65 the engine chops sub-second
+    /// decimals together. Re-test if Apple retunes the rate curve (changed
+    /// materially between iOS 13 and 16).
     static let minRate: Float = 0.3
     static let maxRate: Float = 0.65
     static let minPitch: Float = 0.75
@@ -108,14 +111,25 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// instead of silently never reactivating.
     private var sessionConfigured = false
 
+    /// Set when AVAudioSession activation throws so the UI can show a
+    /// banner like "Audio unavailable — announcements muted". Cleared on
+    /// the next successful activation. Race operator with the phone in a
+    /// chest pocket can't see Console.app, so silent log-only failure
+    /// would defeat the whole point of audio confirmation.
+    private(set) var lastAudioError: String?
+
     override init() {
         super.init()
         synthesizer.delegate = self
-        // One-shot dump at startup so the device unified log captures the
-        // installed voice list without requiring the user to navigate into
-        // the Audio settings first. Cheap (one syscall) and only happens
-        // once per process via the static guard inside.
-        LapAnnouncerVoiceCatalog.dumpInstalledVoicesOnce()
+        // Tripwire for `defaultRate` drifting away from
+        // `AVSpeechUtteranceDefaultSpeechRate` in a future SDK.
+        assert(LapAnnouncerDefaults.defaultRate == AVSpeechUtteranceDefaultSpeechRate,
+               "LapAnnouncerDefaults.defaultRate (\(LapAnnouncerDefaults.defaultRate)) drifted from AVSpeechUtteranceDefaultSpeechRate (\(AVSpeechUtteranceDefaultSpeechRate)) — re-verify and update.")
+        // Voice dump runs off the main actor so app launch isn't blocked
+        // by `speechVoices()` on a device with hundreds of installed voices.
+        Task.detached(priority: .background) {
+            LapAnnouncerVoiceCatalog.dumpInstalledVoicesOnce()
+        }
     }
 
     func announceLap(_ lap: Lap, isBest: Bool) {
@@ -125,18 +139,23 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
 
     /// Used by the Settings "Test voice" button so the user can preview the
     /// current voice/rate/pitch combo and confirm the phone isn't muted
-    /// before relying on it during a race. Uses lap 3 + 12.34s + best so all
-    /// three phrase pieces (lap number, time, best-lap suffix) are exercised.
+    /// before relying on it during a race. Always passes `isBest: true` so
+    /// the preview exercises every phrase piece (lap number, time, best-lap
+    /// suffix) — independent of the `announceBest` toggle.
     func announceTest() {
         let sample = Lap(id: 3, time: 12.34)
         speak(phrase(for: sample, isBest: true))
     }
 
-    /// Drop any in-flight or queued speech. Called from RESET so a stale
-    /// announcement from the previous run doesn't keep talking after the
-    /// session has been wiped.
+    /// Drops any in-flight or queued speech.
     func cancel() {
-        synthesizer.stopSpeaking(at: .immediate)
+        let stopped = synthesizer.stopSpeaking(at: .immediate)
+        if !stopped {
+            // `false` from `stopSpeaking` means "no utterance was speaking"
+            // — benign during RESET, but logged so an unexpected failure
+            // (e.g. synth in stuck state) surfaces in Console.
+            log.debug("stopSpeaking returned false (no utterance to stop)")
+        }
     }
 
     // MARK: - AVSpeechSynthesizerDelegate
@@ -186,34 +205,51 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
             try session.setActive(true, options: [])
             sessionConfigured = true
+            lastAudioError = nil
         } catch {
-            // Don't latch sessionConfigured = true here — the next utterance
+            // Don't latch sessionConfigured = true — the next utterance
             // should retry. Most likely cause: another app holds an
             // exclusive audio category (Voice Memos recording, active
-            // call). Logging keeps a Console.app trail when "TTS is silent
-            // mid-race" gets reported.
+            // call). A race operator can't read Console.app from their
+            // pocket, so we also surface the error to the UI via
+            // `lastAudioError` and fire a haptic so they know audio
+            // didn't take.
             log.error("AVAudioSession activation failed: \(error.localizedDescription, privacy: .public)")
+            lastAudioError = "Audio unavailable: \(error.localizedDescription)"
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
     }
 
     private func deactivateSession() {
         guard sessionConfigured else { return }
+        // A new utterance can land between `didCancel` / `didFinish` being
+        // queued (off-main) and this Task running on the main actor. If the
+        // synth is mid-speech, deactivating now would cut audio off — let
+        // the next `didFinish` / `didCancel` retry instead.
+        guard !synthesizer.isSpeaking else { return }
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setActive(false, options: [.notifyOthersOnDeactivation])
             sessionConfigured = false
         } catch {
             log.error("AVAudioSession deactivation failed: \(error.localizedDescription, privacy: .public)")
-            // Leave sessionConfigured = true — the session is still active
-            // even though we couldn't clean up. Next utterance will reuse
-            // it via the `guard !sessionConfigured` short-circuit.
+            // Reset to false so the next utterance reruns the full
+            // `setCategory` + `setActive(true)` path. A redundant reactivate
+            // is microseconds; a stuck `sessionConfigured = true` would
+            // silently disable TTS without re-logging in
+            // `configureSessionIfNeeded`.
+            sessionConfigured = false
         }
     }
 
     private func currentLanguage() -> LapAnnouncerLanguage {
         let raw = UserDefaults.standard.string(forKey: LapAnnouncerDefaults.languageKey)
             ?? LapAnnouncerDefaults.defaultLanguageRaw
-        return LapAnnouncerLanguage(rawValue: raw) ?? .english
+        guard let language = LapAnnouncerLanguage(rawValue: raw) else {
+            log.error("Unknown lap TTS language raw value '\(raw, privacy: .public)'; defaulting to English.")
+            return .english
+        }
+        return language
     }
 
     private func currentVoice() -> AVSpeechSynthesisVoice? {
@@ -229,8 +265,13 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 if voice.language.hasPrefix(language.voiceLanguagePrefix) {
                     return voice
                 }
-                // Voice exists but is the wrong language — silent fall-through
-                // is fine here (e.g. mid-language-switch race window).
+                // Voice exists but is the wrong language. SettingsView's
+                // `onChange(of: ttsLanguageRaw)` clears `voiceIdentifier`
+                // when the user switches in-app, but a Shortcuts / MDM /
+                // iCloud-sync write or an iOS region change can leave a
+                // mismatched id. Log so the silent quality drop is
+                // observable in `log stream`.
+                log.info("Saved voice '\(id, privacy: .public)' is \(voice.language, privacy: .public); announcement language is \(language.fallbackVoiceLanguage, privacy: .public). Using system default for the announcement language.")
             } else {
                 // Saved identifier no longer resolves: voice was uninstalled
                 // or the device was restored to a phone that doesn't have
@@ -245,10 +286,8 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private func currentRate() -> Float {
         // `@AppStorage` stores Double; `AVSpeechUtterance.rate` is Float.
         // Use `object(forKey:) as? Double` (matching `announceBest`) so a
-        // genuine value of `0.0` and "key absent" stay distinguishable —
-        // `register(defaults:)` already supplies the default, but routing
-        // through the same nil-check protects against a stale plist or a
-        // legacy debug build that wrote 0 directly.
+        // missing key falls back to the registered default rather than the
+        // default-initialized `0.0` that `double(forKey:)` returns.
         let raw = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.rateKey) as? Double
         let value = raw.map(Float.init) ?? LapAnnouncerDefaults.defaultRate
         return min(LapAnnouncerDefaults.maxRate, max(LapAnnouncerDefaults.minRate, value))
@@ -287,7 +326,11 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
 /// Filtered to the selected announcement language because asking a voice to
 /// read text in the wrong language ("Lap 5, 12.34" through a `ja-JP` voice,
 /// or vice versa) produces unintelligible output.
-struct LapAnnouncerVoiceCatalog {
+///
+/// Deliberately not `@MainActor` so `dumpInstalledVoicesOnce()` can run on a
+/// background detached task without hopping back to main — `speechVoices()`
+/// is the bulk of the work and doesn't need the main thread.
+enum LapAnnouncerVoiceCatalog {
     /// Voice quality tier. Sort order matches the integer raw value (lower =
     /// higher quality) so the Picker shows Premium first. The compact base
     /// voices land in `.standard`, the downloadable Enhanced bundles in
@@ -312,7 +355,11 @@ struct LapAnnouncerVoiceCatalog {
             switch quality {
             case .premium: self = .premium
             case .enhanced: self = .enhanced
-            default: self = .standard
+            case .default: self = .standard
+            // `@unknown default` so a future SDK that adds, say, `.neural`
+            // emits a build warning instead of silently bucketing a top-tier
+            // voice into `.standard` and ranking it at the bottom.
+            @unknown default: self = .standard
             }
         }
 
@@ -326,8 +373,11 @@ struct LapAnnouncerVoiceCatalog {
     }
 
     struct Entry: Identifiable, Hashable {
-        let id: String          // AVSpeechSynthesisVoice.identifier
-        let displayName: String // "Samantha (en-US, Enhanced)"
+        /// Empty string is a sentinel meaning "use the system default voice
+        /// for the current language" — the picker uses it for the implicit
+        /// "System default" row.
+        let id: String
+        let displayName: String
         let language: String
         let quality: Quality
     }
@@ -337,9 +387,7 @@ struct LapAnnouncerVoiceCatalog {
     /// "System default" entry for `id == ""`, so this list can be empty
     /// without breaking selection.
     static func availableVoices(for language: LapAnnouncerLanguage) -> [Entry] {
-        let allVoices = AVSpeechSynthesisVoice.speechVoices()
-        debugDumpAllVoicesOnce(allVoices)
-        return allVoices
+        AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.hasPrefix(language.voiceLanguagePrefix) }
             .map { v in
                 let quality = Quality(v.quality)
@@ -357,24 +405,28 @@ struct LapAnnouncerVoiceCatalog {
             }
     }
 
-    /// One-shot dump of every installed voice (id, name, language, quality)
-    /// to the unified log so we can verify what `speechVoices()` actually
-    /// returns on a given device — handy when a user installs "Siri
-    /// Voice 1/2" via Settings and asks why they don't appear here.
-    /// (They don't because Apple filters them out for third-party apps.)
-    private static var didDumpVoices = false
-    private static func debugDumpAllVoicesOnce(_ voices: [AVSpeechSynthesisVoice]) {
-        guard !didDumpVoices else { return }
-        didDumpVoices = true
+    /// Re-dumps the installed-voice list to the unified log when the set of
+    /// identifiers changes (initial population, voice install, voice
+    /// uninstall). Cheap; only fires on diff. Called from `LapAnnouncer.init`
+    /// at startup. Also handy when a support report says "Kyoko Enhanced is
+    /// selected but sounds like the compact voice" — cross-reference the log
+    /// against the actual `speechVoices()` state at that moment.
+    ///
+    /// `nonisolated(unsafe)` because the catalog isn't `@MainActor`. In
+    /// practice the function is invoked from `LapAnnouncer.init`'s
+    /// background `Task.detached` once per launch and from the main-actor
+    /// SettingsView body when Audio settings render — never concurrently —
+    /// so the unsynchronized read/write doesn't actually race. Marking it
+    /// explicitly silences the Swift 6 warning and documents the intent.
+    nonisolated(unsafe) private static var lastDumpedVoiceIds: Set<String> = []
+    static func dumpInstalledVoicesOnce() {
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+        let ids = Set(voices.map(\.identifier))
+        guard ids != lastDumpedVoiceIds else { return }
+        lastDumpedVoiceIds = ids
         log.info("speechVoices() returned \(voices.count, privacy: .public) voices")
         for v in voices {
             log.info("  \(v.language, privacy: .public) \(v.name, privacy: .public) [\(v.identifier, privacy: .public)] quality=\(v.quality.rawValue, privacy: .public)")
         }
-    }
-
-    /// Public entry point for `LapAnnouncer.init` so the dump fires at
-    /// app startup, before the user reaches the Audio settings.
-    static func dumpInstalledVoicesOnce() {
-        debugDumpAllVoicesOnce(AVSpeechSynthesisVoice.speechVoices())
     }
 }

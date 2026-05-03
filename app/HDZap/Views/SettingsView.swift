@@ -307,7 +307,7 @@ struct SettingsView: View {
                     // base voice was never bundled (rare) or trimmed during
                     // an iOS reinstall. Point them at Settings and surface
                     // the issue so they don't blame the announcer.
-                    Text("No voices installed for this language. Install one from iOS Settings → Accessibility → search \"Voices\".")
+                    Text("No voices installed for this language. Install one from iOS Settings → Accessibility → Spoken Content → Voices.")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 } else if !hasPremium && language == .japanese {
@@ -319,7 +319,7 @@ struct SettingsView: View {
                     // third-party apps (selecting one falls back to
                     // a substitute), so we deliberately don't recommend
                     // them here.
-                    Text("Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Voices for noticeably better quality.")
+                    Text("Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Spoken Content → Voices for noticeably better quality.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -327,11 +327,23 @@ struct SettingsView: View {
                 if voiceMissing {
                     // The previously-picked voice was uninstalled (or the
                     // user restored to a different device that doesn't have
-                    // it). Surface the situation so they don't think the
-                    // announcer is silently misbehaving.
+                    // it). LapAnnouncer also logs and falls back to the
+                    // system default for the current language; this banner
+                    // is purely UX so the user knows why the voice changed.
                     Text("Selected voice is no longer installed — falling back to the system default.")
                         .font(.caption)
                         .foregroundStyle(.orange)
+                }
+
+                if let audioError = announcer.lastAudioError {
+                    // AVAudioSession activation failed — most often because
+                    // another app holds an exclusive audio category (Voice
+                    // Memos, active call). Surfacing it here means the
+                    // operator can see why announcements went silent
+                    // without leaving the app for Console.
+                    Text(audioError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
