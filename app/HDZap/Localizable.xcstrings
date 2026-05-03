@@ -806,6 +806,166 @@
         }
       }
     },
+    "Announce lap times" : {
+      "comment" : "Toggle that turns on TTS announcements after each lap.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ラップタイムを読み上げる"
+          }
+        }
+      }
+    },
+    "Audio" : {
+      "comment" : "Audio settings section header (TTS announcer).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オーディオ"
+          }
+        }
+      }
+    },
+    "English" : {
+      "comment" : "Language picker option (en).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "英語"
+          }
+        }
+      }
+    },
+    "Language" : {
+      "comment" : "Language picker label in the Audio section.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "言語"
+          }
+        }
+      }
+    },
+    "More voices: Settings → Accessibility → Spoken Content → Voices." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声を追加: 設定 → アクセシビリティ → 読み上げコンテンツ → 声"
+          }
+        }
+      }
+    },
+    "No voices installed for this language. Install one from iOS Settings → Accessibility → search \"Voices\"." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この言語の音声がインストールされていません。iOS の設定 → アクセシビリティ →「声」で検索してインストールしてください。"
+          }
+        }
+      }
+    },
+    "Pitch" : {
+      "comment" : "Slider label for AVSpeechUtterance pitchMultiplier.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ピッチ"
+          }
+        }
+      }
+    },
+    "Plays through the speaker even when the ringer switch is silent. Other audio is briefly ducked during each announcement." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "着信スイッチがサイレントでもスピーカーから再生されます。読み上げ中は他のオーディオが一時的に小さくなります。"
+          }
+        }
+      }
+    },
+    "Rate" : {
+      "comment" : "Slider label for AVSpeechUtterance speech rate.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度"
+          }
+        }
+      }
+    },
+    "Say \"best lap\" on new best" : {
+      "comment" : "Toggle: append \"best lap\" suffix to the announcement when a new fastest lap is recorded.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ベスト更新時に「ベストラップ」と読み上げる"
+          }
+        }
+      }
+    },
+    "Selected voice is no longer installed — falling back to the system default." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択中の音声がインストールされていません。システム既定にフォールバックします。"
+          }
+        }
+      }
+    },
+    "System default" : {
+      "comment" : "Voice picker fallback option (uses AVSpeechSynthesisVoice for the current locale).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "システム既定"
+          }
+        }
+      }
+    },
+    "Test voice" : {
+      "comment" : "Button that previews the current voice with a sample lap announcement.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声テスト"
+          }
+        }
+      }
+    },
+    "Tip: install a Premium ja-JP voice (Siri Voice 1/2 or Kyoko/Otoya Enhanced) for noticeably better quality." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ヒント: ja-JP の Premium 音声 (Siri Voice 1/2 または Kyoko / Otoya Enhanced) をインストールすると音質が大幅に向上します。"
+          }
+        }
+      }
+    },
+    "Voice" : {
+      "comment" : "Voice picker label in the Audio section.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声"
+          }
+        }
+      }
+    },
     "Waiting for TX bind packet…" : {
       "localizations" : {
         "ja" : {
