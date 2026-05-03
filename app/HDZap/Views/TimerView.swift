@@ -18,6 +18,15 @@ struct TimerView: View {
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
     private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }
 
+    /// Stable 1Hz publisher for the goggle TIME LEFT row. Declared as
+    /// a `let` so the same publisher survives across body re-evaluations
+    /// — defining `Timer.publish(...).autoconnect()` inline inside
+    /// `.onReceive` re-creates the publisher on every body call, and
+    /// SwiftUI may not keep the prior subscription alive, so the tick
+    /// silently stops firing. Property scope keeps it pinned for the
+    /// view's lifetime.
+    private let osdTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
     @State private var showSettings = false
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
@@ -27,6 +36,11 @@ struct TimerView: View {
     /// view flips to the result/done summary. STOP with no laps just pauses
     /// the timer — no point showing an empty results screen. Cleared by RESET.
     @State private var manuallyEnded = false
+    /// True iff the most recently recorded lap took the FINAL branch in
+    /// `primaryAction()`. Captured at action time so the haptic closure
+    /// doesn't depend on SwiftUI's body re-eval order relative to
+    /// `lapTimer.stop()`. Cleared on regular LAP, START, and RESET.
+    @State private var lastLapWasFinal = false
     /// Wraps the temp PNG URL so `.sheet(item:)` has an `Identifiable` payload.
     /// Re-rendered on every `shareAction()` because laps and metrics may change
     /// between presentations.
@@ -141,9 +155,36 @@ struct TimerView: View {
             // Need/Bank and the pre-rendered OSD lines must be
             // recomputed against the new window — otherwise the
             // goggle and the iPhone disagree on the same race.
-            if let metrics = refreshMetricsSnapshot() {
-                bluetooth.sendOSDText(lines: metrics.osdLines)
-            }
+            refreshMetricsSnapshot()
+            sendMetricRows()
+        }
+        // Refresh just the goggle's TIME LEFT row once a second while a
+        // session is in flight. The bottom three rows are sent only on
+        // lap record (and on session-limit change), so a tick costs one
+        // BLE write and a 2-packet ESP-NOW cycle (writeString + draw).
+        // Skip while the Settings sheet is up — explicit operator
+        // actions there (Test OSD, Clear OSD, Reset Laps) shouldn't
+        // be immediately overwritten by a stale TIME LEFT.
+        .onReceive(osdTick) { _ in
+            guard lapTimer.isRunning && !sessionEnded && bluetooth.isReady else { return }
+            guard !showSettings else { return }
+            sendTimeLeftRow()
+        }
+        // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
+        // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
+        // the lap is recorded — reading `sessionEnded` here would depend on
+        // SwiftUI re-evaluating the body after `lapTimer.stop()` flips
+        // `isRunning`, which is implementation-dependent.
+        .sensoryFeedback(trigger: lapTimer.laps.count) { old, new in
+            guard new > old else { return nil }
+            return lastLapWasFinal ? .success : .impact(weight: .medium)
+        }
+        // Haptic on START — fires on the false → true transition only,
+        // so STOP (true → false) stays silent. .start is too subtle on
+        // device; .impact(.heavy) gives a clear "race begins" thump that's
+        // distinct from .impact(.medium) on LAP.
+        .sensoryFeedback(trigger: lapTimer.isRunning) { old, new in
+            (!old && new) ? .impact(weight: .heavy) : nil
         }
     }
 
@@ -188,8 +229,8 @@ struct TimerView: View {
     /// as a misleading `"+0 more queued"`.
     private func errorSummaryLine(queued: Int, suppressed: Int) -> String {
         var parts: [String] = []
-        if queued > 0 { parts.append("+\(queued) more queued") }
-        if suppressed > 0 { parts.append("+\(suppressed) suppressed") }
+        if queued > 0 { parts.append(String(localized: "+\(queued) more queued")) }
+        if suppressed > 0 { parts.append(String(localized: "+\(suppressed) suppressed")) }
         return parts.joined(separator: " · ")
     }
 
@@ -424,51 +465,13 @@ struct TimerView: View {
 
     // MARK: - Lap header + rows + trend column
 
-    private static let lapRowHeight: CGFloat = 42
-    private static let trendColumnWidth: CGFloat = 110
+    private var lapHeader: some View { LapTableHeader() }
 
-    private var lapHeader: some View {
-        HStack(spacing: 10) {
-            Text("#").monoCap(size: 10, tracking: 1.6).frame(width: 26, alignment: .leading)
-            Text("Split").monoCap(size: 10, tracking: 1.6).frame(maxWidth: .infinity, alignment: .leading)
-            Text("Δ Best").monoCap(size: 10, tracking: 1.6).frame(width: 72, alignment: .trailing)
-            Text("Trend").monoCap(size: 10, tracking: 1.6)
-                .frame(width: Self.trendColumnWidth, alignment: .center)
-        }
-        .padding(.bottom, 6)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
-        }
-    }
-
-    @ViewBuilder
     private var lapRowsWithTrend: some View {
-        if lapTimer.laps.isEmpty {
-            Text("No laps")
-                .monoCap(size: 11, tracking: 1.2, color: EditorialTheme.dim)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
-        } else {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(spacing: 0) {
-                    ForEach(Array(lapTimer.laps.enumerated().reversed()), id: \.element.id) { realIdx, lap in
-                        let isBest = realIdx == lapTimer.bestLapIndex
-                        let delta = (bestTime ?? 0) > 0 ? lap.time - (bestTime ?? 0) : 0
-                        EditorialLapRow(lap: lap, isBest: isBest, delta: delta,
-                                        height: Self.lapRowHeight)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-
-                LapTrendChartVertical(
-                    laps: lapTimer.laps,
-                    bestIdx: lapTimer.bestLapIndex,
-                    worstT: worstTime ?? 0,
-                    rowHeight: Self.lapRowHeight
-                )
-                .frame(width: Self.trendColumnWidth)
-            }
-        }
+        LapTable(laps: lapTimer.laps,
+                 bestLapIndex: lapTimer.bestLapIndex,
+                 bestTime: bestTime,
+                 worstTime: worstTime)
     }
 
     // MARK: - Action dock
@@ -570,14 +573,19 @@ struct TimerView: View {
     private func primaryAction() {
         if sessionEnded { return }
         if lapTimer.isRunning && timeUp {
+            // Set before recordLap() so the .sensoryFeedback closure sees
+            // the FINAL classification regardless of when SwiftUI re-evals.
+            lastLapWasFinal = true
             recordLap()
             lapTimer.stop()
         } else if lapTimer.isRunning {
+            lastLapWasFinal = false
             recordLap()
         } else {
             // Fresh START — wipe stale projection from a previous run so
             // the summary band doesn't briefly show the old pace value.
             metricsSnapshot = nil
+            lastLapWasFinal = false
             lapTimer.start()
         }
     }
@@ -599,7 +607,15 @@ struct TimerView: View {
             // whether the goggle ack'd the reset packet. The `lastError`
             // surfaces a failed write so the operator knows the OSD may
             // still show the old table until they reconnect.
-            if !lapTimer.laps.isEmpty {
+            //
+            // The 1Hz tick now writes TIME LEFT every second a session
+            // is in flight, so a START → STOP → RESET sequence with
+            // zero recorded laps still leaves a `TIME LEFT NN` row on
+            // the goggle. Trigger the reset whenever the session
+            // actually started (`elapsedTime > 0`), not just when laps
+            // exist; otherwise the operator returns to a "ready" state
+            // on the phone but the goggle keeps showing stale text.
+            if !lapTimer.laps.isEmpty || lapTimer.elapsedTime > 0 {
                 bluetooth.sendOSDControl(command: .resetLaps)
             }
             // Silence any in-flight announcement before wiping state — a
@@ -609,6 +625,7 @@ struct TimerView: View {
             lapTimer.reset()
             metricsSnapshot = nil
             manuallyEnded = false
+            lastLapWasFinal = false
         }
     }
 
@@ -618,10 +635,11 @@ struct TimerView: View {
     /// and the goggle catching up (or not) is downstream concern.
     private func recordLap() {
         guard let lap = lapTimer.lap() else { return }
-
-        if let metrics = refreshMetricsSnapshot() {
-            bluetooth.sendOSDText(lines: metrics.osdLines)
-        }
+        refreshMetricsSnapshot()
+        sendMetricRows()
+        // Refresh TIME LEFT alongside the lap — keeps the top row in
+        // sync without waiting up to a second for the next tick.
+        sendTimeLeftRow()
 
         if lapTTSEnabled {
             // bestLapIndex is recomputed against `lap` since lapTimer.lap()
@@ -630,6 +648,30 @@ struct TimerView: View {
             let isBest = lapTimer.bestLapIndex == lapTimer.laps.count - 1
             announcer.announceLap(lap, isBest: isBest)
         }
+    }
+
+    /// Push the TIME LEFT row to the goggle. Padded so a shorter value
+    /// (e.g. `TIME LEFT 9` after `TIME LEFT 45`) cleanly overwrites the
+    /// prior text without a firmware-side clear.
+    private func sendTimeLeftRow() {
+        bluetooth.sendOSDRow(row: 0,
+                             text: RaceMetrics.timeLeftRow(remainingSec: remaining))
+    }
+
+    /// Push the bottom three rows (LAP / AVG / DIFF) when a lap is
+    /// recorded, the session limit changes, or the operator changes
+    /// the target lap count (which feeds back into AVG/DIFF rendering).
+    /// Pre-lap there's nothing meaningful to display, so the rows are
+    /// left as the goggle's existing content (or blank if Clear OSD
+    /// wiped it).
+    private func sendMetricRows() {
+        guard let metrics = metricsSnapshot else { return }
+        let rows = metrics.osdMetricRows
+        bluetooth.sendOSDRows([
+            (row: 1, text: rows[0]),
+            (row: 2, text: rows[1]),
+            (row: 3, text: rows[2]),
+        ])
     }
 
     private func clampTargetLapCountSetting() {
@@ -645,9 +687,8 @@ struct TimerView: View {
             targetLapCount = clamped
             return
         }
-        if let metrics = refreshMetricsSnapshot() {
-            bluetooth.sendOSDText(lines: metrics.osdLines)
-        }
+        refreshMetricsSnapshot()
+        sendMetricRows()
     }
 
     @discardableResult
@@ -877,17 +918,17 @@ struct EditorialLapRow: View {
     let lap: Lap
     let isBest: Bool
     let delta: TimeInterval
-    var height: CGFloat = 42
+    var height: CGFloat = LapTableMetrics.rowHeight
     @Environment(\.accentHue) private var accentHue: Double
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: LapTableMetrics.headerSpacing) {
             Text(String(format: "%02d", lap.id))
                 .font(.editorialMono(13))
                 .monospacedDigit()
                 .foregroundStyle(EditorialTheme.sub)
-                .frame(width: 26, alignment: .leading)
+                .frame(width: LapTableMetrics.numberColumnWidth, alignment: .leading)
 
             HStack(spacing: 6) {
                 Text(EditorialFormat.time(lap.time, msDigits: 2))
@@ -907,7 +948,7 @@ struct EditorialLapRow: View {
                 .font(.editorialMono(13))
                 .monospacedDigit()
                 .foregroundStyle(isBest ? accent : EditorialTheme.sub)
-                .frame(width: 72, alignment: .trailing)
+                .frame(width: LapTableMetrics.deltaColumnWidth, alignment: .trailing)
         }
         .frame(height: height)
         .overlay(alignment: .bottom) {
@@ -973,5 +1014,83 @@ struct LapTrendChartVertical: View {
             }
         }
         .frame(height: max(rowHeight, totalH))
+    }
+}
+
+// MARK: - LapTable (shared by TimerView and RaceShareCard)
+
+/// Single source of truth for the lap-table geometry. The on-screen post-race
+/// view (`TimerView`) and the offscreen share-image card (`RaceShareCard`)
+/// must agree pixel-for-pixel so the shared PNG reads as the screen the
+/// operator was watching — promoting these constants here removes the silent
+/// rot path where one side's row height drifts from the other.
+enum LapTableMetrics {
+    static let rowHeight: CGFloat = 42
+    static let trendColumnWidth: CGFloat = 110
+    static let numberColumnWidth: CGFloat = 26
+    static let deltaColumnWidth: CGFloat = 72
+    static let headerSpacing: CGFloat = 10
+    static let bodySpacing: CGFloat = 8
+    static let emptyStatePadding: CGFloat = 28
+    static let headerFontSize: CGFloat = 10
+    static let headerTracking: CGFloat = 1.6
+}
+
+struct LapTableHeader: View {
+    var body: some View {
+        HStack(spacing: LapTableMetrics.headerSpacing) {
+            Text("#")
+                .monoCap(size: LapTableMetrics.headerFontSize, tracking: LapTableMetrics.headerTracking)
+                .frame(width: LapTableMetrics.numberColumnWidth, alignment: .leading)
+            Text("Split")
+                .monoCap(size: LapTableMetrics.headerFontSize, tracking: LapTableMetrics.headerTracking)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Δ Best")
+                .monoCap(size: LapTableMetrics.headerFontSize, tracking: LapTableMetrics.headerTracking)
+                .frame(width: LapTableMetrics.deltaColumnWidth, alignment: .trailing)
+            Text("Trend")
+                .monoCap(size: LapTableMetrics.headerFontSize, tracking: LapTableMetrics.headerTracking)
+                .frame(width: LapTableMetrics.trendColumnWidth, alignment: .center)
+        }
+        .padding(.bottom, 6)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
+        }
+    }
+}
+
+struct LapTable: View {
+    let laps: [Lap]
+    let bestLapIndex: Int?
+    let bestTime: TimeInterval?
+    let worstTime: TimeInterval?
+
+    var body: some View {
+        if laps.isEmpty {
+            Text("No laps")
+                .monoCap(size: 11, tracking: 1.2, color: EditorialTheme.dim)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, LapTableMetrics.emptyStatePadding)
+        } else {
+            HStack(alignment: .top, spacing: LapTableMetrics.bodySpacing) {
+                VStack(spacing: 0) {
+                    ForEach(Array(laps.enumerated().reversed()), id: \.element.id) { realIdx, lap in
+                        let isBest = realIdx == bestLapIndex
+                        let delta = (bestTime ?? 0) > 0 ? lap.time - (bestTime ?? 0) : 0
+                        EditorialLapRow(lap: lap, isBest: isBest, delta: delta,
+                                        height: LapTableMetrics.rowHeight)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+
+                LapTrendChartVertical(
+                    laps: laps,
+                    bestIdx: bestLapIndex,
+                    worstT: worstTime ?? 0,
+                    rowHeight: LapTableMetrics.rowHeight
+                )
+                .frame(width: LapTableMetrics.trendColumnWidth)
+            }
+        }
     }
 }
