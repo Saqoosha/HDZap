@@ -1,5 +1,11 @@
 import AVFoundation
 import Foundation
+import os
+
+/// Subsystem-scoped logger so messages reach the unified logging system
+/// (`log stream`, Console.app, `idevicesyslog`) instead of `print()`'s
+/// stdout/stderr — which only the attached debugger sees on iOS.
+private let log = Logger(subsystem: "sh.saqoo.HDZap", category: "LapAnnouncer")
 
 /// UserDefaults keys + defaults shared between LapAnnouncer (the consumer)
 /// and SettingsView (the editor). Centralized so a typo in one site can't
@@ -105,6 +111,11 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     override init() {
         super.init()
         synthesizer.delegate = self
+        // One-shot dump at startup so the device unified log captures the
+        // installed voice list without requiring the user to navigate into
+        // the Audio settings first. Cheap (one syscall) and only happens
+        // once per process via the static guard inside.
+        LapAnnouncerVoiceCatalog.dumpInstalledVoicesOnce()
     }
 
     func announceLap(_ lap: Lap, isBest: Bool) {
@@ -181,7 +192,7 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             // exclusive audio category (Voice Memos recording, active
             // call). Logging keeps a Console.app trail when "TTS is silent
             // mid-race" gets reported.
-            print("LapAnnouncer: AVAudioSession activation failed: \(error.localizedDescription)")
+            log.error("AVAudioSession activation failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -192,7 +203,7 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             try session.setActive(false, options: [.notifyOthersOnDeactivation])
             sessionConfigured = false
         } catch {
-            print("LapAnnouncer: AVAudioSession deactivation failed: \(error.localizedDescription)")
+            log.error("AVAudioSession deactivation failed: \(error.localizedDescription, privacy: .public)")
             // Leave sessionConfigured = true — the session is still active
             // even though we couldn't clean up. Next utterance will reuse
             // it via the `guard !sessionConfigured` short-circuit.
@@ -225,7 +236,7 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 // or the device was restored to a phone that doesn't have
                 // it. SettingsView's `voiceMissing` banner covers the UX,
                 // but log so the issue shows up in `log stream` output too.
-                print("LapAnnouncer: saved voice '\(id)' no longer installed; using system default for \(language.fallbackVoiceLanguage).")
+                log.info("Saved voice '\(id, privacy: .public)' no longer installed; using system default for \(language.fallbackVoiceLanguage, privacy: .public).")
             }
         }
         return AVSpeechSynthesisVoice(language: language.fallbackVoiceLanguage)
@@ -278,9 +289,18 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
 /// or vice versa) produces unintelligible output.
 struct LapAnnouncerVoiceCatalog {
     /// Voice quality tier. Sort order matches the integer raw value (lower =
-    /// higher quality) so the Picker can show Premium first. iOS 17+ Siri
-    /// voices land in `.premium`, the legacy "Enhanced" downloadables in
-    /// `.enhanced`, the compact base voices in `.standard`.
+    /// higher quality) so the Picker shows Premium first. The compact base
+    /// voices land in `.standard`, the downloadable Enhanced bundles in
+    /// `.enhanced`, the high-quality neural bundles (when Apple exposes
+    /// them to third-party apps for that locale) in `.premium`.
+    ///
+    /// Note: the "Siri Voice 1/2" bundles in iOS Settings → Accessibility →
+    /// Spoken Content → Voices are **not** the same as `.premium`. Apple
+    /// intentionally locks those Siri-shared bundles out of
+    /// `AVSpeechSynthesizer` for third-party apps to prevent Siri
+    /// impersonation; if a Siri voice is selected via identifier, the
+    /// system silently substitutes a fallback at synthesis time.
+    /// (Source: Apple Developer Forums #682438.)
     enum Quality: Int, Comparable {
         case premium = 0
         case enhanced = 1
@@ -317,7 +337,9 @@ struct LapAnnouncerVoiceCatalog {
     /// "System default" entry for `id == ""`, so this list can be empty
     /// without breaking selection.
     static func availableVoices(for language: LapAnnouncerLanguage) -> [Entry] {
-        AVSpeechSynthesisVoice.speechVoices()
+        let allVoices = AVSpeechSynthesisVoice.speechVoices()
+        debugDumpAllVoicesOnce(allVoices)
+        return allVoices
             .filter { $0.language.hasPrefix(language.voiceLanguagePrefix) }
             .map { v in
                 let quality = Quality(v.quality)
@@ -333,5 +355,26 @@ struct LapAnnouncerVoiceCatalog {
                 if lhs.language != rhs.language { return lhs.language < rhs.language }
                 return lhs.displayName < rhs.displayName
             }
+    }
+
+    /// One-shot dump of every installed voice (id, name, language, quality)
+    /// to the unified log so we can verify what `speechVoices()` actually
+    /// returns on a given device — handy when a user installs "Siri
+    /// Voice 1/2" via Settings and asks why they don't appear here.
+    /// (They don't because Apple filters them out for third-party apps.)
+    private static var didDumpVoices = false
+    private static func debugDumpAllVoicesOnce(_ voices: [AVSpeechSynthesisVoice]) {
+        guard !didDumpVoices else { return }
+        didDumpVoices = true
+        log.info("speechVoices() returned \(voices.count, privacy: .public) voices")
+        for v in voices {
+            log.info("  \(v.language, privacy: .public) \(v.name, privacy: .public) [\(v.identifier, privacy: .public)] quality=\(v.quality.rawValue, privacy: .public)")
+        }
+    }
+
+    /// Public entry point for `LapAnnouncer.init` so the dump fires at
+    /// app startup, before the user reaches the Audio settings.
+    static func dumpInstalledVoicesOnce() {
+        debugDumpAllVoicesOnce(AVSpeechSynthesisVoice.speechVoices())
     }
 }

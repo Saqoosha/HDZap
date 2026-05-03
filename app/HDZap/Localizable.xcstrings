@@ -956,12 +956,13 @@
         }
       }
     },
-    "Tip: install a Premium ja-JP voice (Siri Voice 1/2 or Kyoko/Otoya Enhanced) for noticeably better quality." : {
+    "Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Voices for noticeably better quality." : {
+      "comment" : "Japanese-specific nudge in Audio settings — recommends Enhanced voices instead of the locked Siri voices.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ヒント: ja-JP の Premium 音声 (Siri Voice 1/2 または Kyoko / Otoya Enhanced) をインストールすると音質が大幅に向上します。"
+            "value" : "ヒント: 設定 → アクセシビリティ → 声 から Kyoko / Otoya / O-ren (Enhanced) をインストールすると音質が大幅に向上します。"
           }
         }
       }
