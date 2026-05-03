@@ -177,6 +177,12 @@ struct TimerView: View {
             guard new > old else { return nil }
             return lastLapWasFinal ? .success : .impact(weight: .medium)
         }
+        // Haptic on START — fires on the false → true transition only,
+        // so resuming from a STOP-with-no-laps doesn't double up with the
+        // user's tap on the secondary button (STOP itself is silent).
+        .sensoryFeedback(trigger: lapTimer.isRunning) { old, new in
+            (!old && new) ? .start : nil
+        }
     }
 
     // MARK: - Masthead
