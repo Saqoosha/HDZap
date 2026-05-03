@@ -347,12 +347,8 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                              lapCount: Int,
                              totalTime: TimeInterval,
                              bestLapTime: TimeInterval?) -> String {
-        let bestStr = bestLapTime.map {
-            String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), max(0, $0))
-        }
-        let lastLapStr = lastLap.map {
-            String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), max(0, $0.time))
-        }
+        let bestStr = bestLapTime.map(truncatedSecondsString(_:))
+        let lastLapStr = lastLap.map { truncatedSecondsString($0.time) }
         switch currentLanguage() {
         case .english:
             guard let bestStr else { return "Race complete. No laps recorded." }
@@ -371,14 +367,26 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
+    /// Truncates `seconds` to hundredths and formats as "S.SS" — matches
+    /// the on-screen display, which floors to milliseconds (see BigTime /
+    /// EditorialFormat.time). Using `%.2f` instead would round at the
+    /// hundredths boundary and disagree with the display, so 00:18.00 on
+    /// screen ends up as "18.01秒" in speech for a lap timed at e.g.
+    /// 18.005s.
+    private func truncatedSecondsString(_ seconds: TimeInterval) -> String {
+        let hundredths = Int((max(0, seconds) * 100).rounded(.down))
+        let whole = hundredths / 100
+        let frac = hundredths % 100
+        return "\(whole).\(String(format: "%02d", frac))"
+    }
+
     /// Splits seconds into a "M minute(s) SS.SS seconds" string for the
     /// English race summary. Drops the minute portion when total < 60 so
     /// `45.66` doesn't read as "zero minutes forty-five point six six".
+    /// Uses the same truncate-to-hundredths rule as `truncatedSecondsString`
+    /// so the spoken total agrees with the display.
     private func englishMinSecString(_ time: TimeInterval) -> String {
-        let total = max(0, time)
-        let minutes = Int(total / 60)
-        let seconds = total - Double(minutes) * 60
-        let secStr = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), seconds)
+        let (minutes, secStr) = minutesAndSecondsString(time)
         if minutes > 0 {
             return "\(minutes) minute\(minutes == 1 ? "" : "s") \(secStr) seconds"
         }
@@ -389,23 +397,32 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// when total < 60. The Siri/Otoya voices read "1分45.66秒" naturally
     /// as "いっぷんよんじゅうごてんろくろくびょう".
     private func japaneseMinSecString(_ time: TimeInterval) -> String {
-        let total = max(0, time)
-        let minutes = Int(total / 60)
-        let seconds = total - Double(minutes) * 60
-        let secStr = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), seconds)
+        let (minutes, secStr) = minutesAndSecondsString(time)
         if minutes > 0 {
             return "\(minutes)分\(secStr)秒"
         }
         return "\(secStr)秒"
     }
 
+    /// Truncate-then-split helper used by both language formatters.
+    /// Computes hundredths once via `.rounded(.down)` so a value like
+    /// 65.999s splits as 1m 5.99s, never 1m 6.00s.
+    private func minutesAndSecondsString(_ time: TimeInterval) -> (minutes: Int, secStr: String) {
+        let totalHundredths = Int((max(0, time) * 100).rounded(.down))
+        let totalSeconds = totalHundredths / 100
+        let frac = totalHundredths % 100
+        let minutes = totalSeconds / 60
+        let s = totalSeconds % 60
+        return (minutes, "\(s).\(String(format: "%02d", frac))")
+    }
+
     private func phrase(for lap: Lap, isBest: Bool) -> String {
         // Two decimals matches what most pilots can act on — milliseconds
         // are too granular to parse by ear in the half-second the operator
         // has between laps. AVSpeechSynthesizer reads "12.34" naturally as
-        // "twelve point three four" (en) / "12てん34" (ja).
-        let timeStr = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"),
-                             max(0, lap.time))
+        // "twelve point three four" (en) / "12てん34" (ja). Truncated (not
+        // rounded) so the spoken time agrees with the on-screen display.
+        let timeStr = truncatedSecondsString(lap.time)
         switch currentLanguage() {
         case .english:
             return isBest
