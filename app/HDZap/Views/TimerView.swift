@@ -660,7 +660,12 @@ struct TimerView: View {
             // an earlier lap, `min(by:)` keeps pointing at the earlier index
             // — the tied lap is **not** announced as best, matching the
             // visual highlight in the lap list.
-            let isBest = lapTimer.bestLapIndex == lapTimer.laps.count - 1
+            // Lap 1 is trivially the best (only one), so suppress the
+            // "best lap" suffix until we have at least one prior lap to
+            // compare against — otherwise every race opens with an
+            // unearned victory call.
+            let isBest = lapTimer.laps.count > 1
+                && lapTimer.bestLapIndex == lapTimer.laps.count - 1
             announcer.announceLap(lap, isBest: isBest)
         }
         return lap
