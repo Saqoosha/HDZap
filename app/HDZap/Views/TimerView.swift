@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Editorial Console — quiet typography, hairline rules, inline sparkbars.
 /// Modeled on the iOS Lap Timer handoff prototype (V2 Editorial).
@@ -24,6 +25,19 @@ struct TimerView: View {
     /// view flips to the result/done summary. STOP with no laps just pauses
     /// the timer — no point showing an empty results screen. Cleared by RESET.
     @State private var manuallyEnded = false
+    /// Wraps the temp PNG URL so `.sheet(item:)` has an `Identifiable` payload.
+    /// Re-rendered on every `shareAction()` because laps and metrics may change
+    /// between presentations.
+    @State private var shareItem: ShareItem?
+    /// Mirrors `shareItem.url` so the temp file can still be deleted in
+    /// `.sheet(item:, onDismiss:)` — by the time `onDismiss` fires, SwiftUI
+    /// has already nilled out `shareItem`, so we need a separate handle.
+    @State private var lastShareURL: URL?
+    /// Local error channel for share-flow failures. Kept separate from
+    /// `bluetooth.lastError` so a render/save failure isn't mistaken for a
+    /// BLE link issue and doesn't pollute the BLE error log/dropped-counter
+    /// accounting.
+    @State private var shareError: String?
 
     private var timeUp: Bool { lapTimer.elapsedTime >= sessionLimit }
     private var sessionEnded: Bool {
@@ -96,6 +110,21 @@ struct TimerView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(item: $shareItem, onDismiss: cleanupShareTempFile) { item in
+            ShareSheet(url: item.url)
+        }
+        .alert(
+            "Share Failed",
+            isPresented: Binding(
+                get: { shareError != nil },
+                set: { if !$0 { shareError = nil } }
+            ),
+            presenting: shareError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { msg in
+            Text(msg)
         }
         .onAppear {
             clampTargetLapCountSetting()
@@ -444,7 +473,8 @@ struct TimerView: View {
 
     private var actionDock: some View {
         ZStack {
-            // Secondary — STOP / RESET, left of hero
+            // Chrome matches across STOP/RESET and SHARE so the dock reads as
+            // a symmetric trio around the hero button.
             HStack {
                 Button(action: secondaryAction) {
                     Text(secondaryLabel)
@@ -462,6 +492,20 @@ struct TimerView: View {
                 .padding(.leading, 28)
 
                 Spacer()
+
+                if sessionEnded {
+                    Button(action: shareAction) {
+                        Text("SHARE")
+                            .font(.editorialMono(10, weight: .bold))
+                            .tracking(1.6)
+                            .foregroundStyle(EditorialTheme.ink.opacity(0.78))
+                            .frame(width: 64, height: 64)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(EditorialTheme.ink.opacity(0.14), lineWidth: 0.5))
+                    }
+                    .accessibilityLabel("Share race result")
+                    .padding(.trailing, 28)
+                }
             }
 
             // Primary — giant circle, centered
@@ -601,6 +645,127 @@ struct TimerView: View {
         metricsSnapshot = metrics
         return metrics
     }
+
+    // MARK: - Share
+
+    private func shareAction() {
+        // Drop the previous share file before allocating a new one so a fast
+        // SHARE → cancel → SHARE loop doesn't strand temp PNGs even though
+        // `cleanupShareTempFile` will also fire on dismiss.
+        cleanupShareTempFile()
+        do {
+            let url = try makeShareImage()
+            lastShareURL = url
+            shareItem = ShareItem(url: url)
+        } catch let error as ShareImageError {
+            shareError = error.userMessage
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain
+                                         && error.code == NSFileWriteOutOfSpaceError {
+            shareError = "Out of storage. Free space and try again."
+        } catch {
+            shareError = "Couldn't save race image: \(error.localizedDescription)"
+        }
+    }
+
+    private func cleanupShareTempFile() {
+        if let url = lastShareURL {
+            try? FileManager.default.removeItem(at: url)
+            lastShareURL = nil
+        }
+    }
+
+    /// Returns the URL of a freshly written PNG. Throws `ShareImageError`
+    /// when `ImageRenderer` produces no image or when PNG encoding fails;
+    /// rethrows the underlying error from `data.write` so out-of-space and
+    /// permission failures reach `shareAction()` for distinct user messages.
+    @MainActor
+    private func makeShareImage() throws -> URL {
+        let card = RaceShareCard(
+            laps: lapTimer.laps,
+            bestLapIndex: lapTimer.bestLapIndex,
+            metrics: metricsSnapshot,
+            accentHue: accentHue,
+            targetLapCount: clampedTargetLapCount,
+            sessionLimit: sessionLimit,
+            generatedAt: Date()
+        )
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 3
+        guard let uiImage = renderer.uiImage else {
+            throw ShareImageError.rendererProducedNoImage
+        }
+        guard let data = uiImage.pngData() else {
+            throw ShareImageError.pngEncodeFailed
+        }
+        // Per-share UUID suffix prevents collisions when the user taps SHARE
+        // twice within the same second (timestamp resolution is seconds).
+        let stamp = Self.fileTimestampFormatter.string(from: Date())
+        let suffix = UUID().uuidString.prefix(6)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hdzap-race-\(stamp)-\(suffix).png")
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    private static let fileTimestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        // Filename-safe; sortable. Avoids `:` which some share targets reject.
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f
+    }()
+}
+
+// MARK: - Share errors
+
+enum ShareImageError: Error {
+    case rendererProducedNoImage
+    case pngEncodeFailed
+
+    var userMessage: String {
+        switch self {
+        case .rendererProducedNoImage:
+            return "Render produced no image. Try restarting the app."
+        case .pngEncodeFailed:
+            return "PNG encode failed. Try again."
+        }
+    }
+}
+
+// MARK: - Share helpers
+
+/// Wraps `URL` so `.sheet(item:)` has an `Identifiable` payload — `URL`
+/// isn't `Identifiable` itself, and a fresh `id` per instance forces SwiftUI
+/// to remount the share sheet so a stale render is never reused.
+struct ShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// Used instead of `ShareLink` because `ShareLink` needs the item at
+/// construction time, but the PNG is rendered lazily on tap.
+///
+/// The popover anchor is set unconditionally — `TARGETED_DEVICE_FAMILY = "1,2"`
+/// means iPad builds reach this code, and on iPad UIKit asserts when a popover
+/// presentation has no `sourceView`. The `.sheet(item:)` host typically forces
+/// a sheet style that ignores the popover settings, but setting them is
+/// cheap insurance against the assertion.
+struct ShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let vc = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = vc.popoverPresentationController {
+            popover.sourceView = vc.view
+            popover.sourceRect = CGRect(x: vc.view.bounds.midX,
+                                        y: vc.view.bounds.midY,
+                                        width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - StatusDot
@@ -622,7 +787,7 @@ private struct StatusDot: View {
 
 // MARK: - BigTime
 
-private struct BigTime: View {
+struct BigTime: View {
     let seconds: TimeInterval
     let accent: Color
     var size: CGFloat = 64
@@ -663,7 +828,7 @@ private struct BigTime: View {
 
 // MARK: - SummaryColumn
 
-private struct SummaryColumn: View {
+struct SummaryColumn: View {
     let label: String
     let value: String
     let highlight: Bool
@@ -694,7 +859,7 @@ private struct SummaryColumn: View {
 
 // MARK: - EditorialLapRow
 
-private struct EditorialLapRow: View {
+struct EditorialLapRow: View {
     let lap: Lap
     let isBest: Bool
     let delta: TimeInterval
@@ -742,7 +907,7 @@ private struct EditorialLapRow: View {
 /// Vertical trend chart aligned to the right of the lap-row table.
 /// One dot per lap, positioned at the same y as its row (newest at top).
 /// X scales lap time from 0 (left = fast) to slowest * 1.05 (right = slow).
-private struct LapTrendChartVertical: View {
+struct LapTrendChartVertical: View {
     let laps: [Lap]
     let bestIdx: Int?
     let worstT: TimeInterval
