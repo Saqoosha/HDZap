@@ -442,51 +442,13 @@ struct TimerView: View {
 
     // MARK: - Lap header + rows + trend column
 
-    private static let lapRowHeight: CGFloat = 42
-    private static let trendColumnWidth: CGFloat = 110
+    private var lapHeader: some View { LapTableHeader() }
 
-    private var lapHeader: some View {
-        HStack(spacing: 10) {
-            Text("#").monoCap(size: 10, tracking: 1.6).frame(width: 26, alignment: .leading)
-            Text("Split").monoCap(size: 10, tracking: 1.6).frame(maxWidth: .infinity, alignment: .leading)
-            Text("Δ Best").monoCap(size: 10, tracking: 1.6).frame(width: 72, alignment: .trailing)
-            Text("Trend").monoCap(size: 10, tracking: 1.6)
-                .frame(width: Self.trendColumnWidth, alignment: .center)
-        }
-        .padding(.bottom, 6)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
-        }
-    }
-
-    @ViewBuilder
     private var lapRowsWithTrend: some View {
-        if lapTimer.laps.isEmpty {
-            Text("No laps")
-                .monoCap(size: 11, tracking: 1.2, color: EditorialTheme.dim)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
-        } else {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(spacing: 0) {
-                    ForEach(Array(lapTimer.laps.enumerated().reversed()), id: \.element.id) { realIdx, lap in
-                        let isBest = realIdx == lapTimer.bestLapIndex
-                        let delta = (bestTime ?? 0) > 0 ? lap.time - (bestTime ?? 0) : 0
-                        EditorialLapRow(lap: lap, isBest: isBest, delta: delta,
-                                        height: Self.lapRowHeight)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-
-                LapTrendChartVertical(
-                    laps: lapTimer.laps,
-                    bestIdx: lapTimer.bestLapIndex,
-                    worstT: worstTime ?? 0,
-                    rowHeight: Self.lapRowHeight
-                )
-                .frame(width: Self.trendColumnWidth)
-            }
-        }
+        LapTable(laps: lapTimer.laps,
+                 bestLapIndex: lapTimer.bestLapIndex,
+                 bestTime: bestTime,
+                 worstTime: worstTime)
     }
 
     // MARK: - Action dock
@@ -915,17 +877,17 @@ struct EditorialLapRow: View {
     let lap: Lap
     let isBest: Bool
     let delta: TimeInterval
-    var height: CGFloat = 42
+    var height: CGFloat = LapTableMetrics.rowHeight
     @Environment(\.accentHue) private var accentHue: Double
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: LapTableMetrics.headerSpacing) {
             Text(String(format: "%02d", lap.id))
                 .font(.editorialMono(13))
                 .monospacedDigit()
                 .foregroundStyle(EditorialTheme.sub)
-                .frame(width: 26, alignment: .leading)
+                .frame(width: LapTableMetrics.numberColumnWidth, alignment: .leading)
 
             HStack(spacing: 6) {
                 Text(EditorialFormat.time(lap.time, msDigits: 2))
@@ -945,7 +907,7 @@ struct EditorialLapRow: View {
                 .font(.editorialMono(13))
                 .monospacedDigit()
                 .foregroundStyle(isBest ? accent : EditorialTheme.sub)
-                .frame(width: 72, alignment: .trailing)
+                .frame(width: LapTableMetrics.deltaColumnWidth, alignment: .trailing)
         }
         .frame(height: height)
         .overlay(alignment: .bottom) {
@@ -1011,5 +973,83 @@ struct LapTrendChartVertical: View {
             }
         }
         .frame(height: max(rowHeight, totalH))
+    }
+}
+
+// MARK: - LapTable (shared by TimerView and RaceShareCard)
+
+/// Single source of truth for the lap-table geometry. The on-screen post-race
+/// view (`TimerView`) and the offscreen share-image card (`RaceShareCard`)
+/// must agree pixel-for-pixel so the shared PNG reads as the screen the
+/// operator was watching — promoting these constants here removes the silent
+/// rot path where one side's row height drifts from the other.
+enum LapTableMetrics {
+    static let rowHeight: CGFloat = 42
+    static let trendColumnWidth: CGFloat = 110
+    static let numberColumnWidth: CGFloat = 26
+    static let deltaColumnWidth: CGFloat = 72
+    static let headerSpacing: CGFloat = 10
+    static let bodySpacing: CGFloat = 8
+    static let emptyStatePadding: CGFloat = 28
+    static let headerFontSize: CGFloat = 10
+    static let headerTracking: CGFloat = 1.6
+}
+
+struct LapTableHeader: View {
+    var body: some View {
+        HStack(spacing: LapTableMetrics.headerSpacing) {
+            Text("#")
+                .monoCap(size: LapTableMetrics.headerFontSize, tracking: LapTableMetrics.headerTracking)
+                .frame(width: LapTableMetrics.numberColumnWidth, alignment: .leading)
+            Text("Split")
+                .monoCap(size: LapTableMetrics.headerFontSize, tracking: LapTableMetrics.headerTracking)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Δ Best")
+                .monoCap(size: LapTableMetrics.headerFontSize, tracking: LapTableMetrics.headerTracking)
+                .frame(width: LapTableMetrics.deltaColumnWidth, alignment: .trailing)
+            Text("Trend")
+                .monoCap(size: LapTableMetrics.headerFontSize, tracking: LapTableMetrics.headerTracking)
+                .frame(width: LapTableMetrics.trendColumnWidth, alignment: .center)
+        }
+        .padding(.bottom, 6)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
+        }
+    }
+}
+
+struct LapTable: View {
+    let laps: [Lap]
+    let bestLapIndex: Int?
+    let bestTime: TimeInterval?
+    let worstTime: TimeInterval?
+
+    var body: some View {
+        if laps.isEmpty {
+            Text("No laps")
+                .monoCap(size: 11, tracking: 1.2, color: EditorialTheme.dim)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, LapTableMetrics.emptyStatePadding)
+        } else {
+            HStack(alignment: .top, spacing: LapTableMetrics.bodySpacing) {
+                VStack(spacing: 0) {
+                    ForEach(Array(laps.enumerated().reversed()), id: \.element.id) { realIdx, lap in
+                        let isBest = realIdx == bestLapIndex
+                        let delta = (bestTime ?? 0) > 0 ? lap.time - (bestTime ?? 0) : 0
+                        EditorialLapRow(lap: lap, isBest: isBest, delta: delta,
+                                        height: LapTableMetrics.rowHeight)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+
+                LapTrendChartVertical(
+                    laps: laps,
+                    bestIdx: bestLapIndex,
+                    worstT: worstTime ?? 0,
+                    rowHeight: LapTableMetrics.rowHeight
+                )
+                .frame(width: LapTableMetrics.trendColumnWidth)
+            }
+        }
     }
 }

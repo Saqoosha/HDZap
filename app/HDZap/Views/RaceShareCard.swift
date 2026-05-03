@@ -1,17 +1,22 @@
 import SwiftUI
 
-/// Standalone snapshot view rendered offscreen via `ImageRenderer` to produce
-/// the PNG that the share sheet hands off. Mirrors `TimerView`'s post-race
-/// layout — same paddings, row heights, summary band, and hero typography —
-/// so the shared image reads as the screen the operator was watching, plus a
-/// card-only header/footer for context once the masthead and action dock are
-/// stripped.
+/// Standalone snapshot view rendered offscreen via `ImageRenderer` for the
+/// share sheet. Mirrors `TimerView`'s post-race layout (paddings, row
+/// heights, typography) so the shared image reads as the screen the operator
+/// was watching; the masthead, session bar, action dock, and BLE/error
+/// strips are dropped because they carry no meaning post-race, replaced by a
+/// card-only header (HDZap masthead substitute) and footer (timestamp +
+/// wordmark) for context.
 ///
-/// Width matches a typical iPhone (393pt) so `ImageRenderer.scale = 3` yields
-/// a 1179px PNG with the same aspect ratio as the device. Bumping the width
-/// in isolation makes the card look "too wide" vs. the screen because the
-/// internal column widths and row heights stay the same — keep this aligned
-/// with `TimerView` if you change either side.
+/// Width is fixed at 393pt (iPhone 15 width) so `ImageRenderer.scale = 3`
+/// in `TimerView.makeShareImage()` yields a 1179px-wide PNG. The lap-table
+/// geometry is sourced from `LapTableMetrics` and the lap header/body from
+/// `LapTableHeader`/`LapTable`, so widening the card requires either
+/// scaling those constants in proportion or extracting more of the shared
+/// layout — bumping `width` in isolation reverts to the original "too wide"
+/// regression. The `doneBlock` and `summaryBand` typography below are still
+/// duplicated against `TimerView` (64pt hero, 22pt ms suffix, monoCap(9))
+/// and must be kept in sync by hand until promoted to a shared view.
 struct RaceShareCard: View {
     let laps: [Lap]
     let bestLapIndex: Int?
@@ -67,11 +72,14 @@ struct RaceShareCard: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 18)
 
-            lapHeader
+            LapTableHeader()
                 .padding(.horizontal, 24)
                 .padding(.top, 16)
 
-            lapRowsWithTrend
+            LapTable(laps: laps,
+                     bestLapIndex: bestLapIndex,
+                     bestTime: bestTime,
+                     worstTime: worstTime)
                 .padding(.horizontal, 24)
                 .padding(.top, 4)
 
@@ -147,53 +155,6 @@ struct RaceShareCard: View {
         }
         .overlay(alignment: .bottom) {
             Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
-        }
-    }
-
-    private static let lapRowHeight: CGFloat = 42
-    private static let trendColumnWidth: CGFloat = 110
-
-    private var lapHeader: some View {
-        HStack(spacing: 10) {
-            Text("#").monoCap(size: 10, tracking: 1.6).frame(width: 26, alignment: .leading)
-            Text("Split").monoCap(size: 10, tracking: 1.6).frame(maxWidth: .infinity, alignment: .leading)
-            Text("Δ Best").monoCap(size: 10, tracking: 1.6).frame(width: 72, alignment: .trailing)
-            Text("Trend").monoCap(size: 10, tracking: 1.6)
-                .frame(width: Self.trendColumnWidth, alignment: .center)
-        }
-        .padding(.bottom, 6)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
-        }
-    }
-
-    @ViewBuilder
-    private var lapRowsWithTrend: some View {
-        if laps.isEmpty {
-            Text("No laps")
-                .monoCap(size: 11, tracking: 1.2, color: EditorialTheme.dim)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-        } else {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(spacing: 0) {
-                    ForEach(Array(laps.enumerated().reversed()), id: \.element.id) { realIdx, lap in
-                        let isBest = realIdx == bestLapIndex
-                        let delta = (bestTime ?? 0) > 0 ? lap.time - (bestTime ?? 0) : 0
-                        EditorialLapRow(lap: lap, isBest: isBest, delta: delta,
-                                        height: Self.lapRowHeight)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-
-                LapTrendChartVertical(
-                    laps: laps,
-                    bestIdx: bestLapIndex,
-                    worstT: worstTime ?? 0,
-                    rowHeight: Self.lapRowHeight
-                )
-                .frame(width: Self.trendColumnWidth)
-            }
         }
     }
 
