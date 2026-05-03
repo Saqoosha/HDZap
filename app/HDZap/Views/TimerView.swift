@@ -178,10 +178,11 @@ struct TimerView: View {
             return lastLapWasFinal ? .success : .impact(weight: .medium)
         }
         // Haptic on START — fires on the false → true transition only,
-        // so resuming from a STOP-with-no-laps doesn't double up with the
-        // user's tap on the secondary button (STOP itself is silent).
+        // so STOP (true → false) stays silent. .start is too subtle on
+        // device; .impact(.heavy) gives a clear "race begins" thump that's
+        // distinct from .impact(.medium) on LAP.
         .sensoryFeedback(trigger: lapTimer.isRunning) { old, new in
-            (!old && new) ? .start : nil
+            (!old && new) ? .impact(weight: .heavy) : nil
         }
     }
 
