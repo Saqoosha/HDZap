@@ -34,6 +34,11 @@ struct TimerView: View {
     /// view flips to the result/done summary. STOP with no laps just pauses
     /// the timer — no point showing an empty results screen. Cleared by RESET.
     @State private var manuallyEnded = false
+    /// True iff the most recently recorded lap took the FINAL branch in
+    /// `primaryAction()`. Captured at action time so the haptic closure
+    /// doesn't depend on SwiftUI's body re-eval order relative to
+    /// `lapTimer.stop()`. Cleared on regular LAP, START, and RESET.
+    @State private var lastLapWasFinal = false
     /// Wraps the temp PNG URL so `.sheet(item:)` has an `Identifiable` payload.
     /// Re-rendered on every `shareAction()` because laps and metrics may change
     /// between presentations.
@@ -163,12 +168,14 @@ struct TimerView: View {
             guard !showSettings else { return }
             sendTimeLeftRow()
         }
-        // Haptic on the LAP tap — fires only on growth so RESET (count → 0)
-        // stays silent. The lap that closes the session uses .success since
-        // it's also the run-end commit.
+        // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
+        // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
+        // the lap is recorded — reading `sessionEnded` here would depend on
+        // SwiftUI re-evaluating the body after `lapTimer.stop()` flips
+        // `isRunning`, which is implementation-dependent.
         .sensoryFeedback(trigger: lapTimer.laps.count) { old, new in
             guard new > old else { return nil }
-            return sessionEnded ? .success : .impact(weight: .medium)
+            return lastLapWasFinal ? .success : .impact(weight: .medium)
         }
     }
 
@@ -557,14 +564,19 @@ struct TimerView: View {
     private func primaryAction() {
         if sessionEnded { return }
         if lapTimer.isRunning && timeUp {
+            // Set before recordLap() so the .sensoryFeedback closure sees
+            // the FINAL classification regardless of when SwiftUI re-evals.
+            lastLapWasFinal = true
             recordLap()
             lapTimer.stop()
         } else if lapTimer.isRunning {
+            lastLapWasFinal = false
             recordLap()
         } else {
             // Fresh START — wipe stale projection from a previous run so
             // the summary band doesn't briefly show the old pace value.
             metricsSnapshot = nil
+            lastLapWasFinal = false
             lapTimer.start()
         }
     }
@@ -600,6 +612,7 @@ struct TimerView: View {
             lapTimer.reset()
             metricsSnapshot = nil
             manuallyEnded = false
+            lastLapWasFinal = false
         }
     }
 
