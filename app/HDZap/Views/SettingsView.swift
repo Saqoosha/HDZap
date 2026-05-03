@@ -366,6 +366,12 @@ struct SettingsView: View {
                         .buttonStyle(.bordered)
                     Spacer()
                     Button("Reset", role: .destructive) {
+                        // Restores every Audio @AppStorage key to the value
+                        // registered in HDZapApp.init(), including the master
+                        // toggle — otherwise "Reset" leaves TTS enabled while
+                        // claiming defaults were restored, which doesn't match
+                        // the registered default of false.
+                        lapTTSEnabled = false
                         ttsRate = Double(LapAnnouncerDefaults.defaultRate)
                         ttsPitch = Double(LapAnnouncerDefaults.defaultPitch)
                         ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
