@@ -15,12 +15,13 @@
 		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
 		8F9FA17CF494FA2673B7B305 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */; };
 		B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4A2435CB82ED37EA712928 /* LapTimer.swift */; };
+		B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12757F8C010AFDC40357896D /* RaceShareCard.swift */; };
 		BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */; };
 		CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D706FE213381CDC8D3EC0893 /* TimerView.swift */; };
-		1A2B3C4D5E6F708192A3B4C5 /* RaceShareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4B3A29180716E5D4C3B2A1 /* RaceShareCard.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		12757F8C010AFDC40357896D /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
 		2E0D671093AF13888B5701D3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2E4A2435CB82ED37EA712928 /* LapTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapTimer.swift; sourceTree = "<group>"; };
 		37DB96B10D57102797F555BE /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
@@ -32,7 +33,6 @@
 		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
-		5C4B3A29180716E5D4C3B2A1 /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
 		F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -58,7 +58,7 @@
 			children = (
 				2E0D671093AF13888B5701D3 /* ContentView.swift */,
 				612031ED1450E491C5A43621 /* EditorialTheme.swift */,
-				5C4B3A29180716E5D4C3B2A1 /* RaceShareCard.swift */,
+				12757F8C010AFDC40357896D /* RaceShareCard.swift */,
 				F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */,
 				D706FE213381CDC8D3EC0893 /* TimerView.swift */,
 			);
@@ -162,7 +162,7 @@
 				B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */,
 				3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */,
 				BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */,
-				1A2B3C4D5E6F708192A3B4C5 /* RaceShareCard.swift in Sources */,
+				B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */,
 				8F9FA17CF494FA2673B7B305 /* SettingsView.swift in Sources */,
 				CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */,
 				12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */,
