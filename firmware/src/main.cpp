@@ -70,6 +70,33 @@ static constexpr uint32_t RENDER_VERIFY_MS        = 200;
 static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
 static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 
+// --- Power saving (issue #5, phase 1) -------------------------------------
+// LCD-only: drop the panel to sleep after IDLE_TIMEOUT_MS of no operator
+// activity. "Activity" is intentionally narrow per the issue spec — only
+// hardware button presses and lap arrivals reset the timer / wake the
+// panel. BLE-driven config events (UID change, bind, OSD test, etc.) do
+// NOT count: they're triggered from the phone, the phone already has
+// visual feedback, and a stick sitting on a table doesn't need to light
+// up just because configuration is happening remotely.
+//
+// Race-active heuristic falls out for free: every lap pushes the timer
+// forward, so a 30 s idle window keeps the LCD lit through a normal race
+// pace and only sleeps once the operator stops.
+//
+// Phase 1 is panel-only — no MCU sleep, no BLE/ESP-NOW radio changes.
+// Estimated savings: ~25 mA off the always-on baseline (per issue #5;
+// not yet measured at the JST connector).
+static constexpr uint32_t IDLE_TIMEOUT_MS = 30000;
+static uint32_t g_last_activity_ms = 0;
+
+static void markActivity() {
+    g_last_activity_ms = millis();
+    if (stickDisplay.isPanelAsleep()) {
+        Serial.println("LCD wake");
+        stickDisplay.wakePanel();
+    }
+}
+
 static void requestRender(uint32_t delay_ms = 0) {
     g_render_state = RenderState::PENDING;
     g_render_after_ms = millis() + delay_ms;
@@ -181,10 +208,24 @@ void setup() {
     Serial.println("BLE initialized, advertising...");
 
     stickDisplay.showStatus(g_uid, false, espnow_ready);
+
+    // Boot counts as activity; without this the panel could sleep before
+    // the operator has had a chance to interact at all.
+    g_last_activity_ms = millis();
 }
 
 void loop() {
     stickDisplay.update();
+
+    // stickDisplay.update() polled M5.update() above, so the wasPressed
+    // edges for this tick are fresh. Either button wakes the panel and
+    // resets the idle timer. wasPressed() is non-consuming, so the
+    // battery-monitor block below still observes the same edge — short
+    // press = wake AND silence (silence() no-ops when tier==None, so
+    // the two effects don't fight).
+    if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed()) {
+        markActivity();
+    }
 
     // --- Battery monitor -------------------------------------------------
     // Throttled internally to ~5 s; button state is fresh from M5.update()
@@ -308,6 +349,12 @@ void loop() {
             } else {
                 stickDisplay.clearMessage();
             }
+            // OSD text dirty rows are the new "lap arrived from iOS"
+            // signal after PR #13 collapsed the firmware lap pipeline
+            // into iOS-driven OSD text. Treat them as operator activity
+            // for the same reason we'd wake on the old g_lap_received
+            // edge: the operator is actively running a session.
+            markActivity();
         }
     }
 
@@ -527,6 +574,16 @@ void loop() {
             // sticky strip — a fresh reset is a clean slate.
             stickDisplay.clearMessage();
         }
+    }
+
+    // --- Idle-timeout LCD sleep ------------------------------------------
+    // End-of-tick check so any markActivity() earlier in this iteration
+    // already updated g_last_activity_ms. Sleep is one-shot (sleepPanel
+    // is idempotent), so checking every tick is cheap.
+    if (!stickDisplay.isPanelAsleep() &&
+        millis() - g_last_activity_ms >= IDLE_TIMEOUT_MS) {
+        Serial.println("LCD sleep (idle)");
+        stickDisplay.sleepPanel();
     }
 
     delay(10);
