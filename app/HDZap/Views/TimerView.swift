@@ -143,6 +143,13 @@ struct TimerView: View {
                 bluetooth.sendOSDText(lines: metrics.osdLines)
             }
         }
+        // Haptic on the LAP tap — fires only on growth so RESET (count → 0)
+        // stays silent. The lap that closes the session uses .success since
+        // it's also the run-end commit.
+        .sensoryFeedback(trigger: lapTimer.laps.count) { old, new in
+            guard new > old else { return nil }
+            return sessionEnded ? .success : .impact(weight: .medium)
+        }
     }
 
     // MARK: - Masthead
