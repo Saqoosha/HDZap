@@ -1,8 +1,9 @@
 import SwiftUI
+import os
 
 /// Full read-out for a single saved race. Renders the same `RaceShareCard`
 /// layout the operator saw post-race, plus toolbar actions for share /
-/// delete. Looked up by id every body eval so a delete from the toolbar
+/// delete. Looked up by id every body eval so a delete from the list
 /// returns the user to the list with the row already gone.
 struct RaceDetailView: View {
     let recordID: UUID
@@ -23,32 +24,35 @@ struct RaceDetailView: View {
             if let record {
                 content(for: record)
             } else {
-                // Record was deleted (likely via swipe on the list while
-                // this detail was on screen) — show a brief placeholder
-                // until the dismiss fires, since `onAppear` doesn't run
-                // again on an already-mounted view.
-                EmptyView()
-                    .onAppear { dismiss() }
+                // Placeholder while the dismiss fires (the .onChange below
+                // owns the dismiss — `EmptyView().onAppear { dismiss() }`
+                // didn't fire reliably because EmptyView is structural and
+                // doesn't materialise lifecycle events).
+                Color.clear
             }
         }
         .background(EditorialTheme.paper.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle(navigationTitle)
         .toolbar {
-            if record != nil {
-                ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if record != nil {
                     Button(action: shareAction) {
                         Image(systemName: "square.and.arrow.up")
                     }
                     .accessibilityLabel("Share")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive, action: { pendingDelete = true }) {
                         Image(systemName: "trash")
                     }
                     .accessibilityLabel("Delete")
                 }
             }
+        }
+        // Auto-dismiss when the record disappears (swipe-delete from the
+        // list while detail is on screen). Driven by `.onChange` instead
+        // of an EmptyView lifecycle hook so it actually fires.
+        .onChange(of: record == nil) { _, isGone in
+            if isGone { dismiss() }
         }
         .sheet(item: $shareItem, onDismiss: cleanupShareTempFile) { item in
             ShareSheet(url: item.url)
@@ -78,26 +82,16 @@ struct RaceDetailView: View {
 
     private var navigationTitle: String {
         guard let record else { return "" }
-        return Self.titleFormatter.string(from: record.startedAt)
+        return RaceFormat.detailTitle.string(from: record.startedAt)
     }
 
     @ViewBuilder
     private func content(for record: RaceRecord) -> some View {
-        let laps = record.displayLaps
-        let metrics = RaceMetrics(
-            laps: laps,
-            targetLapCount: record.targetLapCount,
-            sessionLimit: record.sessionLimit,
-            // Pace at race-end equals the achieved lap count — same value
-            // `TimerView.secondaryAction()` uses on manual STOP, so the
-            // detail view reads identically to the post-race summary.
-            paceOverride: laps.count
-        )
         ScrollView {
             RaceShareCard(
-                laps: laps,
+                laps: record.displayLaps,
                 bestLapIndex: record.bestLapIndex,
-                metrics: metrics,
+                metrics: metrics(for: record),
                 accentHue: record.accentHue,
                 targetLapCount: record.targetLapCount,
                 sessionLimit: record.sessionLimit,
@@ -110,21 +104,27 @@ struct RaceDetailView: View {
         .environment(\.accentHue, record.accentHue)
     }
 
+    /// The race is over, so pace equals achieved laps — no remaining
+    /// session time left to project additional laps into. Single source
+    /// of truth so the on-screen card and the shared PNG can't diverge.
+    private func metrics(for record: RaceRecord) -> RaceMetrics? {
+        let laps = record.displayLaps
+        return RaceMetrics(laps: laps,
+                           targetLapCount: record.targetLapCount,
+                           sessionLimit: record.sessionLimit,
+                           paceOverride: laps.count)
+    }
+
     // MARK: - Actions
 
     private func shareAction() {
         guard let record else { return }
         cleanupShareTempFile()
         do {
-            let laps = record.displayLaps
-            let metrics = RaceMetrics(laps: laps,
-                                      targetLapCount: record.targetLapCount,
-                                      sessionLimit: record.sessionLimit,
-                                      paceOverride: laps.count)
             let url = try RaceShareCard.renderImage(
-                laps: laps,
+                laps: record.displayLaps,
                 bestLapIndex: record.bestLapIndex,
-                metrics: metrics,
+                metrics: metrics(for: record),
                 accentHue: record.accentHue,
                 targetLapCount: record.targetLapCount,
                 sessionLimit: record.sessionLimit,
@@ -132,27 +132,17 @@ struct RaceDetailView: View {
             )
             lastShareURL = url
             shareItem = ShareItem(url: url)
-        } catch let error as ShareImageError {
-            shareError = error.userMessage
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain
-                                         && error.code == NSFileWriteOutOfSpaceError {
-            shareError = "Out of storage. Free space and try again."
         } catch {
-            shareError = "Couldn't save race image: \(error.localizedDescription)"
+            shareError = ShareImageError.userMessage(for: error)
         }
     }
 
     private func cleanupShareTempFile() {
         if let url = lastShareURL {
-            try? FileManager.default.removeItem(at: url)
+            ShareImageError.cleanupTempFile(at: url, log: Self.log)
             lastShareURL = nil
         }
     }
 
-    private static let titleFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale.autoupdatingCurrent
-        f.setLocalizedDateFormatFromTemplate("MMMdHm")
-        return f
-    }()
+    private static let log = Logger(subsystem: "sh.saqoo.HDZap", category: "RaceDetailView")
 }

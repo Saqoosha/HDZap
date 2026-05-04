@@ -2,22 +2,21 @@ import SwiftUI
 import UIKit
 
 /// Standalone snapshot view rendered offscreen via `ImageRenderer` for the
-/// share sheet. Mirrors `TimerView`'s post-race layout (paddings, row
+/// share sheet. Mirrors the post-race summary layout (paddings, row
 /// heights, typography) so the shared image reads as the screen the operator
 /// was watching; the masthead, session bar, action dock, and BLE/error
 /// strips are dropped because they carry no meaning post-race, replaced by a
-/// card-only header (HDZap masthead substitute) and footer (timestamp +
-/// wordmark) for context.
+/// card-only header (wordmark substitute) and footer (timestamp + wordmark)
+/// for context.
 ///
-/// Width is fixed at 393pt (iPhone 15 width) so `ImageRenderer.scale = 3`
-/// in `TimerView.makeShareImage()` yields a 1179px-wide PNG. The lap-table
-/// geometry is sourced from `LapTableMetrics` and the lap header/body from
-/// `LapTableHeader`/`LapTable`, so widening the card requires either
-/// scaling those constants in proportion or extracting more of the shared
-/// layout — bumping `width` in isolation reverts to the original "too wide"
-/// regression. The `doneBlock` and `summaryBand` typography below are still
-/// duplicated against `TimerView` (64pt hero, 22pt ms suffix, monoCap(9))
-/// and must be kept in sync by hand until promoted to a shared view.
+/// Width is fixed at 393pt (iPhone 15 width) so a 3× ImageRenderer scale
+/// yields a 1179px-wide PNG. Lap-table geometry comes from
+/// `LapTableMetrics`; widening the card requires scaling those constants
+/// in proportion or extracting more of the shared layout, otherwise
+/// reverting to the original "too wide" regression. Hero typography
+/// (64pt display, 22pt ms suffix, monoCap(9)) is currently duplicated in
+/// the live timer's done-block and must stay in sync until promoted to a
+/// shared view.
 struct RaceShareCard: View {
     let laps: [Lap]
     let bestLapIndex: Int?

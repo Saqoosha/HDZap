@@ -11,10 +11,9 @@ class LapTimer {
     private(set) var elapsedTime: TimeInterval = 0
     private(set) var laps: [Lap] = []
     private(set) var isRunning = false
-    /// Wall-clock timestamp of the FIRST `start()` after a `reset()`. Used
-    /// by the history store to label the saved race ("Started 14:32"). A
-    /// pause/resume (STOP→START) keeps the original value so the displayed
-    /// "started at" matches when the operator actually began the run.
+    /// Wall-clock timestamp of the first `start()` since the last
+    /// `reset()`. Pause/resume (STOP→START) preserves it so a saved race
+    /// reflects when the operator actually began the run, not the resume.
     private(set) var sessionStartedAt: Date?
 
     var bestLapIndex: Int? {

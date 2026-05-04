@@ -33,6 +33,7 @@ struct HistoryView: View {
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }
+                        .accessibilityLabel("More")
                     }
                 }
             }
@@ -43,6 +44,18 @@ struct HistoryView: View {
                 }
             } message: {
                 Text("This permanently removes every saved race.")
+            }
+            .alert(
+                "Save Failed",
+                isPresented: Binding(
+                    get: { history.lastPersistError != nil },
+                    set: { if !$0 { history.clearLastPersistError() } }
+                ),
+                presenting: history.lastPersistError
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { msg in
+                Text(msg)
             }
         }
     }
@@ -58,6 +71,13 @@ struct HistoryView: View {
                 .font(.editorialMono(11))
                 .foregroundStyle(EditorialTheme.dim)
                 .multilineTextAlignment(.center)
+            if let setupError = history.setupError {
+                Text(setupError)
+                    .font(.editorialMono(10))
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+            }
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -85,8 +105,10 @@ struct HistoryView: View {
 
 private struct HistoryRow: View {
     let record: RaceRecord
-    @Environment(\.accentHue) private var accentHue: Double
-    private var accent: Color { EditorialTheme.accent(hue: accentHue) }
+    /// The accent stored *with the race* — the row should re-create the
+    /// look the operator saw at the time, not paint with whatever hue
+    /// they happen to have selected today.
+    private var accent: Color { EditorialTheme.accent(hue: record.accentHue) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -104,12 +126,11 @@ private struct HistoryRow: View {
                 if record.bestLapTime != nil {
                     Text("Best")
                         .monoCap(size: 9, tracking: 2.0, color: EditorialTheme.sub)
-                        .frame(width: bestColumnWidth, alignment: .trailing)
+                        .frame(width: Self.bestColumnWidth, alignment: .trailing)
                 }
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                // Column 1: lap count + total time.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 3) {
                         Text("\(record.lapCount)")
@@ -127,52 +148,43 @@ private struct HistoryRow: View {
                         .foregroundStyle(EditorialTheme.ink)
                 }
 
-                // Column 2: sparkline — flexes to fill the gap.
                 MiniLapTrendChart(laps: record.laps,
                                   bestIndex: record.bestLapIndex,
+                                  bestColor: accent,
                                   height: 28)
                     .frame(maxWidth: .infinity)
                     .padding(.leading, 4)
                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] }
 
-                // Column 3: best lap time.
                 if let best = record.bestLapTime {
                     Text(EditorialFormat.timeShort(best))
                         .font(.editorialMono(18, weight: .medium))
                         .monospacedDigit()
                         .foregroundStyle(accent)
-                        .frame(width: bestColumnWidth, alignment: .trailing)
+                        .frame(width: Self.bestColumnWidth, alignment: .trailing)
                 }
             }
 
-            Text(Self.captionFormatter.string(from: record.startedAt))
+            Text(RaceFormat.rowCaption.string(from: record.startedAt))
                 .monoCap(size: 9.5, tracking: 1.4, color: EditorialTheme.sub)
         }
         .padding(.vertical, 6)
     }
 
-    /// Pinned-trailing column width so the "BEST" caption sits directly
+    /// Pinned-trailing column width so the "Best" caption sits directly
     /// above its value across rows of varying laps/total digit counts.
-    private var bestColumnWidth: CGFloat { 64 }
-
-    private static let captionFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale.autoupdatingCurrent
-        // "Apr 5, 21:08" — date and clock time on one line, locale-aware.
-        f.setLocalizedDateFormatFromTemplate("MMMdHm")
-        return f
-    }()
+    private static let bestColumnWidth: CGFloat = 64
 }
 
 /// Horizontal sparkline of lap times — one polyline through every lap,
-/// best lap dot in accent. Top of the plot = fastest, bottom = slowest;
-/// a flat line reads as consistent pace, a spike reads as a slow lap.
+/// best lap dot in the race's stored accent. Top of the plot = fastest,
+/// bottom = slowest; a flat line reads as consistent pace, a spike as a
+/// slow lap.
 private struct MiniLapTrendChart: View {
     let laps: [RaceRecord.LapEntry]
     let bestIndex: Int?
+    let bestColor: Color
     let height: CGFloat
-    @Environment(\.accentHue) private var accentHue: Double
-    private var accent: Color { EditorialTheme.accent(hue: accentHue) }
 
     var body: some View {
         GeometryReader { geo in
@@ -183,10 +195,19 @@ private struct MiniLapTrendChart: View {
             let times = laps.map(\.time)
             let minT = times.min() ?? 0
             let maxT = times.max() ?? 0
-            let range = max(0.001, maxT - minT)
+            let range = maxT - minT
+            let hasVariation = range > 0.001
+
+            // Single y-mapping shared by the polyline and the dots so an
+            // all-equal-laps run lands them on the same horizontal line
+            // instead of the line jumping to the top while the dots
+            // center themselves.
+            let yFor: (TimeInterval) -> CGFloat = { t in
+                hasVariation ? pad + CGFloat((t - minT) / range) * plotH
+                             : pad + plotH / 2
+            }
 
             ZStack(alignment: .topLeading) {
-                // Hairline rule along the bottom — origin reference.
                 Rectangle()
                     .fill(EditorialTheme.hair)
                     .frame(height: 0.5)
@@ -196,7 +217,7 @@ private struct MiniLapTrendChart: View {
                     Path { path in
                         for (i, t) in times.enumerated() {
                             let x = CGFloat(i) / CGFloat(times.count - 1) * w
-                            let y = pad + CGFloat((t - minT) / range) * plotH
+                            let y = yFor(t)
                             if i == 0 {
                                 path.move(to: CGPoint(x: x, y: y))
                             } else {
@@ -212,15 +233,15 @@ private struct MiniLapTrendChart: View {
                     let x = times.count <= 1
                         ? w / 2
                         : CGFloat(i) / CGFloat(times.count - 1) * w
-                    let y = pad + (range > 0.001
-                                   ? CGFloat((t - minT) / range) * plotH
-                                   : plotH / 2)
-                    let isBest = i == bestIndex
+                    let isBest: Bool = {
+                        if let bestIndex { return i == bestIndex }
+                        return false
+                    }()
                     Circle()
-                        .fill(isBest ? accent : EditorialTheme.ink)
+                        .fill(isBest ? bestColor : EditorialTheme.ink)
                         .frame(width: isBest ? 5 : 2.5,
                                height: isBest ? 5 : 2.5)
-                        .position(x: x, y: y)
+                        .position(x: x, y: yFor(t))
                 }
             }
         }

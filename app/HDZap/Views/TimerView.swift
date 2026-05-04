@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Editorial Console — quiet typography, hairline rules, inline sparkbars.
 /// Modeled on the iOS Lap Timer handoff prototype (V2 Editorial).
@@ -30,9 +31,10 @@ struct TimerView: View {
 
     @State private var showSettings = false
     @State private var showHistory = false
-    /// id of the most recently saved race so a second `.onChange` save guard
-    /// doesn't double-insert if SwiftUI re-evaluates `sessionEnded` for an
-    /// unrelated reason (e.g. accent hue change). Cleared on RESET.
+    /// Set after the race lands in the history store so a duplicate
+    /// `.onChange(of: sessionEnded)` firing — or a manual STOP after a
+    /// FINAL-lap save — couldn't insert the same race twice. Cleared on
+    /// RESET.
     @State private var savedRaceID: UUID?
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
@@ -673,17 +675,31 @@ struct TimerView: View {
 
     private func saveRaceIfNeeded() {
         guard savedRaceID == nil else { return }
-        guard let startedAt = lapTimer.sessionStartedAt else { return }
+        guard let startedAt = lapTimer.sessionStartedAt else {
+            // sessionEnded == true with no startedAt is an invariant
+            // violation — log so the next debugging session has a
+            // breadcrumb instead of a silently dropped save.
+            Self.log.error("saveRaceIfNeeded: sessionEnded but sessionStartedAt is nil")
+            return
+        }
         guard let record = RaceRecord.snapshot(
             laps: lapTimer.laps,
             startedAt: startedAt,
             sessionLimit: sessionLimit,
             targetLapCount: clampedTargetLapCount,
             accentHue: accentHue
-        ) else { return }
+        ) else {
+            // Empty / invalid sessions (timeUp without ever lapping) are
+            // legitimately skipped, but log so the same skip doesn't
+            // look like a mystery later.
+            Self.log.debug("saveRaceIfNeeded: skipping — RaceRecord.snapshot rejected the inputs")
+            return
+        }
         savedRaceID = record.id
         history.add(record)
     }
+
+    private static let log = Logger(subsystem: "sh.saqoo.HDZap", category: "TimerView")
 
     /// Records the lap locally and fires it at the goggle. iOS state is
     /// the source of truth; a BLE write failure surfaces via `lastError`
@@ -795,19 +811,14 @@ struct TimerView: View {
             let url = try makeShareImage()
             lastShareURL = url
             shareItem = ShareItem(url: url)
-        } catch let error as ShareImageError {
-            shareError = error.userMessage
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain
-                                         && error.code == NSFileWriteOutOfSpaceError {
-            shareError = "Out of storage. Free space and try again."
         } catch {
-            shareError = "Couldn't save race image: \(error.localizedDescription)"
+            shareError = ShareImageError.userMessage(for: error)
         }
     }
 
     private func cleanupShareTempFile() {
         if let url = lastShareURL {
-            try? FileManager.default.removeItem(at: url)
+            ShareImageError.cleanupTempFile(at: url, log: Self.log)
             lastShareURL = nil
         }
     }
@@ -838,6 +849,34 @@ enum ShareImageError: Error {
             return "Render produced no image. Try restarting the app."
         case .pngEncodeFailed:
             return "PNG encode failed. Try again."
+        }
+    }
+
+    /// Single source of truth for "render error → user-facing copy" so
+    /// every share call site (live race + history detail) maps the same
+    /// failure to the same alert text.
+    static func userMessage(for error: Error) -> String {
+        if let imageError = error as? ShareImageError {
+            return imageError.userMessage
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain
+            && nsError.code == NSFileWriteOutOfSpaceError {
+            return "Out of storage. Free space and try again."
+        }
+        return "Couldn't save race image: \(error.localizedDescription)"
+    }
+
+    /// Best-effort temp-file removal. `NSFileNoSuchFileError` is silent
+    /// (the OS reaped it already); anything else is logged so a leak
+    /// doesn't pile up undetected. Caller still owns the `URL` lifetime.
+    static func cleanupTempFile(at url: URL, log: Logger) {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let error as NSError where error.code == NSFileNoSuchFileError {
+            // already reaped — fine
+        } catch {
+            log.debug("Couldn't remove share temp \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }
 }
