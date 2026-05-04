@@ -21,15 +21,16 @@
 // returns the stale tree forever. A fresh service UUID has no cache, so
 // iOS falls through to a real GATT discovery and picks up every newly-
 // added characteristic. iOS app's CBUUID must move in lockstep.
-// Service UUID stays at `…d489` for now. CHR_SLEEP_CONFIG (`…d48a`) was
-// added without a service bump — the new char isn't visible to an iOS
-// app that already cached the old service tree, but the existing iOS
-// app doesn't need to use it (default 5 min from NVS is fine), and
-// bumping the service would force the existing iOS app to rediscover
-// at exactly the moment we're testing deep-sleep + reconnect cycles.
-// When the iOS app is updated to surface the sleep-config UI, bump
-// the service to `…d48b` (or next free) and flip BluetoothManager
-// in the same change.
+// Adding a characteristic without bumping the service UUID is safe ONLY
+// if no existing iOS build attempts to read or write it — iOS will not
+// see the new char via its cached GATT tree until the service UUID
+// changes. Bump the service UUID in the SAME change that ships an iOS
+// build that uses CHR_SLEEP_CONFIG_UUID (e.g. d48b → BluetoothManager
+// service constant flipped to match).
+//
+// Current state: CHR_SLEEP_CONFIG (`…d48a`) was added without a bump.
+// The existing iOS app doesn't read or write it, so the cache miss is
+// harmless — peripheral seeds the timeout from NVS (default 5 min).
 #define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
@@ -255,9 +256,11 @@ class SleepConfigCallback : public BLECharacteristicCallbacks {
             return;
         }
         uint8_t mins = (uint8_t)val[0];
-        // Stage under the mux so a torn read in main.cpp can't pick up
-        // half-written state (matches the project's "callbacks stage,
-        // loop applies" convention for paired flag+payload writes).
+        // Stage under the mux so a second BLE write between the loop's
+        // flag-test and value-read can't be silently dropped (matches
+        // the OSD-text per-row staging pattern). uint8_t reads are
+        // atomic on ESP32-S3 so the byte itself isn't tearable; the
+        // mux is for the flag+payload pair, not the byte.
         portENTER_CRITICAL(&g_ble_mux);
         g_sleep_minutes_pending = mins;
         g_sleep_minutes_changed = true;
@@ -320,20 +323,30 @@ class OSDTextCallback : public BLECharacteristicCallbacks {
     }
 };
 
-// Diagnostic GAP handler — surfaces the actual negotiated conn params
-// (iOS may reject our request and pick its own) and the connection-update
-// completion edge so the operator can verify phase 2 redux is taking
-// effect from serial alone.
+// Diagnostic GAP handler — surfaces conn-param negotiation outcome
+// (iOS may reject our request and pick its own) and advertising-start
+// failures so an "I can't see the device" complaint has a serial
+// breadcrumb. Status != 0 on UPDATE_CONN_PARAMS means the LL rejected
+// our request; in that case phase 2 redux's interval/latency savings
+// silently revert to whatever the central chose.
 inline void _ble_gap_diag_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
     if (event == ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT) {
         const auto& u = param->update_conn_params;
-        Serial.printf("BLE conn params updated: status=%d interval=%u (%.2f ms) latency=%u timeout=%u (%u ms)\n",
-                      (int)u.status,
+        if (u.status != 0) {
+            Serial.printf("BLE conn params REJECTED: status=%d (central picked its own params)\n",
+                          (int)u.status);
+        }
+        Serial.printf("BLE conn params: interval=%u (%.2f ms) latency=%u timeout=%u (%u ms)\n",
                       (unsigned)u.conn_int,
                       u.conn_int * 1.25,
                       (unsigned)u.latency,
                       (unsigned)u.timeout,
                       (unsigned)u.timeout * 10);
+    } else if (event == ESP_GAP_BLE_ADV_START_COMPLETE_EVT) {
+        if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
+            Serial.printf("BLE adv start FAILED: status=%d (peripheral invisible)\n",
+                          (int)param->adv_start_cmpl.status);
+        }
     }
 }
 
@@ -344,19 +357,28 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
     // Issue #5 phase 2 redux: drop BLE TX power from the +9 dBm Arduino
     // default to 0 dBm. The phone is on the operator's table, ~1-2 m
     // away — high TX is wasted and the radio current scales with power.
-    // Apply to ADV/SCAN as well as the (eventual) connection handle so
-    // the savings cover both advertising idle and the connected state.
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,   ESP_PWR_LVL_N0);
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV,       ESP_PWR_LVL_N0);
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_SCAN,      ESP_PWR_LVL_N0);
-    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_CONN_HDL0, ESP_PWR_LVL_N0);
+    // Apply to ADV and SCAN; CONN_HDL0 is intentionally NOT set here
+    // because per the ESP-IDF docs the per-connection-handle override
+    // is only valid AFTER the connection completes. ESP_BLE_PWR_TYPE_DEFAULT
+    // covers the connected case. A loud per-call check makes a future
+    // controller-state regression surface in serial instead of silently
+    // running at the +9 dBm default.
+    auto setBleTxOrLog = [](esp_ble_power_type_t t, esp_power_level_t lvl, const char* name) {
+        esp_err_t e = esp_ble_tx_power_set(t, lvl);
+        if (e != ESP_OK) {
+            Serial.printf("BLE TX power: %s set failed (%d)\n", name, (int)e);
+        }
+    };
+    setBleTxOrLog(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_N0, "DEFAULT");
+    setBleTxOrLog(ESP_BLE_PWR_TYPE_ADV,     ESP_PWR_LVL_N0, "ADV");
+    setBleTxOrLog(ESP_BLE_PWR_TYPE_SCAN,    ESP_PWR_LVL_N0, "SCAN");
 
     // Verify the controller accepted the requested levels — getter
     // reflects the runtime state, not the request.
-    Serial.printf("BLE TX power: DEFAULT=%d ADV=%d CONN_HDL0=%d (0=N0/0dBm, 11=P9/+9dBm)\n",
+    Serial.printf("BLE TX power: DEFAULT=%d ADV=%d SCAN=%d (0=N0/0dBm, 11=P9/+9dBm)\n",
                   esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT),
                   esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_ADV),
-                  esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_CONN_HDL0));
+                  esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_SCAN));
 
     g_ble_server = BLEDevice::createServer();
     g_ble_server->setCallbacks(new ServerCallbacks());

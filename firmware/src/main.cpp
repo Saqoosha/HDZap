@@ -78,11 +78,15 @@ static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 // --- Power saving (issue #5, phase 3 deep sleep) -------------------------
 // After g_sleep_timeout_ms of no operator activity (same definition as
 // the phase 1 LCD-off trigger), drop into esp_deep_sleep_start().
-// Deep sleep cuts power to ~10 µA — chip is effectively off, BLE link
-// drops. Wake fires a full reboot from BtnA/BtnB low (both GPIOs are
-// RTC-capable on ESP32-S3 so ext1 wake works directly), and iOS
-// CoreBluetooth reconnects from its peripheral cache within a couple
-// of seconds without operator action.
+// Per the ESP32-S3 datasheet the *chip* draws ~10 µA in deep sleep with
+// EXT1 wake; total board draw at the JST is higher because the LCD
+// controller (still in panel-sleep mode), the M5PM1 PMIC, and the
+// regulator rails stay live — measure once instrumented.
+// BLE link drops on sleep entry. Wake fires a full reboot from
+// BtnA/BtnB low and iOS CoreBluetooth reconnects automatically only
+// if the app has a pending centralManager.connect() and is either in
+// foreground or registered for state preservation; reconnect latency
+// is variable (commonly 5-30 s after a cold sleep cycle).
 //
 // Timeout source: NVS-backed `slpmin` key (minutes), default 5 min via
 // nvs_store::kSleepDefaultMin. `slpmin = 0` means "never deep-sleep" —
@@ -93,13 +97,20 @@ static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 // Gates that defer sleep (caller-visible work in progress):
 //   - charging — operator probably has the stick on the bench, USB is
 //     just power, they want it responsive
-//   - g_sniff_active — sleep would silently drop bind packets in flight
+//   - g_sniff_active or g_sniff_start_requested — sleep would silently
+//     drop bind packets in flight (or lose the staged start request)
 //   - g_render_state != IDLE — mid-OSD-render, finish the cycle first
+//   - g_sleep_minutes_changed — pending config update goes first; see
+//     the consumer block immediately above the gate
 static uint32_t g_sleep_timeout_ms = (uint32_t)nvs_store::kSleepDefaultMin * 60 * 1000;
 
 // BtnA = GPIO11, BtnB = GPIO12 (M5Unified board table for M5StickS3).
 // Both fall in the ESP32-S3 RTC GPIO range (0-21), so ext1 wake on
 // active-low directly catches a press without needing a timer poll.
+// Active-low works without rtc_gpio_pullup_en() because M5StickS3 has
+// external pull-ups on both button lines; on a board without external
+// pulls, call rtc_gpio_pullup_en(GPIO_NUM_11/12) before sleep to avoid
+// spurious wake.
 static constexpr uint64_t WAKE_GPIO_MASK = BIT64(11) | BIT64(12);
 
 // --- Power saving (issue #5, phase 1) -------------------------------------
@@ -209,18 +220,29 @@ static void applyStagedUid() {
 void setup() {
     // Issue #5 phase 2 redux: drop CPU clock from the 240 MHz default
     // to 80 MHz. Bluedroid's documented minimum is 80 MHz; below that
-    // BLE becomes unstable. CPU dynamic power scales ~linearly with
-    // frequency so this is a clean ~15-25 mA win without touching the
-    // BLE/ESP-NOW radios. Must run BEFORE Serial.begin() so the UART
-    // divisor lands on the right base clock.
-    setCpuFrequencyMhz(80);
+    // BLE becomes unstable. The CPU dynamic-power portion scales
+    // linearly with frequency so this is a few-mA win on top of static
+    // BLE/ESP-NOW radio draw — biggest under load, smaller at idle.
+    // Ordering relative to Serial.begin() doesn't matter on ESP32-S3
+    // (UART divisor is APB-derived and APB stays at 80 MHz regardless
+    // of CPU clock) and is irrelevant for USB CDC, but kept early
+    // anyway so any peripheral that captures the clock at init sees
+    // the post-scaling value.
+    bool cpuOk = setCpuFrequencyMhz(80);
 
     stickDisplay.begin();
     batteryMonitor.begin();
     Serial.begin(115200);
     delay(500); // Wait for USB CDC serial to enumerate before first println.
     Serial.println("\n=== HDZero OSD Lap Timer ===");
-    Serial.printf("CPU: %u MHz\n", (unsigned)getCpuFrequencyMhz());
+    {
+        unsigned actual = (unsigned)getCpuFrequencyMhz();
+        if (!cpuOk || actual != 80) {
+            Serial.printf("CPU: setCpuFrequencyMhz(80) FAILED — running at %u MHz\n", actual);
+        } else {
+            Serial.printf("CPU: %u MHz\n", actual);
+        }
+    }
 
     // If we just woke from deep sleep, surface why so an operator can
     // tell a power-on-reset from a button-wake on serial. Doesn't change
@@ -655,25 +677,11 @@ void loop() {
         stickDisplay.sleepPanel();
     }
 
-    // --- Deep-sleep gate (issue #5 phase 3) ------------------------------
-    // Same activity timestamp as the phase-1 LCD-off check above, just a
-    // longer threshold and harder action. Gates: no charge plug, no sniff
-    // capture, no in-flight render. After sleep this branch never returns;
-    // wake is a full reboot through setup(), iOS reconnects from cache.
-    if (g_sleep_timeout_ms > 0 &&
-        millis() - g_last_activity_ms >= g_sleep_timeout_ms &&
-        !batteryMonitor.charging() &&
-        !g_sniff_active &&
-        g_render_state == RenderState::IDLE) {
-        Serial.println("Deep sleep — wake on BtnA/BtnB press");
-        Serial.flush();
-        esp_sleep_enable_ext1_wakeup(WAKE_GPIO_MASK,
-                                     ESP_EXT1_WAKEUP_ANY_LOW);
-        esp_deep_sleep_start();
-        // unreachable
-    }
-
     // --- Deep-sleep config update from BLE -------------------------------
+    // Must run BEFORE the deep-sleep gate below — otherwise an iOS write
+    // (especially mins=0 = "disable") that lands at the idle threshold
+    // would be silently dropped: the gate fires first and esp_deep_sleep_start
+    // wipes RAM before the consumer can apply the new value.
     if (g_sleep_minutes_changed) {
         uint8_t mins;
         portENTER_CRITICAL(&g_ble_mux);
@@ -692,11 +700,52 @@ void loop() {
         g_last_activity_ms = millis();
     }
 
+    // --- Deep-sleep gate (issue #5 phase 3) ------------------------------
+    // Same activity timestamp as the phase-1 LCD-off check above, just a
+    // longer threshold and harder action. Gates: no charge plug, no sniff
+    // capture or pending sniff start (sleep would lose the BLE-staged
+    // start request), no in-flight render. After sleep this branch never
+    // returns; wake is a full reboot through setup(). On the iOS side,
+    // CoreBluetooth needs a pending centralManager.connect() to pick the
+    // peripheral back up — typical reconnect after a cold sleep cycle is
+    // 5-30 s depending on whether the app is foreground or in background
+    // state preservation.
+    if (g_sleep_timeout_ms > 0 &&
+        millis() - g_last_activity_ms >= g_sleep_timeout_ms &&
+        !batteryMonitor.charging() &&
+        !g_sniff_active &&
+        !g_sniff_start_requested &&
+        g_render_state == RenderState::IDLE) {
+        Serial.println("Deep sleep — wake on BtnA/BtnB press");
+        // USB CDC Serial.flush() only drains the FreeRTOS-side queue, not
+        // the host buffer; the wake-cause printout in setup() (which IS
+        // delivered after wake) is the source of truth for "did we sleep
+        // and wake correctly?". The pre-sleep line is best-effort.
+        Serial.flush();
+        delay(50);
+        esp_err_t we = esp_sleep_enable_ext1_wakeup(WAKE_GPIO_MASK,
+                                                    ESP_EXT1_WAKEUP_ANY_LOW);
+        if (we != ESP_OK) {
+            // Worst-case silent failure: deep-sleep with no wake source
+            // means only a hardware reset recovers. Abort the sleep and
+            // bump the activity timer so the next attempt is one full
+            // window away — gives the operator (and us) a chance to see
+            // the failure on serial without spinning into immediate retry.
+            Serial.printf("Deep sleep ABORTED: ext1 wake setup failed (%d)\n", we);
+            g_last_activity_ms = millis();
+        } else {
+            esp_deep_sleep_start();
+            // unreachable
+        }
+    }
+
     // --- Power log append ------------------------------------------------
     // Snapshot VBAT + state every 30 s (rollover-safe interval arithmetic).
     // M5.Power.getBatteryVoltage() returns mV; dV/dt across a multi-minute
-    // window stands in for instantaneous current draw, which the M5StickS3
-    // (pmic_m5pm1, no INA chip) doesn't expose through the M5Unified API.
+    // window stands in for instantaneous current draw — M5Unified's
+    // pmic_m5pm1 path does not implement getBatteryCurrent() (the switch
+    // falls through to the default 0 return; M5PM1 may expose current via
+    // its own registers in a future release).
     // Per-loop is too noisy and would burn the SPIFFS partition; 30 s
     // captures the trend that matters for before/after power deltas.
     {
@@ -704,6 +753,19 @@ void loop() {
         if (now - g_power_log_last_ms >= POWER_LOG_INTERVAL_MS) {
             g_power_log_last_ms = now;
             int16_t voltage_mv = M5.Power.getBatteryVoltage();
+            // PMIC can return 0/-1 during boot transient or on I²C glitch.
+            // Sentinel-mark instead of writing a phantom 0 mV row that
+            // would corrupt downstream dV/dt analysis. -1 matches the
+            // battery_monitor.h convention for "unknown".
+            if (voltage_mv < 2500 || voltage_mv > 4400) {
+                static bool warnedVbat = false;
+                if (!warnedVbat) {
+                    Serial.printf("power_log: VBAT out of range (%d mV) — logging as -1\n",
+                                  (int)voltage_mv);
+                    warnedVbat = true;
+                }
+                voltage_mv = -1;
+            }
             powerLog.appendSample(now,
                                   voltage_mv,
                                   batteryMonitor.percent(),

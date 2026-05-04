@@ -13,6 +13,13 @@
 inline volatile bool g_sniff_start_requested = false;
 inline volatile bool g_sniff_stop_requested  = false;
 
+// True while the recv callback is registered. Written by main-loop only
+// (sniff_start/sniff_stop are called from main.cpp's BLE-flag handlers),
+// read by main-loop's deep-sleep gate (issue #5 phase 3) — same task,
+// no mux needed. Bare volatile keeps the compiler from caching the read
+// across the gate's other condition checks.
+inline volatile bool g_sniff_active = false;
+
 // Edge flag + payload. Written by ESP-NOW recv callback (WiFi task),
 // read by main loop. Mux guards the 6-byte memcpy + flag pair so the
 // main loop never sees a partially-written UID.
@@ -44,12 +51,6 @@ inline void _espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int le
 // ESP-NOW has one global recv callback slot. sniff_start registers our
 // handler; sniff_stop removes it. No other recv_cb is used in this project.
 // Returns false on IDF error (logs reason); main loop surfaces this to iOS.
-// True while the recv callback is registered. Read by main.cpp's deep
-// sleep path — sleep would cut WiFi RF and silently drop bind packets.
-// Set/cleared on the success path of start/stop so a register failure
-// doesn't leave it asserted.
-inline volatile bool g_sniff_active = false;
-
 inline bool sniff_start() {
     esp_err_t err = esp_now_register_recv_cb(_espnow_recv_cb);
     if (err != ESP_OK) {
