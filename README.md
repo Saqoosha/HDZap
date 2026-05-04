@@ -55,7 +55,7 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. The UUID is bumped on ever
 | Status | `...d485` | Read+Notify | `[conn:u8][uid:6][test:u8]` |
 | TX Sniff | `...d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6]` |
 | OSD Text | `...d487` | Write | `[row:u8][ascii:1-19B]`; rows 0..3 stage one bottom-anchored 4-row text frame |
-| Battery | `...d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced)]` |
+| Battery | `...d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced; bits 4-7 reserved)]` |
 
 UID Config modes: `0x01` bind phrase, `0x02` raw 6-byte UID, `0x03` new pairing (ESP32 MAC).
 OSD commands: `0x01` clear, `0x02` reset laps, `0x03` test OSD.
@@ -97,9 +97,9 @@ Build and run on device (BLE requires physical device, not simulator).
 
 ## Hardware
 
-- **Current**: ESP32 devkit
-- **Target**: [M5StickS3](https://www.switch-science.com/products/10921) (ESP32-S3, 1.14" screen, 2 buttons)
+- **Current**: [M5StickS3](https://www.switch-science.com/products/10921) (ESP32-S3, 1.14" IPS LCD, BtnA/BtnB on GPIO11/12, AXP2101 PMIC, internal 250 mAh battery, USB-C, internal speaker)
 - HDZero Goggle with ELRS backpack
+- Buttons are multi-purpose: wake the LCD from idle sleep, silence the battery alarm, and wake from deep sleep (ext1 wake on GPIO11/12)
 
 ## Technical Details
 

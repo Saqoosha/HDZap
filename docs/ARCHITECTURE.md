@@ -265,7 +265,7 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. Bumped on every GATT-shape
 | Status | `f47ac10b-...-0e02b2c3d485` | Read+Notify | `[conn:u8][uid:6B][test:u8]` = 8B |
 | TX Sniff | `f47ac10b-...-0e02b2c3d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6B]` on capture |
 | OSD Text | `f47ac10b-...-0e02b2c3d487` | Write | `[row:u8][ascii:1-19B]`; rows `0..3` stage one bottom-anchored 4-row text frame, dirty bits OR-merged on each write |
-| Battery | `f47ac10b-...-0e02b2c3d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced)]` |
+| Battery | `f47ac10b-...-0e02b2c3d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced; bits 4-7 reserved → iOS surfaces unknown bits via `lastError`)]` |
 
 ### MSPv2 Packet Format
 
@@ -303,12 +303,6 @@ Encryption:   none
 MAC address:  spoofed to UID (both sender and peer)
 ```
 
-## Future: M5StickS3 Migration
+## Hardware Target
 
-Target hardware changes:
-- Board: `m5stack-atoms3` or custom M5StickS3 board def in platformio.ini
-- ESP32-S3 (BLE 5.0, same ESP-NOW API)
-- 1.14" IPS display (135x240) — show connection status, current UID
-- Button A: cycle display pages
-- Button B: emergency manual lap (backup if BLE disconnects)
-- Battery: 250mAh, USB-C charging
+Currently deployed on M5StickS3 (ESP32-S3, 1.14" IPS 135x240 LCD, BtnA/BtnB on GPIO11/GPIO12, AXP2101 PMIC, internal 250 mAh battery, USB-C charging, internal speaker for the battery alarm). Buttons are multi-purpose: wake the LCD from phase-1 idle sleep, silence the battery alarm, and wake the device from phase-3 deep sleep via ext1. The `stick_display.h` module owns the LCD layout (UID band + status pill + battery widget); `battery_monitor.h` owns the alarm tier + speaker cadence; `main.cpp` orchestrates power phases (LCD-off → runtime tuning → deep sleep) and consumes the monitors' outputs.
