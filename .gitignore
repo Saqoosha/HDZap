@@ -28,5 +28,6 @@ build/
 *.log
 
 # Claude Code
-.claude/
+.claude/*
+!.claude/commands/
 .superpowers/
