@@ -5,6 +5,7 @@ struct HDZapApp: App {
     @State private var bluetoothManager = BluetoothManager()
     @State private var lapTimer = LapTimer()
     @State private var lapAnnouncer = LapAnnouncer()
+    @State private var raceHistory = RaceHistoryStore()
 
     init() {
         UserDefaults.standard.register(defaults: [
@@ -29,6 +30,7 @@ struct HDZapApp: App {
                 .environment(bluetoothManager)
                 .environment(lapTimer)
                 .environment(lapAnnouncer)
+                .environment(raceHistory)
         }
     }
 }

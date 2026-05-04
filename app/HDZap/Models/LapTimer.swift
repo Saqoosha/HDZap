@@ -11,6 +11,11 @@ class LapTimer {
     private(set) var elapsedTime: TimeInterval = 0
     private(set) var laps: [Lap] = []
     private(set) var isRunning = false
+    /// Wall-clock timestamp of the FIRST `start()` after a `reset()`. Used
+    /// by the history store to label the saved race ("Started 14:32"). A
+    /// pause/resume (STOP→START) keeps the original value so the displayed
+    /// "started at" matches when the operator actually began the run.
+    private(set) var sessionStartedAt: Date?
 
     var bestLapIndex: Int? {
         guard !laps.isEmpty else { return nil }
@@ -26,6 +31,9 @@ class LapTimer {
         guard !isRunning else { return }
         isRunning = true
         startDate = Date()
+        if sessionStartedAt == nil {
+            sessionStartedAt = startDate
+        }
         // 60 Hz matches typical display refresh and keeps ms-digit rendering smooth.
         // Register on .common so the timer keeps firing during scroll /
         // tracking runloop modes (default `.scheduledTimer` uses .default,
@@ -75,5 +83,6 @@ class LapTimer {
         accumulatedTime = 0
         cumulativeLapTime = 0
         laps = []
+        sessionStartedAt = nil
     }
 }

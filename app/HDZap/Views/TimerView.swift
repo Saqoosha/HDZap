@@ -11,6 +11,7 @@ struct TimerView: View {
     @Environment(LapTimer.self) private var lapTimer
     @Environment(BluetoothManager.self) private var bluetooth
     @Environment(LapAnnouncer.self) private var announcer
+    @Environment(RaceHistoryStore.self) private var history
     @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
     @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
@@ -28,6 +29,11 @@ struct TimerView: View {
     private let osdTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     @State private var showSettings = false
+    @State private var showHistory = false
+    /// id of the most recently saved race so a second `.onChange` save guard
+    /// doesn't double-insert if SwiftUI re-evaluates `sessionEnded` for an
+    /// unrelated reason (e.g. accent hue change). Cleared on RESET.
+    @State private var savedRaceID: UUID?
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
     /// lap consumes the remaining window. Cleared on START and RESET.
@@ -127,6 +133,9 @@ struct TimerView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
+        .sheet(isPresented: $showHistory) {
+            HistoryView()
+        }
         .sheet(item: $shareItem, onDismiss: cleanupShareTempFile) { item in
             ShareSheet(url: item.url)
         }
@@ -170,6 +179,14 @@ struct TimerView: View {
             guard !showSettings else { return }
             sendTimeLeftRow()
         }
+        // Persist the race once it transitions to ended. `sessionEnded`
+        // flips false→true via either the FINAL-lap path or manual STOP
+        // with laps. `savedRaceID` guards against accidental double saves
+        // if anything else re-evaluates the body while still in the ended
+        // state.
+        .onChange(of: sessionEnded) { _, ended in
+            if ended { saveRaceIfNeeded() }
+        }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
         // the lap is recorded — reading `sessionEnded` here would depend on
@@ -209,16 +226,29 @@ struct TimerView: View {
 
             Spacer()
 
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(EditorialTheme.ink)
-                    .frame(width: 30, height: 30)
-                    .background(EditorialTheme.ink.opacity(0.06), in: Circle())
+            HStack(spacing: 8) {
+                Button {
+                    showHistory = true
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(EditorialTheme.ink)
+                        .frame(width: 30, height: 30)
+                        .background(EditorialTheme.ink.opacity(0.06), in: Circle())
+                }
+                .accessibilityLabel("History")
+
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(EditorialTheme.ink)
+                        .frame(width: 30, height: 30)
+                        .background(EditorialTheme.ink.opacity(0.06), in: Circle())
+                }
+                .accessibilityLabel("Settings")
             }
-            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 8)
@@ -637,7 +667,22 @@ struct TimerView: View {
             metricsSnapshot = nil
             manuallyEnded = false
             lastLapWasFinal = false
+            savedRaceID = nil
         }
+    }
+
+    private func saveRaceIfNeeded() {
+        guard savedRaceID == nil else { return }
+        guard let startedAt = lapTimer.sessionStartedAt else { return }
+        guard let record = RaceRecord.snapshot(
+            laps: lapTimer.laps,
+            startedAt: startedAt,
+            sessionLimit: sessionLimit,
+            targetLapCount: clampedTargetLapCount,
+            accentHue: accentHue
+        ) else { return }
+        savedRaceID = record.id
+        history.add(record)
     }
 
     /// Records the lap locally and fires it at the goggle. iOS state is
@@ -767,13 +812,9 @@ struct TimerView: View {
         }
     }
 
-    /// Returns the URL of a freshly written PNG. Throws `ShareImageError`
-    /// when `ImageRenderer` produces no image or when PNG encoding fails;
-    /// rethrows the underlying error from `data.write` so out-of-space and
-    /// permission failures reach `shareAction()` for distinct user messages.
     @MainActor
     private func makeShareImage() throws -> URL {
-        let card = RaceShareCard(
+        try RaceShareCard.renderImage(
             laps: lapTimer.laps,
             bestLapIndex: lapTimer.bestLapIndex,
             metrics: metricsSnapshot,
@@ -782,31 +823,7 @@ struct TimerView: View {
             sessionLimit: sessionLimit,
             generatedAt: Date()
         )
-        let renderer = ImageRenderer(content: card)
-        renderer.scale = 3
-        guard let uiImage = renderer.uiImage else {
-            throw ShareImageError.rendererProducedNoImage
-        }
-        guard let data = uiImage.pngData() else {
-            throw ShareImageError.pngEncodeFailed
-        }
-        // Per-share UUID suffix prevents collisions when the user taps SHARE
-        // twice within the same second (timestamp resolution is seconds).
-        let stamp = Self.fileTimestampFormatter.string(from: Date())
-        let suffix = UUID().uuidString.prefix(6)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("hdzap-race-\(stamp)-\(suffix).png")
-        try data.write(to: url, options: .atomic)
-        return url
     }
-
-    private static let fileTimestampFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        // Filename-safe; sortable. Avoids `:` which some share targets reject.
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        return f
-    }()
 }
 
 // MARK: - Share errors

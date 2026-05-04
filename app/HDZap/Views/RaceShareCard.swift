@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Standalone snapshot view rendered offscreen via `ImageRenderer` for the
 /// share sheet. Mirrors `TimerView`'s post-race layout (paddings, row
@@ -176,6 +177,53 @@ struct RaceShareCard: View {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f
+    }()
+
+    /// Render the card to a PNG in the temp directory and return its URL.
+    /// Throws `ShareImageError` for renderer / encoder failures and rethrows
+    /// the underlying `Data.write` error for I/O failures (out-of-space,
+    /// permission), so the caller can map them to user-facing copy.
+    @MainActor
+    static func renderImage(laps: [Lap],
+                            bestLapIndex: Int?,
+                            metrics: RaceMetrics?,
+                            accentHue: Double,
+                            targetLapCount: Int,
+                            sessionLimit: TimeInterval,
+                            generatedAt: Date) throws -> URL {
+        let card = RaceShareCard(
+            laps: laps,
+            bestLapIndex: bestLapIndex,
+            metrics: metrics,
+            accentHue: accentHue,
+            targetLapCount: targetLapCount,
+            sessionLimit: sessionLimit,
+            generatedAt: generatedAt
+        )
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 3
+        guard let uiImage = renderer.uiImage else {
+            throw ShareImageError.rendererProducedNoImage
+        }
+        guard let data = uiImage.pngData() else {
+            throw ShareImageError.pngEncodeFailed
+        }
+        let stamp = fileTimestampFormatter.string(from: generatedAt)
+        // Per-render UUID suffix prevents collisions when the user shares
+        // multiple races within the same second (timestamp resolution is 1s).
+        let suffix = UUID().uuidString.prefix(6)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hdzap-race-\(stamp)-\(suffix).png")
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    private static let fileTimestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        // Filename-safe; sortable. Avoids `:` which some share targets reject.
+        f.dateFormat = "yyyyMMdd-HHmmss"
         return f
     }()
 }
