@@ -90,20 +90,40 @@ class BluetoothManager: NSObject {
     /// "unknown" wire-format sentinel (0xFF).
     ///
     /// On the wire, the charging bit and the alarm-tier bits are
-    /// independent. Firmware policy in `battery_monitor.h::poll` enforces
+    /// independent. Firmware policy in `battery_monitor.h::tick` enforces
     /// `charging → tier == None`, so in practice these never co-occur.
     /// Anything in this app that assumes "charging beats alarm" should
     /// be revisited if the firmware policy changes.
-    enum BatteryAlarm { case none, low, critical }
+    ///
+    /// `silenced` lives on the alarm cases as an associated value so the
+    /// previously-legal `silenced && alarm == .none` state is unrepresentable
+    /// — the firmware tier transitions (LOW → CRITICAL escalate, either →
+    /// NONE recovery) re-arm beeps by collapsing back to `.none` / a new
+    /// case with `silenced: false`, which the wire format already encodes.
+    enum BatteryAlarm: Equatable {
+        case none
+        case low(silenced: Bool)
+        case critical(silenced: Bool)
+
+        /// Wire-format → enum decoder. Centralised here so the
+        /// "silenced bit is dropped when tier==None" invariant lives
+        /// next to the type definition rather than in a BLE callback.
+        /// Bit layout: bit1 LOW, bit2 CRITICAL, bit3 silenced.
+        /// Critical strictly dominates Low if both bits are set.
+        init(flags: UInt8) {
+            let silenced = (flags & 0x08) != 0
+            if (flags & 0x04) != 0 {
+                self = .critical(silenced: silenced)
+            } else if (flags & 0x02) != 0 {
+                self = .low(silenced: silenced)
+            } else {
+                self = .none
+            }
+        }
+    }
     private(set) var batteryPercent: UInt8?
     private(set) var isCharging = false
     private(set) var batteryAlarm: BatteryAlarm = .none
-    /// True after the operator pressed BtnA / BtnB on the M5Stick to mute
-    /// the alarm beeps. The sticky message on the device stays up; any
-    /// tier transition on the firmware side (LOW → CRITICAL escalate,
-    /// CRITICAL → LOW de-escalate, or recovery to NONE) resets this to
-    /// false, re-arming the beeps for the new tier.
-    private(set) var batterySilenced = false
 
     /// True while the app has asked the firmware to listen for TX bind packets.
     /// Toggled locally on start/stop — firmware has no state echo.
@@ -368,7 +388,6 @@ class BluetoothManager: NSObject {
         batteryPercent = nil
         isCharging = false
         batteryAlarm = .none
-        batterySilenced = false
     }
 
     private static func osdASCIIData(for line: String) -> Data {
@@ -633,14 +652,40 @@ extension BluetoothManager: CBPeripheralDelegate {
             let flags = data[1]
             batteryPercent = (pct == 0xFF) ? nil : pct
             isCharging = (flags & 0x01) != 0
-            if (flags & 0x04) != 0 {
-                batteryAlarm = .critical
-            } else if (flags & 0x02) != 0 {
-                batteryAlarm = .low
-            } else {
-                batteryAlarm = .none
+            batteryAlarm = BatteryAlarm(flags: flags)
+
+            // Forward-compat watchdog: bits 0-3 are the schema we know
+            // (charging / LOW / CRITICAL / silenced). A future firmware
+            // that assigns bit 4+ would otherwise be silently masked
+            // off — surface via lastError so a TestFlight build paired
+            // with newer firmware tells the user instead of lying.
+            // Message intentionally omits the full flags byte: only
+            // `unknownHex` is stable across the legitimate wire churn
+            // (silenced toggles, tier transitions, charging edges), so
+            // recordError's consecutive-duplicate collapse keeps the
+            // log from filling with the same forward-compat warning
+            // across an unrelated state-change run.
+            let unknownBits = flags & ~UInt8(0x0F)
+            if unknownBits != 0 {
+                let unknownHex = String(unknownBits, radix: 16, uppercase: true)
+                lastError = "Battery wire format has unknown bits 0x\(unknownHex). Firmware is newer than this build — update HDZap."
+                #if DEBUG
+                let flagsHex = String(flags, radix: 16, uppercase: true)
+                print("Battery flags 0x\(flagsHex) unknown bits 0x\(unknownHex)")
+                #endif
             }
-            batterySilenced = (flags & 0x08) != 0
+            // `BatteryAlarm.init(flags:)` makes (silenced=1, tier=None)
+            // unrepresentable on the iOS side, so this watchdog catches
+            // wire-format violations only — i.e. firmware shipped
+            // without the post-tier-transition silence reset (or with
+            // a regressed `payload()` defensive clear). User-visible
+            // symptom would be a stuck silenced indicator with no
+            // active tier; surface so the cause isn't invisible.
+            let silencedBit = (flags & 0x08) != 0
+            let alarmBits = flags & 0x06
+            if silencedBit && alarmBits == 0 {
+                lastError = "Battery wire invariant violated: silenced=1 with tier=None. Firmware/app version mismatch?"
+            }
             return
         }
         guard characteristic.uuid == statusUUID else { return }

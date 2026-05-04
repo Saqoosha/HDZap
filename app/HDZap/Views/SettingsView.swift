@@ -777,16 +777,14 @@ struct SettingsView: View {
         // Charging overrides everything — operator sees the cyan as soon as
         // they plug the stick in, regardless of the percent at that moment.
         if bluetooth.isCharging { return .cyan }
+        // Drive purely off the firmware-decided alarm tier. The wire format
+        // already paid for hysteresis there; recomputing red/orange bands
+        // from `batteryPercent` here would reintroduce threshold drift the
+        // moment firmware tweaked `kLowThreshold` / `kCriticalThreshold`.
         switch bluetooth.batteryAlarm {
         case .critical: return .red
         case .low: return .orange
-        case .none:
-            // Mirrors the firmware widget thresholds so the LCD and the
-            // SwiftUI row never disagree on color.
-            guard let pct = bluetooth.batteryPercent else { return .secondary }
-            if pct < 20 { return .red }
-            if pct < 40 { return .orange }
-            return .green
+        case .none: return .green
         }
     }
 
@@ -799,12 +797,12 @@ struct SettingsView: View {
         let pct = Int(raw)
         if bluetooth.isCharging { return String(localized: "\(pct)% · Charging") }
         switch bluetooth.batteryAlarm {
-        case .critical:
-            return bluetooth.batterySilenced
+        case .critical(let silenced):
+            return silenced
                 ? String(localized: "\(pct)% · Critical (silenced)")
                 : String(localized: "\(pct)% · Critical — press button on device to silence")
-        case .low:
-            return bluetooth.batterySilenced
+        case .low(let silenced):
+            return silenced
                 ? String(localized: "\(pct)% · Low (silenced)")
                 : String(localized: "\(pct)% · Low — press button on device to silence")
         case .none:
