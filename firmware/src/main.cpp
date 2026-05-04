@@ -311,9 +311,10 @@ void loop() {
     // stickDisplay.update() polled M5.update() above, so the wasPressed
     // edges for this tick are fresh. Either button wakes the panel and
     // resets the idle timer. wasPressed() is non-consuming, so the
-    // battery-monitor block below still observes the same edge — short
-    // press = wake AND silence (silence() no-ops when tier==None, so
-    // the two effects don't fight).
+    // battery-monitor block below sees the same edge via its silenceReq
+    // argument — short press = wake AND silence intent (tick() no-ops
+    // the silence when tier==None or already silenced, so the two
+    // effects don't fight).
     if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed()) {
         markActivity();
     }
@@ -326,22 +327,15 @@ void loop() {
     // firmware's "callbacks stage flags, loop owns I/O" split.
     {
         uint32_t bnow = millis();
-        // Poll before reacting to button input: a press that happens to
-        // fall in the same loop iteration as a tier transition should
-        // silence the *new* tier the operator can see on the LCD, not
-        // the stale (typically None) tier from the previous poll.
-        BatteryMonitor::PollResult bres = batteryMonitor.poll(bnow);
-        if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed()) {
-            batteryMonitor.silence();
-        }
-        bool silenceDirty = batteryMonitor.consumeSilencedDirty();
-        if (bres.stateChanged || silenceDirty) {
+        bool silenceReq = M5.BtnA.wasPressed() || M5.BtnB.wasPressed();
+        BatteryMonitor::Outcome bout = batteryMonitor.tick(bnow, silenceReq);
+        if (bout != BatteryMonitor::Outcome::Throttled) {
             stickDisplay.setBattery(batteryMonitor.percent(), batteryMonitor.charging());
             uint8_t buf[2];
             batteryMonitor.payload(buf);
             ble_update_battery(buf);
         }
-        if (bres.tierChanged) {
+        if (bout == BatteryMonitor::Outcome::TierChanged) {
             switch (batteryMonitor.tier()) {
                 case BatteryMonitor::Tier::None: {
                     // Recovery (charging plug-in or rise above hysteresis)
@@ -376,6 +370,12 @@ void loop() {
                                       BatteryMonitor::beepDurationMs(t));
             if (!ok) {
                 Serial.println("Battery alarm tone FAILED (speaker queue full or unavailable)");
+                // consumeBeepDue() above already burned the cadence
+                // slot; without this the alarm would go silent for
+                // 15-30 s on a transient queue-full. Schedule the
+                // retry ~1 s out (not 0) so a persistent speaker
+                // failure doesn't busy-loop the main loop.
+                batteryMonitor.scheduleBeepRetry(bnow);
             }
         }
     }

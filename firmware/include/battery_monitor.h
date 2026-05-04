@@ -16,10 +16,26 @@
 ///     tier — escalate, de-escalate, or recover — re-arms beeps)
 ///   - a beep cadence gate (LOW: every 30 s, CRITICAL: every 15 s)
 ///
-/// `poll()` itself is side-effect free — no LCD writes, no BLE writes, no
-/// audio. `begin()` only sets the speaker volume so `M5.Speaker.tone()`
-/// fires in `main.cpp`, mirroring how the rest of the firmware separates
-/// monitors from the loop owner.
+/// `tick()` is actuator-free — no LCD writes, no BLE writes, no audio.
+/// It latches the silence flag internally when asked (pure state) and
+/// is allowed two narrow `Serial.printf` paths: (1) edge-triggered
+/// PMIC validity transitions, (2) operator-press-but-already-silenced
+/// (the support-report trace for "is the button broken?"). Both stay
+/// off the hot path because `wasPressed()` is edge-latched and PMIC
+/// validity edges are rare. `begin()` only sets the speaker volume
+/// so `M5.Speaker.tone()` fires in `main.cpp`, mirroring how the
+/// rest of the firmware separates monitors from the loop owner.
+///
+/// Beep cadence is a *separate* destructive-read channel:
+/// `consumeBeepDue(now)` is NOT folded into `Outcome` and always burns
+/// the cadence slot when it returns true. A caller that calls and
+/// discards the return value silences the alarm for the next period
+/// (15-30 s). Always pair `tick()` with `consumeBeepDue()`; if the
+/// downstream `M5.Speaker.tone()` fails, call `scheduleBeepRetry(now)`
+/// so the alarm retries ~1 s later instead of waiting out the
+/// 15-30 s cadence. Resetting `m_lastBeepMs = 0` directly would
+/// busy-loop the main loop on a persistent speaker-queue failure;
+/// the rewind to `now - (period - kBeepRetryMs)` paces retries.
 ///
 /// Charging is treated as full recovery: plugging USB in clears the alarm
 /// tier, drops any sticky LOW/CRITICAL message via main.cpp, and resets
@@ -30,17 +46,23 @@ class BatteryMonitor {
 public:
     enum class Tier : uint8_t { None = 0, Low = 1, Critical = 2 };
 
-    struct PollResult {
-        /// True iff caller-relevant state changed during this poll
-        /// (percent step, charging edge, tier change, or first-prime).
-        /// Silence edges go through the separate `consumeSilencedDirty()`
-        /// channel — they're driven by button presses between polls,
-        /// outside the throttled poll cadence.
-        bool stateChanged;
-        /// True iff `tier()` value changed in this poll. Subset of
-        /// `stateChanged`; lets `main.cpp` toggle the sticky strip
-        /// message without diffing the tier itself.
-        bool tierChanged;
+    /// Single-channel outcome from `tick()`. Replaces the prior
+    /// `{stateChanged, tierChanged}` struct + side-channel silence-dirty
+    /// flag, so a caller can `switch` on one value and can't forget the
+    /// silence channel — silence edges fold into `StateChanged`.
+    ///
+    /// Bit pattern encodes the subset invariant `TierChanged ⇒ state
+    /// changed` structurally rather than by comment: `TierChanged`
+    /// is `0b11`, which is `StateChanged | TierChangedBit`. Callers:
+    ///   - "anything changed" → test `!= Throttled` (any non-zero)
+    ///   - "tier transition specifically" → test `== TierChanged`
+    /// A future caller asking "did state change?" via `& StateChanged`
+    /// would also pick up tier transitions automatically — the bit-
+    /// level superset removes a class of "missed tier change" bugs.
+    enum class Outcome : uint8_t {
+        Throttled    = 0b00,  // poll skipped, no observable change → noop
+        StateChanged = 0b01,  // percent / charging / silenced edge → push BLE+LCD
+        TierChanged  = 0b11,  // tier transition (StateChanged-superset) → push + tier message
     };
 
     /// Sets the speaker volume. M5.begin() must have already run (it does,
@@ -57,129 +79,140 @@ public:
     }
 
     /// Run once per loop iteration. Internally throttled to `kPollIntervalMs`;
-    /// returns `{false,false}` when the throttle hasn't elapsed. The first
-    /// call after construction always reports `stateChanged = true` so the
-    /// caller pushes the initial value to the LCD + BLE.
-    PollResult poll(uint32_t now) {
-        PollResult r{false, false};
-        if (m_primed && (now - m_lastPollMs) < kPollIntervalMs) return r;
-        m_lastPollMs = now;
+    /// folds the silence-button edge into the returned `Outcome` so callers
+    /// can't forget to surface it. The first call after construction always
+    /// returns at least `StateChanged` so the caller pushes the initial
+    /// value to the LCD + BLE.
+    ///
+    /// `silenceRequested` should be true exactly when a hardware-button
+    /// press happened this iter and the operator wants the active alarm
+    /// muted. Order inside the call is poll → apply silence → fold dirty
+    /// edges, so a button press that lands in the same iter as a tier
+    /// transition silences the *new* tier (the one on the LCD), not the
+    /// stale one. `silenceRequested` no-ops when no alarm is active.
+    Outcome tick(uint32_t now, bool silenceRequested) {
+        bool tierChanged = false;
+        bool pollStateChanged = false;
 
-        // M5.Power returns int32 percent (0-100) or -1 when the PMIC
-        // hasn't reported yet. Anything outside [0,100] is treated as
-        // unknown so the wire format's 0xFF sentinel is well-defined.
-        int level = M5.Power.getBatteryLevel();
-        bool valid = (level >= 0 && level <= 100);
-        int8_t pct = valid ? (int8_t)level : -1;
-        // Log on the validity edge so a sustained PMIC fault is visible
-        // over serial without spamming every poll. Boot transient (first
-        // poll returning -1) flips m_lastReadValid silently; only later
-        // edges produce output.
-        if (m_primed && valid != m_lastReadValid) {
-            if (valid) {
-                Serial.printf("BatteryMonitor: PMIC reads recovered (%d%%)\n", level);
+        // Silence handling below runs every iter regardless of the
+        // throttle, so a button press during the throttle window still
+        // surfaces the same iter via Outcome::StateChanged.
+        if (!m_primed || (now - m_lastPollMs) >= kPollIntervalMs) {
+            m_lastPollMs = now;
+
+            // M5.Power returns int32 percent (0-100) or -1 when the PMIC
+            // hasn't reported yet. Anything outside [0,100] is treated as
+            // unknown so the wire format's 0xFF sentinel is well-defined.
+            int level = M5.Power.getBatteryLevel();
+            bool valid = (level >= 0 && level <= 100);
+            int8_t pct = valid ? (int8_t)level : -1;
+            // Log on the validity edge so a sustained PMIC fault is visible
+            // over serial without spamming every poll. Boot transient (first
+            // poll returning -1) flips m_lastReadValid silently; only later
+            // edges produce output.
+            if (m_primed && valid != m_lastReadValid) {
+                if (valid) {
+                    Serial.printf("BatteryMonitor: PMIC reads recovered (%d%%)\n", level);
+                } else {
+                    Serial.printf("BatteryMonitor: PMIC reported %d (out of range), treating as unknown\n", level);
+                }
+            }
+            m_lastReadValid = valid;
+            // M5Unified `is_charging_t` is `{ is_discharging=0, is_charging=1,
+            // charge_unknown=2 }`. We compare against the explicit `is_charging`
+            // enumerator rather than `> 0` because `charge_unknown` would
+            // otherwise be misread as "USB plugged in" — that path silences the
+            // alarm tier, hiding a real low-battery condition behind a PMIC
+            // ambiguity.
+            bool charging = (M5.Power.isCharging() == m5::Power_Class::is_charging);
+
+            Tier newTier = m_tier;
+            if (charging || pct < 0) {
+                // Charging or unknown → no alarm. Charging is the user's
+                // explicit recovery; unknown is "we don't have a reading yet"
+                // and beeping on that would just confuse boot-time UX.
+                newTier = Tier::None;
             } else {
-                Serial.printf("BatteryMonitor: PMIC reported %d (out of range), treating as unknown\n", level);
+                // Hysteresis: escalate at strict thresholds, exit only past
+                // a recovery margin so a single +/-1% jitter near 20% doesn't
+                // spam the operator with on/off beeps.
+                switch (m_tier) {
+                    case Tier::None:
+                        if (pct <= kCriticalThreshold)      newTier = Tier::Critical;
+                        else if (pct <= kLowThreshold)      newTier = Tier::Low;
+                        break;
+                    case Tier::Low:
+                        if (pct <= kCriticalThreshold)      newTier = Tier::Critical;
+                        else if (pct >= kLowRecover)        newTier = Tier::None;
+                        break;
+                    case Tier::Critical:
+                        // Critical recovery uses the same recover-margin pattern
+                        // as Low → None, applied symmetrically to both edges of
+                        // the Critical band. Without `kCriticalRecover`, a cell
+                        // sagging across the 10 % line every poll would re-arm
+                        // beeps every 5 s; without routing Critical → None
+                        // through `kLowRecover`, the same 21 % reading would
+                        // mean "alarm clear" if you came from Critical and
+                        // "still Low" if you came from Low.
+                        if (pct >= kLowRecover)             newTier = Tier::None;
+                        else if (pct >= kCriticalRecover)   newTier = Tier::Low;
+                        break;
+                }
+            }
+
+            tierChanged = (newTier != m_tier);
+            if (tierChanged) {
+                // Every tier transition (escalate, de-escalate, recover) clears
+                // silenced — the operator's "I know" acknowledgement was for
+                // the prior tier, not the new one. The asymmetry is deliberate:
+                // a CRITICAL → LOW de-escalation re-arms beeps, which can
+                // surprise an operator who silenced at 9 % and saw the cell
+                // sag back to 12 %. Acceptable trade-off vs. the alternative
+                // (silenced state lingering across an unrelated tier change).
+                //
+                // Keep `m_silencedDirty` consistent so the implicit clear
+                // still folds into this iter's Outcome.
+                if (m_silenced) m_silencedDirty = true;
+                m_silenced = false;
+                // Force the next consumeBeepDue() to fire immediately so
+                // entering a tier always announces itself once.
+                m_lastBeepMs = 0;
+            }
+
+            pollStateChanged = !m_primed
+                             || pct != m_pct
+                             || charging != m_charging
+                             || tierChanged;
+
+            m_pct = pct;
+            m_charging = charging;
+            m_tier = newTier;
+            m_primed = true;
+        }
+
+        // Silence applies after the poll so the press lands on the new
+        // tier when both happen in the same iter. The "already silenced
+        // while tier active" branch logs to serial — that's the support-
+        // report trace for "is the button broken?" An ignored press
+        // with `tier == None` is the operator's wake-LCD button on a
+        // healthy battery (high-frequency, not a diagnostic) so we
+        // skip the log there to keep the signal-to-noise high.
+        if (silenceRequested) {
+            if (m_tier != Tier::None && !m_silenced) {
+                m_silenced = true;
+                m_silencedDirty = true;
+            } else if (m_tier != Tier::None) {
+                Serial.printf("BatteryMonitor: silence press ignored (already silenced, tier=%u)\n",
+                              (unsigned)m_tier);
             }
         }
-        m_lastReadValid = valid;
-        // M5Unified `is_charging_t` is `{ is_discharging=0, is_charging=1,
-        // charge_unknown=2 }`. We compare against the explicit `is_charging`
-        // enumerator rather than `> 0` because `charge_unknown` would
-        // otherwise be misread as "USB plugged in" — that path silences the
-        // alarm tier, hiding a real low-battery condition behind a PMIC
-        // ambiguity.
-        bool charging = (M5.Power.isCharging() == m5::Power_Class::is_charging);
 
-        Tier newTier = m_tier;
-        if (charging || pct < 0) {
-            // Charging or unknown → no alarm. Charging is the user's
-            // explicit recovery; unknown is "we don't have a reading yet"
-            // and beeping on that would just confuse boot-time UX.
-            newTier = Tier::None;
-        } else {
-            // Hysteresis: escalate at strict thresholds, exit only past
-            // a recovery margin so a single +/-1% jitter near 20% doesn't
-            // spam the operator with on/off beeps.
-            switch (m_tier) {
-                case Tier::None:
-                    if (pct <= kCriticalThreshold)      newTier = Tier::Critical;
-                    else if (pct <= kLowThreshold)      newTier = Tier::Low;
-                    break;
-                case Tier::Low:
-                    if (pct <= kCriticalThreshold)      newTier = Tier::Critical;
-                    else if (pct >= kLowRecover)        newTier = Tier::None;
-                    break;
-                case Tier::Critical:
-                    // Critical recovery uses the same recover-margin pattern
-                    // as Low → None, applied symmetrically to both edges of
-                    // the Critical band. Without `kCriticalRecover`, a cell
-                    // sagging across the 10 % line every poll would re-arm
-                    // beeps every 5 s; without routing Critical → None
-                    // through `kLowRecover`, the same 21 % reading would
-                    // mean "alarm clear" if you came from Critical and
-                    // "still Low" if you came from Low.
-                    if (pct >= kLowRecover)             newTier = Tier::None;
-                    else if (pct >= kCriticalRecover)   newTier = Tier::Low;
-                    break;
-            }
-        }
-
-        bool tierChanged = (newTier != m_tier);
-        if (tierChanged) {
-            // Every tier transition (escalate, de-escalate, recover) clears
-            // silenced — the operator's "I know" acknowledgement was for
-            // the prior tier, not the new one. The asymmetry is deliberate:
-            // a CRITICAL → LOW de-escalation re-arms beeps, which can
-            // surprise an operator who silenced at 9 % and saw the cell
-            // sag back to 12 %. Acceptable trade-off vs. the alternative
-            // (silenced state lingering across an unrelated tier change).
-            //
-            // Keep `m_silencedDirty` consistent with the underlying value
-            // so any future caller path that triggers the BLE notify on
-            // silence-edge stays correct even when the reset is implicit.
-            if (m_silenced) m_silencedDirty = true;
-            m_silenced = false;
-            // Force the next consumeBeepDue() to fire immediately so
-            // entering a tier always announces itself once.
-            m_lastBeepMs = 0;
-        }
-
-        bool stateChanged = !m_primed
-                          || pct != m_pct
-                          || charging != m_charging
-                          || tierChanged;
-
-        m_pct = pct;
-        m_charging = charging;
-        m_tier = newTier;
-        m_primed = true;
-
-        r.stateChanged = stateChanged;
-        r.tierChanged = tierChanged;
-        return r;
-    }
-
-    /// Operator pressed a hardware button while an alarm was active.
-    /// Latches a single silenced flag (no per-tier history); cleared
-    /// automatically on the next tier transition, so a LOW→CRITICAL
-    /// escalation, a CRITICAL→LOW de-escalation, or any recovery to
-    /// NONE all re-arm beeps.
-    void silence() {
-        if (m_tier == Tier::None) return;
-        if (!m_silenced) {
-            m_silenced = true;
-            m_silencedDirty = true;
-        }
-    }
-
-    /// True if the silence latch changed since the last call. Used by
-    /// `main.cpp` so a button press immediately pushes a fresh BLE
-    /// notify to the iOS app (the bit lives in the wire format).
-    bool consumeSilencedDirty() {
-        bool dirty = m_silencedDirty;
+        bool silenceDirty = m_silencedDirty;
         m_silencedDirty = false;
-        return dirty;
+
+        if (tierChanged) return Outcome::TierChanged;
+        if (pollStateChanged || silenceDirty) return Outcome::StateChanged;
+        return Outcome::Throttled;
     }
 
     /// True iff a beep should fire this tick. Suppressed when the tier
@@ -196,16 +229,39 @@ public:
         return true;
     }
 
+    /// Caller calls this after a `M5.Speaker.tone()` that failed —
+    /// `consumeBeepDue()` already burned the cadence slot, so without
+    /// this the next 15-30 s of alarm goes silent. Schedules the next
+    /// beep ~1 s out instead of immediately so a persistent speaker-
+    /// queue-full doesn't busy-loop the main loop on retries.
+    /// Cheap and safe to call multiple times.
+    void scheduleBeepRetry(uint32_t now) {
+        uint32_t period = (m_tier == Tier::Critical) ? kCriticalBeepMs : kLowBeepMs;
+        // Stay clear of the 0 sentinel — cap the rewind so the next
+        // due-check fires after kBeepRetryMs even if `now` is small
+        // (e.g. shortly after boot wraparound).
+        uint32_t rewind = (period > kBeepRetryMs) ? (period - kBeepRetryMs) : 0;
+        uint32_t target = (now > rewind) ? (now - rewind) : 1;
+        m_lastBeepMs = (target == 0) ? 1 : target;
+    }
+
     /// Pack 2 bytes for the BLE notify characteristic.
     /// byte 0: percent (0-100) or 0xFF when unknown.
     /// byte 1: flags — bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced.
-    void payload(uint8_t out[2]) const {
+    /// `out` is a reference to a 2-byte array so the size is part of
+    /// the type — a single-byte buffer can't even compile.
+    void payload(uint8_t (&out)[2]) const {
         out[0] = (m_pct < 0) ? 0xFF : (uint8_t)m_pct;
         uint8_t flags = 0;
         if (m_charging)               flags |= 0x01;
         if (m_tier == Tier::Low)      flags |= 0x02;
         if (m_tier == Tier::Critical) flags |= 0x04;
-        if (m_silenced)               flags |= 0x08;
+        // Defensive: silenced has no meaning without an active tier.
+        // tick()'s clear-on-tier-transition already enforces this, but
+        // a future regression that left m_silenced=true with tier=None
+        // would otherwise leak a wire-illegal byte to iOS (where the
+        // receiver logs an invariant violation pointing at firmware).
+        if (m_silenced && m_tier != Tier::None) flags |= 0x08;
         out[1] = flags;
     }
 
@@ -236,6 +292,11 @@ private:
     static constexpr uint32_t kLowBeepDurMs      = 200;
     static constexpr uint32_t kCriticalBeepDurMs = 100;
     static constexpr uint8_t  kSpeakerVolume     = 64;  // ~25% — audible indoors
+    // Retry interval after a tone() failure. Long enough to let the
+    // M5Speaker queue drain, short enough that a recovered speaker
+    // beeps within the user's "did it just glitch?" window instead
+    // of waiting out the full 15-30 s cadence.
+    static constexpr uint32_t kBeepRetryMs       = 1000;
 
     bool     m_primed         = false;
     bool     m_lastReadValid  = false;
