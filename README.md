@@ -110,6 +110,7 @@ Build and run on device (BLE requires physical device, not simulator).
 - **Current**: [M5StickS3](https://www.switch-science.com/products/10921) (ESP32-S3, 1.14" IPS LCD, BtnA/BtnB on GPIO11/12, AXP2101 PMIC, internal 250 mAh battery, USB-C, internal speaker)
 - HDZero Goggle with ELRS backpack
 - Buttons are multi-purpose: wake the LCD from idle sleep, silence the battery alarm, and wake from deep sleep (ext1 wake on GPIO11/12)
+- **Other compatible boards**: see [docs/compatible-devices.md](docs/compatible-devices.md) for the full list of ESP32 chips and dev boards (battery-included and battery-external) that can run HDZap firmware.
 
 ## Technical Details
 
