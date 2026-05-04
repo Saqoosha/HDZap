@@ -82,41 +82,42 @@ struct RaceMetrics: Equatable {
 
     /// Pre-race "Ready" display: race time, target lap count, and target
     /// pace on the goggle so the pilot can verify settings before the start.
-    /// "s" suffix is dropped — the HDZero glyph set renders S as 5.
+    /// No "s" suffix on numbers — the HDZero glyph set renders S as 5.
     static func readyOSDRows(targetLapCount: Int, sessionLimit: TimeInterval) -> [String] {
         let target = clampedTargetLapCount(targetLapCount)
         let pace = targetLapSeconds(for: target, sessionLimit: sessionLimit)
         return [
             padOSD("READY", width: osdRowWidths[0]),
             padOSD("RACE \(Int(sessionLimit))", width: osdRowWidths[1]),
-            padOSD("\(target)LAPS @ \(seconds(pace, decimals: 2))", width: osdRowWidths[2]),
+            padOSD("\(target)L @ \(seconds(pace, decimals: 2))", width: osdRowWidths[2]),
             padOSD("", width: osdRowWidths[3]),
         ]
     }
 
     /// Post-race results: lap count, total time, average, and best lap.
-    /// All rows use width 19 so longer labels (LAPS, AVG, BEST) don't
+    /// All rows use width 19 so longer labels (L, AVG, TOP) don't
     /// truncate. Row 2 prefers spaces + 2 decimals, then spaces + 1
     /// decimal, then falls back to compact (no spaces).
+    /// "TOP" is used instead of "BEST" — the HDZero glyph set renders S as 5.
     static func resultOSDRows(lapCount: Int, totalTime: TimeInterval,
                               avgTime: TimeInterval, bestTime: TimeInterval?) -> [String] {
         let best = bestTime.map { seconds($0, decimals: 2) } ?? "--"
-        let row2Full = "AVG \(seconds(avgTime, decimals: 2)) BEST \(best)"
+        let row2Full = "AVG \(seconds(avgTime, decimals: 2)) TOP \(best)"
         let row2: String
         if row2Full.count <= osdRowMaxBytes {
             row2 = row2Full
         } else {
             let best1 = bestTime.map { seconds($0, decimals: 1) } ?? "--"
-            let row2Spaced = "AVG \(seconds(avgTime, decimals: 1)) BEST \(best1)"
+            let row2Spaced = "AVG \(seconds(avgTime, decimals: 1)) TOP \(best1)"
             if row2Spaced.count <= osdRowMaxBytes {
                 row2 = row2Spaced
             } else {
-                row2 = "AVG\(seconds(avgTime, decimals: 1)) BEST\(best1)"
+                row2 = "AVG\(seconds(avgTime, decimals: 1)) TOP\(best1)"
             }
         }
         return [
             padOSD("DONE", width: osdRowMaxBytes),
-            padOSD("\(lapCount)LAPS \(seconds(totalTime, decimals: 2))", width: osdRowMaxBytes),
+            padOSD("\(lapCount)L \(seconds(totalTime, decimals: 2))", width: osdRowMaxBytes),
             padOSD(row2, width: osdRowMaxBytes),
             padOSD("", width: osdRowMaxBytes),
         ]
