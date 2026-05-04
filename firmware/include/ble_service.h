@@ -7,6 +7,7 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <esp_bt.h>          // esp_ble_tx_power_set, ESP_PWR_LVL_*
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 #include "espnow_link.h"
@@ -109,9 +110,21 @@ inline void ble_update_status() {
 }
 
 class ServerCallbacks : public BLEServerCallbacks {
-    void onConnect(BLEServer *s) override {
+    void onConnect(BLEServer *s, esp_ble_gatts_cb_param_t *param) override {
         g_ble_connected = true;
         ble_update_status();
+        // Issue #5 phase 2 redux: ask iOS for low-power conn params.
+        // 30-50 ms interval, latency 4 -> peripheral wakes 1/5 events
+        // when idle (effective ~250 ms), 4 s supervision timeout fits
+        // Apple Accessory Design Guidelines and survives the 30 s+ idle
+        // windows we see when the operator isn't pushing laps.
+        // updateConnParams takes 1.25 ms units for intervals and
+        // 10 ms units for the timeout.
+        s->updateConnParams(param->connect.remote_bda,
+                            24,   // min interval = 30 ms (24 * 1.25)
+                            40,   // max interval = 50 ms (40 * 1.25)
+                            4,    // slave latency = skip up to 4 events
+                            400); // supervision timeout = 4 s (400 * 10 ms)
     }
     void onDisconnect(BLEServer *s) override {
         g_ble_connected = false;
@@ -272,8 +285,44 @@ class OSDTextCallback : public BLECharacteristicCallbacks {
     }
 };
 
+// Diagnostic GAP handler — surfaces the actual negotiated conn params
+// (iOS may reject our request and pick its own) and the connection-update
+// completion edge so the operator can verify phase 2 redux is taking
+// effect from serial alone.
+inline void _ble_gap_diag_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
+    if (event == ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT) {
+        const auto& u = param->update_conn_params;
+        Serial.printf("BLE conn params updated: status=%d interval=%u (%.2f ms) latency=%u timeout=%u (%u ms)\n",
+                      (int)u.status,
+                      (unsigned)u.conn_int,
+                      u.conn_int * 1.25,
+                      (unsigned)u.latency,
+                      (unsigned)u.timeout,
+                      (unsigned)u.timeout * 10);
+    }
+}
+
 inline void ble_init(const char *device_name = "HDZeroOSD") {
     BLEDevice::init(device_name);
+    BLEDevice::setCustomGapHandler(_ble_gap_diag_handler);
+
+    // Issue #5 phase 2 redux: drop BLE TX power from the +9 dBm Arduino
+    // default to 0 dBm. The phone is on the operator's table, ~1-2 m
+    // away — high TX is wasted and the radio current scales with power.
+    // Apply to ADV/SCAN as well as the (eventual) connection handle so
+    // the savings cover both advertising idle and the connected state.
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,   ESP_PWR_LVL_N0);
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV,       ESP_PWR_LVL_N0);
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_SCAN,      ESP_PWR_LVL_N0);
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_CONN_HDL0, ESP_PWR_LVL_N0);
+
+    // Verify the controller accepted the requested levels — getter
+    // reflects the runtime state, not the request.
+    Serial.printf("BLE TX power: DEFAULT=%d ADV=%d CONN_HDL0=%d (0=N0/0dBm, 11=P9/+9dBm)\n",
+                  esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT),
+                  esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_ADV),
+                  esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_CONN_HDL0));
+
     g_ble_server = BLEDevice::createServer();
     g_ble_server->setCallbacks(new ServerCallbacks());
 

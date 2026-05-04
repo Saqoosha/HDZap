@@ -8,6 +8,7 @@
 #include "nvs_store.h"
 #include "ble_service.h" // includes tx_sniff.h transitively
 #include "battery_monitor.h"
+#include "power_log.h"
 
 // Keep the two parallel definitions of the OSD-text wire format in
 // lockstep. ble_service.h owns `OSD_TEXT_ROW_COUNT / OSD_TEXT_ROW_MAX`
@@ -27,8 +28,11 @@ static OSD osd;
 static OSDTextDisplay osdTextDisplay;
 static StickDisplay stickDisplay;
 static BatteryMonitor batteryMonitor;
+static PowerLog powerLog;
 static bool last_ble_state = false;
 static bool espnow_ready = false;
+static uint32_t g_power_log_last_ms = 0;
+static constexpr uint32_t POWER_LOG_INTERVAL_MS = 30000;
 
 // --- Render retry state machine -------------------------------------------
 // ESP-NOW unicast auto-retries at the 802.11 MAC layer, but the send
@@ -175,11 +179,27 @@ static void applyStagedUid() {
 }
 
 void setup() {
+    // Issue #5 phase 2 redux: drop CPU clock from the 240 MHz default
+    // to 80 MHz. Bluedroid's documented minimum is 80 MHz; below that
+    // BLE becomes unstable. CPU dynamic power scales ~linearly with
+    // frequency so this is a clean ~15-25 mA win without touching the
+    // BLE/ESP-NOW radios. Must run BEFORE Serial.begin() so the UART
+    // divisor lands on the right base clock.
+    setCpuFrequencyMhz(80);
+
     stickDisplay.begin();
     batteryMonitor.begin();
     Serial.begin(115200);
     delay(500); // Wait for USB CDC serial to enumerate before first println.
     Serial.println("\n=== HDZero OSD Lap Timer ===");
+    Serial.printf("CPU: %u MHz\n", (unsigned)getCpuFrequencyMhz());
+
+    // Mount the on-device power log and dump anything from the previous
+    // (presumably battery-only) session before we start writing to it.
+    // Operator workflow: unplug → run on battery for hours → plug back in
+    // → boot prints the trail before continuing the next session.
+    powerLog.begin();
+    powerLog.dumpToSerial();
 
     if (!nvs_store::loadUid(g_uid)) {
         esp_read_mac(g_uid, ESP_MAC_WIFI_STA);
@@ -584,6 +604,27 @@ void loop() {
         millis() - g_last_activity_ms >= IDLE_TIMEOUT_MS) {
         Serial.println("LCD sleep (idle)");
         stickDisplay.sleepPanel();
+    }
+
+    // --- Power log append ------------------------------------------------
+    // Snapshot VBAT + state every 30 s (rollover-safe interval arithmetic).
+    // M5.Power.getBatteryVoltage() returns mV; dV/dt across a multi-minute
+    // window stands in for instantaneous current draw, which the M5StickS3
+    // (pmic_m5pm1, no INA chip) doesn't expose through the M5Unified API.
+    // Per-loop is too noisy and would burn the SPIFFS partition; 30 s
+    // captures the trend that matters for before/after power deltas.
+    {
+        uint32_t now = millis();
+        if (now - g_power_log_last_ms >= POWER_LOG_INTERVAL_MS) {
+            g_power_log_last_ms = now;
+            int16_t voltage_mv = M5.Power.getBatteryVoltage();
+            powerLog.appendSample(now,
+                                  voltage_mv,
+                                  batteryMonitor.percent(),
+                                  batteryMonitor.charging(),
+                                  stickDisplay.isPanelAsleep(),
+                                  g_ble_connected);
+        }
     }
 
     delay(10);

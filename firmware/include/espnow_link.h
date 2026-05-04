@@ -90,6 +90,19 @@ inline bool espnow_init(uint8_t uid[6]) {
 
     if (esp_wifi_set_mac(WIFI_IF_STA, uid) != ESP_OK) return false;
 
+    // Issue #5 phase 2 redux: drop WiFi TX power from the ~+19 dBm
+    // Arduino default to ~+7 dBm. Goggle is at most a few metres away
+    // on the operator; +7 dBm has plenty of link margin and trims a few
+    // mA off each TX burst. Unit is 0.25 dBm: 28 = 7 dBm. Non-fatal if
+    // the call fails — log and continue with the higher default.
+    if (esp_wifi_set_max_tx_power(28) != ESP_OK) {
+        Serial.println("espnow_init: esp_wifi_set_max_tx_power failed");
+    }
+    int8_t actual_tx_power = 0;
+    esp_wifi_get_max_tx_power(&actual_tx_power);
+    Serial.printf("WiFi TX power: %d (0.25 dBm units, ~%.2f dBm)\n",
+                  actual_tx_power, actual_tx_power * 0.25);
+
     esp_err_t init_err = esp_now_init();
     if (init_err == ESP_ERR_ESPNOW_INTERNAL) {
         esp_err_t deinit_err = esp_now_deinit();
