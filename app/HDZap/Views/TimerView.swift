@@ -817,6 +817,7 @@ struct TimerView: View {
     /// Push the post-race results summary to the goggle. Called once when
     /// the session ends so the pilot sees the final tally on the OSD.
     private func sendResultOSD() {
+        guard !lapTimer.laps.isEmpty else { return }
         let total = lapTimer.laps.reduce(0) { $0 + $1.time }
         let rows = RaceMetrics.resultOSDRows(
             lapCount: lapTimer.laps.count,
