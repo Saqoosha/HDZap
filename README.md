@@ -74,6 +74,16 @@ TOTAL       04:07.368
 
 50-column HD grid. Most recent lap at top. Best lap and total time at bottom.
 
+## Install
+
+### First-time install (Web Flasher)
+
+Flash directly from the browser &mdash; no PlatformIO toolchain required:
+
+**[saqoosha.github.io/HDZap/flash/](https://saqoosha.github.io/HDZap/flash/)**
+
+Requirements: M5StickS3 + USB-C data cable + Chromium-based browser (Chrome, Edge, Brave, etc.) on macOS or Windows. To enter download mode, hold the small power button on the left side for 2 seconds &mdash; the green LED will flash. Safari, Firefox, and mobile browsers are not supported. To update later, revisit the same page and re-flash with the same steps.
+
 ## Build
 
 ### Firmware
