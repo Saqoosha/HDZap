@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Editorial Console — quiet typography, hairline rules, inline sparkbars.
 /// Modeled on the iOS Lap Timer handoff prototype (V2 Editorial).
@@ -11,6 +12,7 @@ struct TimerView: View {
     @Environment(LapTimer.self) private var lapTimer
     @Environment(BluetoothManager.self) private var bluetooth
     @Environment(LapAnnouncer.self) private var announcer
+    @Environment(RaceHistoryStore.self) private var history
     @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
     @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
@@ -28,6 +30,12 @@ struct TimerView: View {
     private let osdTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     @State private var showSettings = false
+    @State private var showHistory = false
+    /// Set after the race lands in the history store so a duplicate
+    /// `.onChange(of: sessionEnded)` firing — or a manual STOP after a
+    /// FINAL-lap save — couldn't insert the same race twice. Cleared on
+    /// RESET.
+    @State private var savedRaceID: UUID?
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
     /// lap consumes the remaining window. Cleared on START and RESET.
@@ -127,6 +135,9 @@ struct TimerView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
+        .sheet(isPresented: $showHistory) {
+            HistoryView()
+        }
         .sheet(item: $shareItem, onDismiss: cleanupShareTempFile) { item in
             ShareSheet(url: item.url)
         }
@@ -170,6 +181,14 @@ struct TimerView: View {
             guard !showSettings else { return }
             sendTimeLeftRow()
         }
+        // Persist the race once it transitions to ended. `sessionEnded`
+        // flips false→true via either the FINAL-lap path or manual STOP
+        // with laps. `savedRaceID` guards against accidental double saves
+        // if anything else re-evaluates the body while still in the ended
+        // state.
+        .onChange(of: sessionEnded) { _, ended in
+            if ended { saveRaceIfNeeded() }
+        }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
         // the lap is recorded — reading `sessionEnded` here would depend on
@@ -209,16 +228,29 @@ struct TimerView: View {
 
             Spacer()
 
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(EditorialTheme.ink)
-                    .frame(width: 30, height: 30)
-                    .background(EditorialTheme.ink.opacity(0.06), in: Circle())
+            HStack(spacing: 8) {
+                Button {
+                    showHistory = true
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(EditorialTheme.ink)
+                        .frame(width: 30, height: 30)
+                        .background(EditorialTheme.ink.opacity(0.06), in: Circle())
+                }
+                .accessibilityLabel("History")
+
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(EditorialTheme.ink)
+                        .frame(width: 30, height: 30)
+                        .background(EditorialTheme.ink.opacity(0.06), in: Circle())
+                }
+                .accessibilityLabel("Settings")
             }
-            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 8)
@@ -637,8 +669,37 @@ struct TimerView: View {
             metricsSnapshot = nil
             manuallyEnded = false
             lastLapWasFinal = false
+            savedRaceID = nil
         }
     }
+
+    private func saveRaceIfNeeded() {
+        guard savedRaceID == nil else { return }
+        guard let startedAt = lapTimer.sessionStartedAt else {
+            // sessionEnded == true with no startedAt is an invariant
+            // violation — log so the next debugging session has a
+            // breadcrumb instead of a silently dropped save.
+            Self.log.error("saveRaceIfNeeded: sessionEnded but sessionStartedAt is nil")
+            return
+        }
+        guard let record = RaceRecord.snapshot(
+            laps: lapTimer.laps,
+            startedAt: startedAt,
+            sessionLimit: sessionLimit,
+            targetLapCount: clampedTargetLapCount,
+            accentHue: accentHue
+        ) else {
+            // Empty / invalid sessions (timeUp without ever lapping) are
+            // legitimately skipped, but log so the same skip doesn't
+            // look like a mystery later.
+            Self.log.debug("saveRaceIfNeeded: skipping — RaceRecord.snapshot rejected the inputs")
+            return
+        }
+        savedRaceID = record.id
+        history.add(record)
+    }
+
+    private static let log = Logger(subsystem: "sh.saqoo.HDZap", category: "TimerView")
 
     /// Records the lap locally and fires it at the goggle. iOS state is
     /// the source of truth; a BLE write failure surfaces via `lastError`
@@ -750,30 +811,21 @@ struct TimerView: View {
             let url = try makeShareImage()
             lastShareURL = url
             shareItem = ShareItem(url: url)
-        } catch let error as ShareImageError {
-            shareError = error.userMessage
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain
-                                         && error.code == NSFileWriteOutOfSpaceError {
-            shareError = "Out of storage. Free space and try again."
         } catch {
-            shareError = "Couldn't save race image: \(error.localizedDescription)"
+            shareError = ShareImageError.userMessage(for: error)
         }
     }
 
     private func cleanupShareTempFile() {
         if let url = lastShareURL {
-            try? FileManager.default.removeItem(at: url)
+            ShareImageError.cleanupTempFile(at: url, log: Self.log)
             lastShareURL = nil
         }
     }
 
-    /// Returns the URL of a freshly written PNG. Throws `ShareImageError`
-    /// when `ImageRenderer` produces no image or when PNG encoding fails;
-    /// rethrows the underlying error from `data.write` so out-of-space and
-    /// permission failures reach `shareAction()` for distinct user messages.
     @MainActor
     private func makeShareImage() throws -> URL {
-        let card = RaceShareCard(
+        try RaceShareCard.renderImage(
             laps: lapTimer.laps,
             bestLapIndex: lapTimer.bestLapIndex,
             metrics: metricsSnapshot,
@@ -782,31 +834,7 @@ struct TimerView: View {
             sessionLimit: sessionLimit,
             generatedAt: Date()
         )
-        let renderer = ImageRenderer(content: card)
-        renderer.scale = 3
-        guard let uiImage = renderer.uiImage else {
-            throw ShareImageError.rendererProducedNoImage
-        }
-        guard let data = uiImage.pngData() else {
-            throw ShareImageError.pngEncodeFailed
-        }
-        // Per-share UUID suffix prevents collisions when the user taps SHARE
-        // twice within the same second (timestamp resolution is seconds).
-        let stamp = Self.fileTimestampFormatter.string(from: Date())
-        let suffix = UUID().uuidString.prefix(6)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("hdzap-race-\(stamp)-\(suffix).png")
-        try data.write(to: url, options: .atomic)
-        return url
     }
-
-    private static let fileTimestampFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        // Filename-safe; sortable. Avoids `:` which some share targets reject.
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        return f
-    }()
 }
 
 // MARK: - Share errors
@@ -821,6 +849,34 @@ enum ShareImageError: Error {
             return "Render produced no image. Try restarting the app."
         case .pngEncodeFailed:
             return "PNG encode failed. Try again."
+        }
+    }
+
+    /// Single source of truth for "render error → user-facing copy" so
+    /// every share call site (live race + history detail) maps the same
+    /// failure to the same alert text.
+    static func userMessage(for error: Error) -> String {
+        if let imageError = error as? ShareImageError {
+            return imageError.userMessage
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain
+            && nsError.code == NSFileWriteOutOfSpaceError {
+            return "Out of storage. Free space and try again."
+        }
+        return "Couldn't save race image: \(error.localizedDescription)"
+    }
+
+    /// Best-effort temp-file removal. `NSFileNoSuchFileError` is silent
+    /// (the OS reaped it already); anything else is logged so a leak
+    /// doesn't pile up undetected. Caller still owns the `URL` lifetime.
+    static func cleanupTempFile(at url: URL, log: Logger) {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let error as NSError where error.code == NSFileNoSuchFileError {
+            // already reaped — fine
+        } catch {
+            log.debug("Couldn't remove share temp \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }
 }

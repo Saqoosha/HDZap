@@ -1,22 +1,22 @@
 import SwiftUI
+import UIKit
 
 /// Standalone snapshot view rendered offscreen via `ImageRenderer` for the
-/// share sheet. Mirrors `TimerView`'s post-race layout (paddings, row
+/// share sheet. Mirrors the post-race summary layout (paddings, row
 /// heights, typography) so the shared image reads as the screen the operator
 /// was watching; the masthead, session bar, action dock, and BLE/error
 /// strips are dropped because they carry no meaning post-race, replaced by a
-/// card-only header (HDZap masthead substitute) and footer (timestamp +
-/// wordmark) for context.
+/// card-only header (wordmark substitute) and footer (timestamp + wordmark)
+/// for context.
 ///
-/// Width is fixed at 393pt (iPhone 15 width) so `ImageRenderer.scale = 3`
-/// in `TimerView.makeShareImage()` yields a 1179px-wide PNG. The lap-table
-/// geometry is sourced from `LapTableMetrics` and the lap header/body from
-/// `LapTableHeader`/`LapTable`, so widening the card requires either
-/// scaling those constants in proportion or extracting more of the shared
-/// layout — bumping `width` in isolation reverts to the original "too wide"
-/// regression. The `doneBlock` and `summaryBand` typography below are still
-/// duplicated against `TimerView` (64pt hero, 22pt ms suffix, monoCap(9))
-/// and must be kept in sync by hand until promoted to a shared view.
+/// Width is fixed at 393pt (iPhone 15 width) so a 3× ImageRenderer scale
+/// yields a 1179px-wide PNG. Lap-table geometry comes from
+/// `LapTableMetrics`; widening the card requires scaling those constants
+/// in proportion or extracting more of the shared layout, otherwise
+/// reverting to the original "too wide" regression. Hero typography
+/// (64pt display, 22pt ms suffix, monoCap(9)) is currently duplicated in
+/// the live timer's done-block and must stay in sync until promoted to a
+/// shared view.
 struct RaceShareCard: View {
     let laps: [Lap]
     let bestLapIndex: Int?
@@ -176,6 +176,53 @@ struct RaceShareCard: View {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f
+    }()
+
+    /// Render the card to a PNG in the temp directory and return its URL.
+    /// Throws `ShareImageError` for renderer / encoder failures and rethrows
+    /// the underlying `Data.write` error for I/O failures (out-of-space,
+    /// permission), so the caller can map them to user-facing copy.
+    @MainActor
+    static func renderImage(laps: [Lap],
+                            bestLapIndex: Int?,
+                            metrics: RaceMetrics?,
+                            accentHue: Double,
+                            targetLapCount: Int,
+                            sessionLimit: TimeInterval,
+                            generatedAt: Date) throws -> URL {
+        let card = RaceShareCard(
+            laps: laps,
+            bestLapIndex: bestLapIndex,
+            metrics: metrics,
+            accentHue: accentHue,
+            targetLapCount: targetLapCount,
+            sessionLimit: sessionLimit,
+            generatedAt: generatedAt
+        )
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 3
+        guard let uiImage = renderer.uiImage else {
+            throw ShareImageError.rendererProducedNoImage
+        }
+        guard let data = uiImage.pngData() else {
+            throw ShareImageError.pngEncodeFailed
+        }
+        let stamp = fileTimestampFormatter.string(from: generatedAt)
+        // Per-render UUID suffix prevents collisions when the user shares
+        // multiple races within the same second (timestamp resolution is 1s).
+        let suffix = UUID().uuidString.prefix(6)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hdzap-race-\(stamp)-\(suffix).png")
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    private static let fileTimestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        // Filename-safe; sortable. Avoids `:` which some share targets reject.
+        f.dateFormat = "yyyyMMdd-HHmmss"
         return f
     }()
 }
