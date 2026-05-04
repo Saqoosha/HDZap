@@ -8,7 +8,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: "2GN43ALZ4K"
+    DEVELOPMENT_TEAM: "VCFY2GFR89"
     CODE_SIGN_STYLE: Automatic
 targets:
   HDZap:
@@ -20,6 +20,7 @@ targets:
       path: HDZap/Info.plist
       properties:
         NSBluetoothAlwaysUsageDescription: "Connect to HDZero OSD bridge device via Bluetooth"
+        ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes:
           - bluetooth-central
         CFBundleDisplayName: HDZap
