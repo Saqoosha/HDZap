@@ -8,10 +8,12 @@ FPV drone racing use case: operator taps LAP on phone, lap time appears on pilot
 ## Repository Structure
 
 ```
-firmware/     ESP32 PlatformIO project (Arduino framework)
-app/          iOS SwiftUI app (iOS 18+, xcodegen)
-docs/         Research reports and architecture docs
-scripts/      Test scripts
+firmware/                 ESP32 PlatformIO project (Arduino framework)
+app/                      iOS SwiftUI app (iOS 18+, xcodegen)
+docs/                     Research reports and architecture docs (NOT served on Pages)
+docs/flash/               Browser firmware flasher served on GitHub Pages (esptool-js)
+scripts/                  Test scripts
+.github/workflows/        CI: Web Flasher build/deploy (TestFlight is currently scripts/-driven)
 ```
 
 ## Build Commands
@@ -26,6 +28,48 @@ cd firmware && pio device monitor         # serial 115200
 cd app && xcodegen generate               # regenerate .xcodeproj after changes
 # Then build in Xcode (BLE requires physical device)
 ```
+
+## Web Flasher (`docs/flash/`)
+
+Browser-based firmware installer hosted on GitHub Pages at
+`https://saqoosha.github.io/HDZap/flash/`. Drives `esptool-js` directly (NOT
+ESP Web Tools / `<esp-web-install-button>`) so the entire UI is custom Japanese
+copy with no English library dialogs. Target hardware: M5StickS3 only.
+
+- `docs/flash/index.html` + `style.css` — Japanese UI with a 4-state machine
+  (idle / working / done / error). No external custom elements.
+- `docs/flash/flasher.js` — ES module that imports `ESPLoader` + `Transport`
+  from `https://unpkg.com/esptool-js@0.5.7/bundle.js` and runs the flash flow.
+  Pinned to 0.5.7: 0.6.x has a known regression where compressed `writeFlash`
+  on ESP32-S3 fails with `status 201 (ESP_TOO_MUCH_DATA)`.
+- `docs/flash/manifest.json` — single field (`version`). CI overwrites the
+  value with `${GITHUB_REF_NAME}-<short SHA>` so the deployed page can show
+  which build is live; nothing else is consumed at runtime.
+- `docs/flash/m5sticks3.jpg` — product photo (M5Stack), credited in footer.
+- `docs/flash/firmware/*.bin` — produced by CI, **gitignored**; copying locally
+  for testing is fine.
+- `.github/workflows/flasher.yml` — `pio run -e m5stick-s3` → stages 4 bins
+  (`bootloader.bin`, `partitions.bin`, `boot_app0.bin`, `firmware.bin → hdzap.bin`)
+  → size-checks each bin (>= 1 KiB) → writes `CHECKSUMS.txt` → stamps version
+  into `manifest.json` → copies `docs/flash/` into `_site/flash/` (NEVER the
+  whole `docs/` tree — that would expose `docs/superpowers/` and other prose
+  docs) → uploads `_site/` as the Pages artefact → deploys via
+  `actions/deploy-pages`.
+- ESP32-S3 partition offsets used by `flasher.js` `PARTS`:
+  `0x0 / 0x8000 / 0xe000 / 0x10000` (S3 starts the bootloader at 0,
+  **not** 0x1000 like classic ESP32).
+- The `eraseAll` parameter in `writeFlash` is wired to the "完全初期化する"
+  checkbox in the UI. Default unchecked → existing NVS is preserved
+  (UID, sleep timeout in namespace `hdzero`). Checked → full chip erase,
+  wiping all saved state. There is no OTA / Wi-Fi update path: every
+  re-flash goes through this same Web Serial flow.
+- Local test: `python3 -m http.server 8765 --directory docs --bind 127.0.0.1`
+  then open `http://127.0.0.1:8765/flash/` in Chrome (Web Serial requires
+  HTTPS or `localhost`). Copy build artifacts into `docs/flash/firmware/`
+  first; the page header will show `version: dev` because the CI version
+  stamp only runs on deploy.
+- GitHub Pages must be set to Source = "GitHub Actions" in repo
+  Settings → Pages for the workflow to deploy.
 
 ## Key Technical Constraints
 
