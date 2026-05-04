@@ -11,6 +11,7 @@ app/build/
 app/DerivedData/
 app/*.xcworkspace
 app/xcuserdata/
+app/**/xcuserdata/
 *.xcuserstate
 build/
 
@@ -27,5 +28,6 @@ build/
 *.log
 
 # Claude Code
-.claude/
+.claude/*
+!.claude/commands/
 .superpowers/

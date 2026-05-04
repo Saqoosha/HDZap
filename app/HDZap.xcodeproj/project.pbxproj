@@ -9,32 +9,36 @@
 /* Begin PBXBuildFile section */
 		085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 612031ED1450E491C5A43621 /* EditorialTheme.swift */; };
 		12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E32709696D474AA71F7C90 /* UIDUtils.swift */; };
+		29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67948DF123DC370E6DBE5590 /* Assets.xcassets */; };
 		3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63119602A4C7217E6D0C00A1 /* OKLCH.swift */; };
 		374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */; };
 		6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DB96B10D57102797F555BE /* BluetoothManager.swift */; };
 		7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFF7583FD58A10FE7357025 /* HDZapApp.swift */; };
 		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
 		8F9FA17CF494FA2673B7B305 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */; };
-		A1B2C3D4E5F6A7B8C9D0E1F2 /* LapAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F7A8B9C0D1E2 /* LapAnnouncer.swift */; };
+		B7CE912801EC33801585517E /* LapAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */; };
 		B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4A2435CB82ED37EA712928 /* LapTimer.swift */; };
 		B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12757F8C010AFDC40357896D /* RaceShareCard.swift */; };
 		BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */; };
 		CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D706FE213381CDC8D3EC0893 /* TimerView.swift */; };
+		F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		12757F8C010AFDC40357896D /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
 		2E0D671093AF13888B5701D3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2E4A2435CB82ED37EA712928 /* LapTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapTimer.swift; sourceTree = "<group>"; };
-		F1A2B3C4D5E6F7A8B9C0D1E2 /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
 		37DB96B10D57102797F555BE /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
 		3AA9BB23D795AA5162829B3C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3BFF7583FD58A10FE7357025 /* HDZapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDZapApp.swift; sourceTree = "<group>"; };
 		612031ED1450E491C5A43621 /* EditorialTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialTheme.swift; sourceTree = "<group>"; };
 		63119602A4C7217E6D0C00A1 /* OKLCH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OKLCH.swift; sourceTree = "<group>"; };
 		66E32709696D474AA71F7C90 /* UIDUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIDUtils.swift; sourceTree = "<group>"; };
+		67948DF123DC370E6DBE5590 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
 		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
 		F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -73,7 +77,7 @@
 			isa = PBXGroup;
 			children = (
 				37DB96B10D57102797F555BE /* BluetoothManager.swift */,
-				F1A2B3C4D5E6F7A8B9C0D1E2 /* LapAnnouncer.swift */,
+				CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */,
 				2E4A2435CB82ED37EA712928 /* LapTimer.swift */,
 				D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */,
 			);
@@ -83,9 +87,11 @@
 		861A341F4ADE60A8E83D72AD /* HDZap */ = {
 			isa = PBXGroup;
 			children = (
+				67948DF123DC370E6DBE5590 /* Assets.xcassets */,
 				3BFF7583FD58A10FE7357025 /* HDZapApp.swift */,
 				3AA9BB23D795AA5162829B3C /* Info.plist */,
 				6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */,
+				B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */,
 				42E89D1EA471AA0231C57139 /* Models */,
 				8CBD2DCE416C511DC56F7DB0 /* Utils */,
 				3802ABB4F858BEDF7105AAC6 /* Views */,
@@ -133,7 +139,7 @@
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					2E1D612349C9541ADE063ED3 = {
-						DevelopmentTeam = 2GN43ALZ4K;
+						DevelopmentTeam = <TEAM_ID>;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -163,7 +169,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */,
 				374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */,
+				F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -178,7 +186,7 @@
 				8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */,
 				085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */,
 				7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */,
-				A1B2C3D4E5F6A7B8C9D0E1F2 /* LapAnnouncer.swift in Sources */,
+				B7CE912801EC33801585517E /* LapAnnouncer.swift in Sources */,
 				B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */,
 				3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */,
 				BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */,
@@ -227,8 +235,9 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 2GN43ALZ4K;
+				DEVELOPMENT_TEAM = <TEAM_ID>;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -246,6 +255,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -292,8 +302,9 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 2GN43ALZ4K;
+				DEVELOPMENT_TEAM = <TEAM_ID>;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -305,6 +316,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
