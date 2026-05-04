@@ -10,9 +10,13 @@ APP_DIR="${ROOT_DIR}/app"
 BUILD_DIR="${APP_DIR}/build"
 ARCHIVE_PATH="${BUILD_DIR}/archives/HDZap.xcarchive"
 EXPORT_DIR="${BUILD_DIR}/export"
-EXPORT_OPTIONS="${BUILD_DIR}/ExportOptions.plist"
+EXPORT_OPTIONS="${APP_DIR}/ExportOptions.plist"
 IPA_PATH="${EXPORT_DIR}/HDZap.ipa"
 
+# These are identifiers (like an OAuth client_id), not secrets — Apple treats them
+# as public-facing IDs that pair with the .p8 private key. The .p8 itself is the
+# only real secret and never lands in the repo. Override via env vars when running
+# against a different ASC team.
 ASC_API_KEY_ID="${ASC_API_KEY_ID:-76DV838N2N}"
 ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-69a6de6e-6653-47e3-e053-5b8c7c11a4d1}"
 
