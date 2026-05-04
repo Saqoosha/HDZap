@@ -54,6 +54,11 @@ struct RaceDetailView: View {
         .onChange(of: record == nil) { _, isGone in
             if isGone { dismiss() }
         }
+        // Defensive cleanup — if the user navigates back while the
+        // share sheet is still open, SwiftUI may not deliver the
+        // sheet's `onDismiss`, leaving the temp PNG stranded. The
+        // helper is idempotent (no-op once `lastShareURL` is nil).
+        .onDisappear { cleanupShareTempFile() }
         .sheet(item: $shareItem, onDismiss: cleanupShareTempFile) { item in
             ShareSheet(url: item.url)
         }
@@ -87,11 +92,12 @@ struct RaceDetailView: View {
 
     @ViewBuilder
     private func content(for record: RaceRecord) -> some View {
+        let inputs = renderInputs(for: record)
         ScrollView {
             RaceShareCard(
-                laps: record.displayLaps,
+                laps: inputs.laps,
                 bestLapIndex: record.bestLapIndex,
-                metrics: metrics(for: record),
+                metrics: inputs.metrics,
                 accentHue: record.accentHue,
                 targetLapCount: record.targetLapCount,
                 sessionLimit: record.sessionLimit,
@@ -105,14 +111,16 @@ struct RaceDetailView: View {
     }
 
     /// The race is over, so pace equals achieved laps — no remaining
-    /// session time left to project additional laps into. Single source
-    /// of truth so the on-screen card and the shared PNG can't diverge.
-    private func metrics(for record: RaceRecord) -> RaceMetrics? {
+    /// session time to project additional laps into. Single source of
+    /// truth so the on-screen card and the shared PNG can't drift if
+    /// one site is later tweaked and the other isn't.
+    private func renderInputs(for record: RaceRecord) -> (laps: [Lap], metrics: RaceMetrics?) {
         let laps = record.displayLaps
-        return RaceMetrics(laps: laps,
-                           targetLapCount: record.targetLapCount,
-                           sessionLimit: record.sessionLimit,
-                           paceOverride: laps.count)
+        let metrics = RaceMetrics(laps: laps,
+                                  targetLapCount: record.targetLapCount,
+                                  sessionLimit: record.sessionLimit,
+                                  paceOverride: laps.count)
+        return (laps, metrics)
     }
 
     // MARK: - Actions
@@ -121,10 +129,11 @@ struct RaceDetailView: View {
         guard let record else { return }
         cleanupShareTempFile()
         do {
+            let inputs = renderInputs(for: record)
             let url = try RaceShareCard.renderImage(
-                laps: record.displayLaps,
+                laps: inputs.laps,
                 bestLapIndex: record.bestLapIndex,
-                metrics: metrics(for: record),
+                metrics: inputs.metrics,
                 accentHue: record.accentHue,
                 targetLapCount: record.targetLapCount,
                 sessionLimit: record.sessionLimit,
