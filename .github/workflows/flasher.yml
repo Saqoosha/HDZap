@@ -1,0 +1,123 @@
+name: Web Flasher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "firmware/**"
+      - "docs/flash/**"
+      - ".github/workflows/flasher.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        working-directory: firmware
+        run: pio run -e m5stick-s3
+
+      - name: Stage firmware bins
+        run: |
+          set -euo pipefail
+          OUT="docs/flash/firmware"
+          BUILD="firmware/.pio/build/m5stick-s3"
+          mkdir -p "$OUT"
+          cp "$BUILD/bootloader.bin" "$OUT/bootloader.bin"
+          cp "$BUILD/partitions.bin" "$OUT/partitions.bin"
+          cp "$BUILD/firmware.bin"   "$OUT/hdzap.bin"
+          BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin -print -quit)
+          if [ -z "$BOOT_APP0" ]; then
+            echo "boot_app0.bin not found in PlatformIO Arduino-ESP32 framework" >&2
+            exit 1
+          fi
+          cp "$BOOT_APP0" "$OUT/boot_app0.bin"
+          ls -la "$OUT"
+
+      - name: Stamp version into manifest
+        run: |
+          set -euo pipefail
+          export VERSION="${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path("docs/flash/manifest.json")
+          m = json.loads(p.read_text())
+          m["version"] = os.environ["VERSION"]
+          p.write_text(json.dumps(m, indent=2) + "\n")
+          PY
+
+      - name: Verify firmware artefacts
+        working-directory: docs/flash/firmware
+        run: |
+          set -euo pipefail
+          for f in bootloader.bin partitions.bin boot_app0.bin hdzap.bin; do
+            if [ ! -f "$f" ]; then
+              echo "missing artefact: $f" >&2
+              exit 1
+            fi
+            sz=$(stat -c%s "$f")
+            if [ "$sz" -lt 1024 ]; then
+              echo "$f is suspiciously small: ${sz} bytes (expected >= 1 KiB)" >&2
+              exit 1
+            fi
+          done
+          sha256sum *.bin > CHECKSUMS.txt
+          cat CHECKSUMS.txt
+
+      - name: Stage Pages artefact (flash/ only — never expose docs/superpowers/, docs/REPORT.md, etc.)
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site/flash
+          cp -r docs/flash/. _site/flash/
+          touch _site/.nojekyll
+          ls -la _site _site/flash
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

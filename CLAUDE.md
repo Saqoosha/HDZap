@@ -8,10 +8,12 @@ FPV drone racing use case: operator taps LAP on phone, lap time appears on pilot
 ## Repository Structure
 
 ```
-firmware/     ESP32 PlatformIO project (Arduino framework)
-app/          iOS SwiftUI app (iOS 18+, xcodegen)
-docs/         Research reports and architecture docs
-scripts/      Test scripts
+firmware/                 ESP32 PlatformIO project (Arduino framework)
+app/                      iOS SwiftUI app (iOS 18+, xcodegen)
+docs/                     Research reports and architecture docs (NOT served on Pages)
+docs/flash/               Browser firmware flasher served on GitHub Pages (esptool-js, M5StickS3)
+scripts/                  Test scripts
+.github/workflows/        CI: Web Flasher build/deploy (TestFlight is currently scripts/-driven)
 ```
 
 ## Build Commands
