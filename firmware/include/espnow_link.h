@@ -60,7 +60,10 @@ inline void uid_from_bind_phrase(const char *phrase, uint8_t uid[6]) {
 /// already-initialized stack. deinit + retry recovers cleanly.
 inline bool espnow_init(uint8_t uid[6]) {
     WiFi.mode(WIFI_STA);
-    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    // Note: previously called WiFi.setTxPower(WIFI_POWER_19_5dBm) here,
+    // but esp_wifi_set_max_tx_power(28) below overrides it ~1 ms later
+    // (issue #5 phase 2 redux dropped TX to +7 dBm). Removed to avoid
+    // dead intent — one knob, one place.
     esp_err_t proto_err = esp_wifi_set_protocol(WIFI_IF_STA,
         WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G |
         WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
@@ -89,6 +92,25 @@ inline bool espnow_init(uint8_t uid[6]) {
     }
 
     if (esp_wifi_set_mac(WIFI_IF_STA, uid) != ESP_OK) return false;
+
+    // Issue #5 phase 2 redux: drop WiFi TX power from the ~+19 dBm
+    // Arduino default to ~+7 dBm. Goggle (worn by the pilot) sits a few
+    // metres from the operator's stick at the timing area — +7 dBm has
+    // plenty of link margin and trims a few mA off each TX burst.
+    // Unit is 0.25 dBm: 28 = 7 dBm. Non-fatal if the call fails — log
+    // and continue with the higher default.
+    if (esp_wifi_set_max_tx_power(28) != ESP_OK) {
+        Serial.println("espnow_init: esp_wifi_set_max_tx_power failed");
+    }
+    int8_t actual_tx_power = -1; // sentinel: getter failure leaves it untouched
+    esp_err_t pg = esp_wifi_get_max_tx_power(&actual_tx_power);
+    if (pg != ESP_OK) {
+        Serial.printf("espnow_init: esp_wifi_get_max_tx_power failed (%d) — actual unknown\n",
+                      (int)pg);
+    } else {
+        Serial.printf("WiFi TX power: %d (0.25 dBm units, ~%.2f dBm)\n",
+                      actual_tx_power, actual_tx_power * 0.25);
+    }
 
     esp_err_t init_err = esp_now_init();
     if (init_err == ESP_ERR_ESPNOW_INTERNAL) {

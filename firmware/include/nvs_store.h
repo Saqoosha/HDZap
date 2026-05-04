@@ -4,11 +4,17 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
-// Persistent UID storage in ESP32 NVS.
+// Persistent UID + sleep-config storage in ESP32 NVS.
 // Namespace "hdzero", keys:
-//   - "init" : sentinel, removed before uid writes and rewritten after.
-//   - "uid"  : 6 bytes.
-// Save order is [remove sentinel → write uid → write sentinel]. On load:
+//   - "init"   : sentinel, removed before uid writes and rewritten after.
+//   - "uid"    : 6 bytes.
+//   - "slpmin" : single byte, deep-sleep timeout in minutes (0 = disabled).
+//                No sentinel pattern: a single putUChar is one NVS entry,
+//                so it can't be torn at the entry level. The failure mode
+//                of a torn write is "value snaps back to kSleepDefaultMin",
+//                which is benign. A sentinel can't disambiguate a torn
+//                write from "user explicitly set 0 to disable" anyway.
+// UID save order is [remove sentinel → write uid → write sentinel]. On load:
 //   - sentinel-present + uid-present  → normal success path
 //   - sentinel-absent  + uid-present  → torn save or legacy data; log a
 //       warning but still return the uid (a 6-byte value is usable either
@@ -43,6 +49,38 @@ inline bool saveUid(const uint8_t uid[6]) {
         return false;
     }
     return true;
+}
+
+// Deep-sleep timeout (issue #5 phase 3), persisted as a single byte =
+// minutes. 0 = disabled (never deep-sleep). Default returned by load
+// when no key exists is the kSleepDefaultMin compile-time fallback.
+inline constexpr uint8_t kSleepDefaultMin = 5;
+
+inline bool saveSleepMinutes(uint8_t minutes) {
+    Preferences prefs;
+    if (!prefs.begin("hdzero", false)) {
+        Serial.println("nvs_store: saveSleepMinutes: begin failed");
+        return false;
+    }
+    size_t n = prefs.putUChar("slpmin", minutes);
+    prefs.end();
+    if (n != 1) {
+        Serial.printf("nvs_store: saveSleepMinutes: putUChar wrote %u (expected 1)\n",
+                      (unsigned)n);
+        return false;
+    }
+    return true;
+}
+
+inline uint8_t loadSleepMinutes() {
+    Preferences prefs;
+    // begin returns false when the namespace doesn't exist yet (first
+    // boot before any saveUid/saveSleepMinutes). getUChar's default
+    // fallback covers the absent-key case so isKey is redundant here.
+    if (!prefs.begin("hdzero", true)) return kSleepDefaultMin;
+    uint8_t v = prefs.getUChar("slpmin", kSleepDefaultMin);
+    prefs.end();
+    return v;
 }
 
 inline bool loadUid(uint8_t uid[6]) {

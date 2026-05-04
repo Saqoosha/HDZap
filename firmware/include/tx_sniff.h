@@ -13,6 +13,13 @@
 inline volatile bool g_sniff_start_requested = false;
 inline volatile bool g_sniff_stop_requested  = false;
 
+// True while the recv callback is registered. Written by main-loop only
+// (sniff_start/sniff_stop are called from main.cpp's BLE-flag handlers),
+// read by main-loop's deep-sleep gate (issue #5 phase 3) — same task,
+// no mux needed. Bare volatile keeps the compiler from caching the read
+// across the gate's other condition checks.
+inline volatile bool g_sniff_active = false;
+
 // Edge flag + payload. Written by ESP-NOW recv callback (WiFi task),
 // read by main loop. Mux guards the 6-byte memcpy + flag pair so the
 // main loop never sees a partially-written UID.
@@ -50,6 +57,7 @@ inline bool sniff_start() {
         Serial.printf("TX sniff: register_recv_cb failed (%d)\n", err);
         return false;
     }
+    g_sniff_active = true;
     return true;
 }
 
@@ -59,5 +67,6 @@ inline bool sniff_stop() {
         Serial.printf("TX sniff: unregister_recv_cb failed (%d)\n", err);
         return false;
     }
+    g_sniff_active = false;
     return true;
 }

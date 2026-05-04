@@ -7,10 +7,12 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <esp_bt.h>          // esp_ble_tx_power_set, ESP_PWR_LVL_*
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 #include "espnow_link.h"
 #include "tx_sniff.h"
+#include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
 // Service UUID bumped from ...d479 → ...d489 to defeat iOS CoreBluetooth's
 // per-peripheral GATT cache. Without bonding, iOS will not re-discover a
@@ -19,6 +21,16 @@
 // returns the stale tree forever. A fresh service UUID has no cache, so
 // iOS falls through to a real GATT discovery and picks up every newly-
 // added characteristic. iOS app's CBUUID must move in lockstep.
+// Adding a characteristic without bumping the service UUID is safe ONLY
+// if no existing iOS build attempts to read or write it — iOS will not
+// see the new char via its cached GATT tree until the service UUID
+// changes. Bump the service UUID in the SAME change that ships an iOS
+// build that uses CHR_SLEEP_CONFIG_UUID (e.g. d48b → BluetoothManager
+// service constant flipped to match).
+//
+// Current state: CHR_SLEEP_CONFIG (`…d48a`) was added without a bump.
+// The existing iOS app doesn't read or write it, so the cache miss is
+// harmless — peripheral seeds the timeout from NVS (default 5 min).
 #define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
@@ -27,6 +39,7 @@
 #define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
 #define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
 #define CHR_BATTERY_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d488"
+#define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -92,6 +105,12 @@ inline volatile bool g_ble_connected = false;
 // ble_update_status.
 inline volatile uint8_t g_last_test_result = 0;
 
+// Deep-sleep timeout config (issue #5 phase 3). 1 byte = minutes,
+// 0 = disabled. iOS writes a single byte; main loop applies + persists
+// on the rising edge of g_sleep_minutes_changed.
+inline volatile bool g_sleep_minutes_changed = false;
+inline volatile uint8_t g_sleep_minutes_pending = 0;
+
 inline void ble_update_status() {
     if (!g_status_chr) return;
     uint8_t buf[8];
@@ -109,9 +128,21 @@ inline void ble_update_status() {
 }
 
 class ServerCallbacks : public BLEServerCallbacks {
-    void onConnect(BLEServer *s) override {
+    void onConnect(BLEServer *s, esp_ble_gatts_cb_param_t *param) override {
         g_ble_connected = true;
         ble_update_status();
+        // Issue #5 phase 2 redux: ask iOS for low-power conn params.
+        // 30-50 ms interval, latency 4 -> peripheral wakes 1/5 events
+        // when idle (effective ~250 ms), 4 s supervision timeout fits
+        // Apple Accessory Design Guidelines and survives the 30 s+ idle
+        // windows we see when the operator isn't pushing laps.
+        // updateConnParams takes 1.25 ms units for intervals and
+        // 10 ms units for the timeout.
+        s->updateConnParams(param->connect.remote_bda,
+                            24,   // min interval = 30 ms (24 * 1.25)
+                            40,   // max interval = 50 ms (40 * 1.25)
+                            4,    // slave latency = skip up to 4 events
+                            400); // supervision timeout = 4 s (400 * 10 ms)
     }
     void onDisconnect(BLEServer *s) override {
         g_ble_connected = false;
@@ -217,6 +248,26 @@ inline void ble_update_battery(const uint8_t payload[2]) {
     g_battery_chr->notify();
 }
 
+class SleepConfigCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() < 1) {
+            Serial.println("SleepConfig: empty write");
+            return;
+        }
+        uint8_t mins = (uint8_t)val[0];
+        // Stage under the mux so a second BLE write between the loop's
+        // flag-test and value-read can't be silently dropped (matches
+        // the OSD-text per-row staging pattern). uint8_t reads are
+        // atomic on ESP32-S3 so the byte itself isn't tearable; the
+        // mux is for the flag+payload pair, not the byte.
+        portENTER_CRITICAL(&g_ble_mux);
+        g_sleep_minutes_pending = mins;
+        g_sleep_minutes_changed = true;
+        portEXIT_CRITICAL(&g_ble_mux);
+    }
+};
+
 class OSDControlCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
@@ -272,8 +323,63 @@ class OSDTextCallback : public BLECharacteristicCallbacks {
     }
 };
 
+// Diagnostic GAP handler — surfaces conn-param negotiation outcome
+// (iOS may reject our request and pick its own) and advertising-start
+// failures so an "I can't see the device" complaint has a serial
+// breadcrumb. Status != 0 on UPDATE_CONN_PARAMS means the LL rejected
+// our request; in that case phase 2 redux's interval/latency savings
+// silently revert to whatever the central chose.
+inline void _ble_gap_diag_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
+    if (event == ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT) {
+        const auto& u = param->update_conn_params;
+        if (u.status != 0) {
+            Serial.printf("BLE conn params REJECTED: status=%d (central picked its own params)\n",
+                          (int)u.status);
+        }
+        Serial.printf("BLE conn params: interval=%u (%.2f ms) latency=%u timeout=%u (%u ms)\n",
+                      (unsigned)u.conn_int,
+                      u.conn_int * 1.25,
+                      (unsigned)u.latency,
+                      (unsigned)u.timeout,
+                      (unsigned)u.timeout * 10);
+    } else if (event == ESP_GAP_BLE_ADV_START_COMPLETE_EVT) {
+        if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
+            Serial.printf("BLE adv start FAILED: status=%d (peripheral invisible)\n",
+                          (int)param->adv_start_cmpl.status);
+        }
+    }
+}
+
 inline void ble_init(const char *device_name = "HDZeroOSD") {
     BLEDevice::init(device_name);
+    BLEDevice::setCustomGapHandler(_ble_gap_diag_handler);
+
+    // Issue #5 phase 2 redux: drop BLE TX power from the +9 dBm Arduino
+    // default to 0 dBm. The phone is on the operator's table, ~1-2 m
+    // away — high TX is wasted and the radio current scales with power.
+    // Apply to ADV and SCAN; CONN_HDL0 is intentionally NOT set here
+    // because per the ESP-IDF docs the per-connection-handle override
+    // is only valid AFTER the connection completes. ESP_BLE_PWR_TYPE_DEFAULT
+    // covers the connected case. A loud per-call check makes a future
+    // controller-state regression surface in serial instead of silently
+    // running at the +9 dBm default.
+    auto setBleTxOrLog = [](esp_ble_power_type_t t, esp_power_level_t lvl, const char* name) {
+        esp_err_t e = esp_ble_tx_power_set(t, lvl);
+        if (e != ESP_OK) {
+            Serial.printf("BLE TX power: %s set failed (%d)\n", name, (int)e);
+        }
+    };
+    setBleTxOrLog(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_N0, "DEFAULT");
+    setBleTxOrLog(ESP_BLE_PWR_TYPE_ADV,     ESP_PWR_LVL_N0, "ADV");
+    setBleTxOrLog(ESP_BLE_PWR_TYPE_SCAN,    ESP_PWR_LVL_N0, "SCAN");
+
+    // Verify the controller accepted the requested levels — getter
+    // reflects the runtime state, not the request.
+    Serial.printf("BLE TX power: DEFAULT=%d ADV=%d SCAN=%d (0=N0/0dBm, 11=P9/+9dBm)\n",
+                  esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT),
+                  esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_ADV),
+                  esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_SCAN));
+
     g_ble_server = BLEDevice::createServer();
     g_ble_server->setCallbacks(new ServerCallbacks());
 
@@ -316,6 +422,17 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         CHR_BATTERY_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_battery_chr->addDescriptor(new BLE2902());
+
+    BLECharacteristic *pSleep = pService->createCharacteristic(
+        CHR_SLEEP_CONFIG_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+    pSleep->setCallbacks(new SleepConfigCallback());
+    {
+        // Seed the read value with the persisted minutes so a fresh iOS
+        // read sees the actual current setting, not 0.
+        uint8_t cur = nvs_store::loadSleepMinutes();
+        pSleep->setValue(&cur, 1);
+    }
 
     pService->start();
 
