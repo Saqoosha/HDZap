@@ -45,6 +45,29 @@ inline bool saveUid(const uint8_t uid[6]) {
     return true;
 }
 
+// Deep-sleep timeout (issue #5 phase 3), persisted as a single byte =
+// minutes. 0 = disabled (never deep-sleep). Default returned by load
+// when no key exists is the kSleepDefaultMin compile-time fallback.
+inline constexpr uint8_t kSleepDefaultMin = 5;
+
+inline bool saveSleepMinutes(uint8_t minutes) {
+    Preferences prefs;
+    if (!prefs.begin("hdzero", false)) return false;
+    size_t n = prefs.putUChar("slpmin", minutes);
+    prefs.end();
+    return n == 1;
+}
+
+inline uint8_t loadSleepMinutes() {
+    Preferences prefs;
+    if (!prefs.begin("hdzero", true)) return kSleepDefaultMin;
+    uint8_t v = prefs.isKey("slpmin")
+        ? prefs.getUChar("slpmin", kSleepDefaultMin)
+        : kSleepDefaultMin;
+    prefs.end();
+    return v;
+}
+
 inline bool loadUid(uint8_t uid[6]) {
     Preferences prefs;
     // Read-only open fails when the namespace doesn't exist yet (first boot).

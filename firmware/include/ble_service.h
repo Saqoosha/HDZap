@@ -12,6 +12,7 @@
 #include <freertos/portmacro.h>
 #include "espnow_link.h"
 #include "tx_sniff.h"
+#include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
 // Service UUID bumped from ...d479 → ...d489 to defeat iOS CoreBluetooth's
 // per-peripheral GATT cache. Without bonding, iOS will not re-discover a
@@ -20,6 +21,15 @@
 // returns the stale tree forever. A fresh service UUID has no cache, so
 // iOS falls through to a real GATT discovery and picks up every newly-
 // added characteristic. iOS app's CBUUID must move in lockstep.
+// Service UUID stays at `…d489` for now. CHR_SLEEP_CONFIG (`…d48a`) was
+// added without a service bump — the new char isn't visible to an iOS
+// app that already cached the old service tree, but the existing iOS
+// app doesn't need to use it (default 5 min from NVS is fine), and
+// bumping the service would force the existing iOS app to rediscover
+// at exactly the moment we're testing deep-sleep + reconnect cycles.
+// When the iOS app is updated to surface the sleep-config UI, bump
+// the service to `…d48b` (or next free) and flip BluetoothManager
+// in the same change.
 #define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
@@ -28,6 +38,7 @@
 #define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
 #define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
 #define CHR_BATTERY_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d488"
+#define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -92,6 +103,12 @@ inline volatile bool g_ble_connected = false;
 // (under g_ble_mux for atomicity with the rest of the status frame) by
 // ble_update_status.
 inline volatile uint8_t g_last_test_result = 0;
+
+// Deep-sleep timeout config (issue #5 phase 3). 1 byte = minutes,
+// 0 = disabled. iOS writes a single byte; main loop applies + persists
+// on the rising edge of g_sleep_minutes_changed.
+inline volatile bool g_sleep_minutes_changed = false;
+inline volatile uint8_t g_sleep_minutes_pending = 0;
 
 inline void ble_update_status() {
     if (!g_status_chr) return;
@@ -230,6 +247,24 @@ inline void ble_update_battery(const uint8_t payload[2]) {
     g_battery_chr->notify();
 }
 
+class SleepConfigCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() < 1) {
+            Serial.println("SleepConfig: empty write");
+            return;
+        }
+        uint8_t mins = (uint8_t)val[0];
+        // Stage under the mux so a torn read in main.cpp can't pick up
+        // half-written state (matches the project's "callbacks stage,
+        // loop applies" convention for paired flag+payload writes).
+        portENTER_CRITICAL(&g_ble_mux);
+        g_sleep_minutes_pending = mins;
+        g_sleep_minutes_changed = true;
+        portEXIT_CRITICAL(&g_ble_mux);
+    }
+};
+
 class OSDControlCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
@@ -365,6 +400,17 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         CHR_BATTERY_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_battery_chr->addDescriptor(new BLE2902());
+
+    BLECharacteristic *pSleep = pService->createCharacteristic(
+        CHR_SLEEP_CONFIG_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+    pSleep->setCallbacks(new SleepConfigCallback());
+    {
+        // Seed the read value with the persisted minutes so a fresh iOS
+        // read sees the actual current setting, not 0.
+        uint8_t cur = nvs_store::loadSleepMinutes();
+        pSleep->setValue(&cur, 1);
+    }
 
     pService->start();
 

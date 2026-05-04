@@ -44,12 +44,19 @@ inline void _espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int le
 // ESP-NOW has one global recv callback slot. sniff_start registers our
 // handler; sniff_stop removes it. No other recv_cb is used in this project.
 // Returns false on IDF error (logs reason); main loop surfaces this to iOS.
+// True while the recv callback is registered. Read by main.cpp's deep
+// sleep path — sleep would cut WiFi RF and silently drop bind packets.
+// Set/cleared on the success path of start/stop so a register failure
+// doesn't leave it asserted.
+inline volatile bool g_sniff_active = false;
+
 inline bool sniff_start() {
     esp_err_t err = esp_now_register_recv_cb(_espnow_recv_cb);
     if (err != ESP_OK) {
         Serial.printf("TX sniff: register_recv_cb failed (%d)\n", err);
         return false;
     }
+    g_sniff_active = true;
     return true;
 }
 
@@ -59,5 +66,6 @@ inline bool sniff_stop() {
         Serial.printf("TX sniff: unregister_recv_cb failed (%d)\n", err);
         return false;
     }
+    g_sniff_active = false;
     return true;
 }
