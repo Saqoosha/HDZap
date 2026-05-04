@@ -27,6 +27,9 @@ build/
 # Misc
 *.log
 
+# Web flasher firmware bins (CI-generated, deployed via GitHub Pages)
+docs/flash/firmware/*.bin
+
 # Claude Code
 .claude/*
 !.claude/commands/
