@@ -10,7 +10,7 @@ struct RaceMetrics: Equatable {
     static let defaultTargetLapCount = 7
     static let minTargetLapCount = 2
     static let maxTargetLapCount = 99
-    static let osdRowMaxBytes = 19
+    static let osdRowMaxBytes = 50  // OSD grid width (OSD_COLS)
 
     let targetLapCount: Int
     let targetLapSec: TimeInterval
@@ -67,7 +67,7 @@ struct RaceMetrics: Equatable {
     /// look misaligned. The goggle keeps prior overlay content between
     /// writes (no clear before each row), so a fixed width per row
     /// ensures a shorter update cleanly overwrites a longer prior value.
-    static let osdRowWidths: [Int] = [19, 19, 19, 19]
+    static let osdRowWidths: [Int] = [50, 50, 50, 50]  // fill full OSD row
 
     /// TIME LEFT row, padded so the centered position is stable as the
     /// digit count changes across the full session-limit range (single,
@@ -95,9 +95,9 @@ struct RaceMetrics: Equatable {
     }
 
     /// Post-race results: lap count, total time, average, and best lap.
-    /// All rows use width 19 so longer labels (LAPS, AVG, BEST) don't
-    /// truncate. Row 2 prefers spaces + 2 decimals, then spaces + 1
-    /// decimal, then falls back to compact (no spaces).
+    /// All rows fill the full 50-col grid so labels never truncate.
+    /// Row 2 always keeps 1/100s precision — it drops spacing before
+    /// dropping a decimal place.
     static func resultOSDRows(lapCount: Int, totalTime: TimeInterval,
                               avgTime: TimeInterval, bestTime: TimeInterval?) -> [String] {
         let best = bestTime.map { seconds($0, decimals: 2) } ?? "--"
@@ -106,11 +106,12 @@ struct RaceMetrics: Equatable {
         if row2Full.count <= osdRowMaxBytes {
             row2 = row2Full
         } else {
-            let best1 = bestTime.map { seconds($0, decimals: 1) } ?? "--"
-            let row2Spaced = "AVG \(seconds(avgTime, decimals: 1)) BEST \(best1)"
-            if row2Spaced.count <= osdRowMaxBytes {
-                row2 = row2Spaced
+            let best2 = bestTime.map { seconds($0, decimals: 2) } ?? "--"
+            let row2Compact = "AVG\(seconds(avgTime, decimals: 2)) BEST\(best2)"
+            if row2Compact.count <= osdRowMaxBytes {
+                row2 = row2Compact
             } else {
+                let best1 = bestTime.map { seconds($0, decimals: 1) } ?? "--"
                 row2 = "AVG\(seconds(avgTime, decimals: 1)) BEST\(best1)"
             }
         }

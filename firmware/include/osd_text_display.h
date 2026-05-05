@@ -19,7 +19,7 @@
 class OSDTextDisplay {
 public:
     static constexpr uint8_t ROW_COUNT = 4;
-    static constexpr uint8_t ROW_TEXT_MAX = 19;
+    static constexpr uint8_t ROW_TEXT_MAX = 50;  // OSD_COLS — full grid width
 
     void begin(OSD *osd) {
         m_osd = osd;

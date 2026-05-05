@@ -76,7 +76,7 @@ inline volatile bool g_osd_test_requested = false;
 inline volatile bool g_uid_config_requested = false;
 
 inline constexpr uint8_t OSD_TEXT_ROW_COUNT = 4;
-inline constexpr uint8_t OSD_TEXT_ROW_MAX = 19;
+inline constexpr uint8_t OSD_TEXT_ROW_MAX = 50;  // OSD_COLS — full grid width
 inline char g_osd_text_rows[OSD_TEXT_ROW_COUNT][OSD_TEXT_ROW_MAX + 1] = {};
 // Bitmask of rows that have new content waiting for the main loop to
 // dispatch. Cleared after the loop snapshots and renders. Bit i = row i.
