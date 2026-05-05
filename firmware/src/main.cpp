@@ -76,9 +76,10 @@ static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
 static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 /// Staging window before the first render dispatch. New dirty rows
 /// that arrive within this window are batched into a single cycle
-/// instead of each triggering a separate 200 ms verify pass. 25 ms
-/// comfortably covers 4 back-to-back BLE writes so the Ready and
-/// Results displays (4 rows each) appear atomically.
+/// instead of each triggering a separate 200 ms verify pass. 80 ms
+/// covers 4 back-to-back BLE writes (worst-case ~30 ms connection
+/// interval each) with margin, so Ready and Results displays (4 rows
+/// each) appear atomically.
 static constexpr uint32_t RENDER_STAGING_MS       = 80;
 
 // --- Power saving (issue #5, phase 3 deep sleep) -------------------------
