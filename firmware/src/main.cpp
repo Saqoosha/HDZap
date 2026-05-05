@@ -74,6 +74,12 @@ static uint8_t  g_render_dispatched_mask = 0;
 static constexpr uint32_t RENDER_VERIFY_MS        = 200;
 static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
 static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
+/// Staging window before the first render dispatch. New dirty rows
+/// that arrive within this window are batched into a single cycle
+/// instead of each triggering a separate 200 ms verify pass. 25 ms
+/// comfortably covers 4 back-to-back BLE writes so the Ready and
+/// Results displays (4 rows each) appear atomically.
+static constexpr uint32_t RENDER_STAGING_MS       = 25;
 
 // --- Power saving (issue #5, phase 3 deep sleep) -------------------------
 // After g_sleep_timeout_ms of no operator activity (same definition as
@@ -459,8 +465,11 @@ void loop() {
     //     arrived in the meantime
     // Without this, a row written during WAITING_ACK would sit in
     // m_dirty unrendered until the next BLE edge.
+    // RENDER_STAGING_MS delay batches BLE writes that arrive back-to-back
+    // into a single cycle — 4-row Ready/Results displays appear atomically
+    // instead of line-by-line across multiple 200 ms verify passes.
     if (g_render_state == RenderState::IDLE && espnow_ready && osdTextDisplay.hasDirty()) {
-        requestRender();
+        requestRender(RENDER_STAGING_MS);
     }
 
     // --- Render dispatch -------------------------------------------------
