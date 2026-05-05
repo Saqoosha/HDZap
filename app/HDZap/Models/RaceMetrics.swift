@@ -10,7 +10,7 @@ struct RaceMetrics: Equatable {
     static let defaultTargetLapCount = 7
     static let minTargetLapCount = 2
     static let maxTargetLapCount = 99
-    static let osdRowMaxBytes = 19
+    static let osdRowMaxBytes = 50  // OSD grid width (OSD_COLS)
 
     let targetLapCount: Int
     let targetLapSec: TimeInterval
@@ -61,13 +61,13 @@ struct RaceMetrics: Equatable {
         "\(paceLaps)L"
     }
 
-    /// Padding width per OSD row. Fixed widths matter because the goggle
-    /// keeps prior overlay content between writes (we don't clear before
-    /// each row update); a shorter new value would leave stale chars
-    /// from the previous frame trailing the centered text. Padding to
-    /// a stable width per row pins the centered position so updates
-    /// always overwrite the same span.
-    static let osdRowWidths: [Int] = [13, 14, 19, 19]
+    /// Padding width per OSD row. All rows use the same width so every
+    /// line is centered at the same column — different widths would put
+    /// rows 0-1 at col 18 and rows 2-3 at col 15, making the display
+    /// look misaligned. The goggle keeps prior overlay content between
+    /// writes (no clear before each row), so a fixed width per row
+    /// ensures a shorter update cleanly overwrites a longer prior value.
+    static let osdRowWidths: [Int] = [50, 50, 50, 50]  // fill full OSD row
 
     /// TIME LEFT row, padded so the centered position is stable as the
     /// digit count changes across the full session-limit range (single,
@@ -78,6 +78,49 @@ struct RaceMetrics: Equatable {
     static func timeLeftRow(remainingSec: TimeInterval) -> String {
         let secs = max(0, Int(remainingSec.rounded()))
         return padOSD("TIME LEFT \(secs)", width: osdRowWidths[0])
+    }
+
+    /// Pre-race "Ready" display: race time, target lap count, and target
+    /// pace on the goggle so the pilot can verify settings before the start.
+    /// No "s" suffix on numbers — the HDZero glyph set renders S as 5.
+    static func readyOSDRows(targetLapCount: Int, sessionLimit: TimeInterval) -> [String] {
+        let target = clampedTargetLapCount(targetLapCount)
+        let pace = targetLapSeconds(for: target, sessionLimit: sessionLimit)
+        return [
+            padOSD("READY", width: osdRowWidths[0]),
+            padOSD("RACE \(Int(sessionLimit))", width: osdRowWidths[1]),
+            padOSD("\(target)LAPS @ \(seconds(pace, decimals: 2))", width: osdRowWidths[2]),
+            padOSD("", width: osdRowWidths[3]),
+        ]
+    }
+
+    /// Post-race results: lap count, total time, average, and best lap.
+    /// All rows fill the full 50-col grid so labels never truncate.
+    /// Row 2 always keeps 1/100s precision — it drops spacing before
+    /// dropping a decimal place.
+    static func resultOSDRows(lapCount: Int, totalTime: TimeInterval,
+                              avgTime: TimeInterval, bestTime: TimeInterval?) -> [String] {
+        let best = bestTime.map { seconds($0, decimals: 2) } ?? "--"
+        let row2Full = "AVG \(seconds(avgTime, decimals: 2)) BEST \(best)"
+        let row2: String
+        if row2Full.count <= osdRowMaxBytes {
+            row2 = row2Full
+        } else {
+            let best2 = bestTime.map { seconds($0, decimals: 2) } ?? "--"
+            let row2Compact = "AVG\(seconds(avgTime, decimals: 2)) BEST\(best2)"
+            if row2Compact.count <= osdRowMaxBytes {
+                row2 = row2Compact
+            } else {
+                let best1 = bestTime.map { seconds($0, decimals: 1) } ?? "--"
+                row2 = "AVG\(seconds(avgTime, decimals: 1)) BEST\(best1)"
+            }
+        }
+        return [
+            padOSD("DONE", width: osdRowMaxBytes),
+            padOSD("\(lapCount)LAPS \(seconds(totalTime, decimals: 2))", width: osdRowMaxBytes),
+            padOSD(row2, width: osdRowMaxBytes),
+            padOSD("", width: osdRowMaxBytes),
+        ]
     }
 
     /// Bottom three rows derived from the latest lap, padded so they
@@ -92,13 +135,18 @@ struct RaceMetrics: Equatable {
         ]
     }
 
-    /// Pad to `width` with trailing spaces (or truncate to `width` if
-    /// the source is longer). Caps at `osdRowMaxBytes` regardless so
-    /// the BLE payload always fits the firmware's per-row limit.
+    /// Center text within `width` by adding equal leading and trailing
+    /// spaces. Caps at `osdRowMaxBytes` so the BLE payload always fits
+    /// the firmware's per-row limit. Unlike right-padding, this produces
+    /// a visually centered string on the goggle OSD.
     static func padOSD(_ line: String, width: Int) -> String {
         let cap = min(width, osdRowMaxBytes)
-        if line.count >= cap { return String(line.prefix(cap)) }
-        return line + String(repeating: " ", count: cap - line.count)
+        let text = String(line.prefix(cap))
+        let padding = cap - text.count
+        if padding <= 0 { return text }
+        let left = padding / 2
+        let right = padding - left
+        return String(repeating: " ", count: left) + text + String(repeating: " ", count: right)
     }
 
     private var osdAverageLine: String {
