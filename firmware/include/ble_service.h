@@ -404,7 +404,7 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
     pOSD->setCallbacks(new OSDControlCallback());
 
     BLECharacteristic *pOSDText = pService->createCharacteristic(
-        CHR_OSD_TEXT_UUID, BLECharacteristic::PROPERTY_WRITE);
+        CHR_OSD_TEXT_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
     pOSDText->setCallbacks(new OSDTextCallback());
 
     g_status_chr = pService->createCharacteristic(
