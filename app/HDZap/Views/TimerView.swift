@@ -125,7 +125,7 @@ struct TimerView: View {
                         lapRowsWithTrend
                             .padding(.horizontal, 24)
                     }
-                    .padding(.bottom, 220) // ActionDock clearance
+                    .padding(.bottom, 260) // ActionDock clearance (taller with READY button)
                 }
                 .scrollIndicators(.hidden)
             }
@@ -187,7 +187,10 @@ struct TimerView: View {
         // if anything else re-evaluates the body while still in the ended
         // state.
         .onChange(of: sessionEnded) { _, ended in
-            if ended { saveRaceIfNeeded() }
+            if ended {
+                saveRaceIfNeeded()
+                sendResultOSD()
+            }
         }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
@@ -506,13 +509,35 @@ struct TimerView: View {
                  worstTime: worstTime)
     }
 
+    // MARK: - Ready button
+
+    private var readyButton: some View {
+        Button {
+            sendReadyOSD()
+        } label: {
+            Text("SHOW READY")
+                .font(.editorialMono(12, weight: .bold))
+                .tracking(2.0)
+                .foregroundStyle(EditorialTheme.ink)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(EditorialTheme.ink.opacity(0.2), lineWidth: 0.5))
+        }
+    }
+
     // MARK: - Action dock
 
     private var actionDock: some View {
-        ZStack {
-            // Chrome matches across STOP/RESET and SHARE so the dock reads as
-            // a symmetric trio around the hero button.
-            HStack {
+        VStack(spacing: 10) {
+            if !lapTimer.isRunning && !sessionEnded && lapTimer.laps.isEmpty && bluetooth.isReady {
+                readyButton
+            }
+
+            ZStack {
+                // Chrome matches across STOP/RESET and SHARE so the dock reads as
+                // a symmetric trio around the hero button.
+                HStack {
                 Button(action: secondaryAction) {
                     Text(secondaryLabel)
                         .font(.editorialMono(10, weight: .bold))
@@ -567,6 +592,7 @@ struct TimerView: View {
         }
         .frame(height: 168)
         .padding(.bottom, 24)
+        }
     }
 
     @State private var primaryPulse = false
@@ -770,6 +796,39 @@ struct TimerView: View {
             (row: 1, text: rows[0]),
             (row: 2, text: rows[1]),
             (row: 3, text: rows[2]),
+        ])
+    }
+
+    /// Push the pre-race Ready display: race time, target lap count, and
+    /// target pace. All four rows are sent so stale content from a prior
+    /// race is fully overwritten.
+    private func sendReadyOSD() {
+        let rows = RaceMetrics.readyOSDRows(
+            targetLapCount: clampedTargetLapCount,
+            sessionLimit: sessionLimit)
+        bluetooth.sendOSDRows([
+            (row: 0, text: rows[0]),
+            (row: 1, text: rows[1]),
+            (row: 2, text: rows[2]),
+            (row: 3, text: rows[3]),
+        ])
+    }
+
+    /// Push the post-race results summary to the goggle. Called once when
+    /// the session ends so the pilot sees the final tally on the OSD.
+    private func sendResultOSD() {
+        guard !lapTimer.laps.isEmpty else { return }
+        let total = lapTimer.laps.reduce(0) { $0 + $1.time }
+        let rows = RaceMetrics.resultOSDRows(
+            lapCount: lapTimer.laps.count,
+            totalTime: total,
+            avgTime: avgTime,
+            bestTime: bestTime)
+        bluetooth.sendOSDRows([
+            (row: 0, text: rows[0]),
+            (row: 1, text: rows[1]),
+            (row: 2, text: rows[2]),
+            (row: 3, text: rows[3]),
         ])
     }
 

@@ -331,18 +331,21 @@ class BluetoothManager: NSObject {
         return write(data: data, to: osdTextUUID)
     }
 
-    /// Send a batch of OSD rows. Bails on the first failed write and
-    /// returns false — earlier rows in the batch are already queued
-    /// against the goggle by then, so callers should treat a partial
-    /// failure as "the goggle has rows up to the failed one and the
-    /// rest are stale". Kept simple over an aggregate sent/total
-    /// return so the existing `_ = bluetooth.sendOSDRows(...)` call
-    /// sites still type-check; if richer error UX is needed later,
-    /// surface a sticky "goggle stale" flag on the manager.
+    /// Send a batch of OSD rows without waiting for per-row BLE
+    /// acknowledgement. All rows fire back-to-back so they arrive at the
+    /// firmware within a single connection interval instead of serialising
+    /// 30+ ms each. The firmware's render staging window collects them
+    /// into one atomic ESP-NOW cycle.
     @discardableResult
     func sendOSDRows(_ rows: [(row: Int, text: String)]) -> Bool {
         for entry in rows {
-            guard sendOSDRow(row: entry.row, text: entry.text) else { return false }
+            guard (0..<4).contains(entry.row) else {
+                lastError = "OSD row \(entry.row) out of range (0..3)."
+                return false
+            }
+            var data = Data([UInt8(entry.row)])
+            data.append(Self.osdASCIIData(for: entry.text))
+            guard writeWithoutResponse(data: data, to: osdTextUUID) else { return false }
         }
         return true
     }
@@ -372,6 +375,19 @@ class BluetoothManager: NSObject {
 
     @discardableResult
     private func write(data: Data, to uuid: CBUUID) -> Bool {
+        return write(data: data, to: uuid, type: .withResponse)
+    }
+
+    /// Write without waiting for ATT-layer acknowledgement. Used for bulk
+    /// OSD rows where speed matters more than per-write confirmation —
+    /// 4 rows fire back-to-back instead of serialising 30+ ms each.
+    @discardableResult
+    private func writeWithoutResponse(data: Data, to uuid: CBUUID) -> Bool {
+        return write(data: data, to: uuid, type: .withoutResponse)
+    }
+
+    @discardableResult
+    private func write(data: Data, to uuid: CBUUID, type: CBCharacteristicWriteType) -> Bool {
         guard let peripheral = connectedPeripheral else {
             lastError = "Not connected. Tap Scan and reconnect."
             return false
@@ -380,7 +396,7 @@ class BluetoothManager: NSObject {
             lastError = "Characteristic not ready. Wait for discovery or reconnect."
             return false
         }
-        peripheral.writeValue(data, for: characteristic, type: .withResponse)
+        peripheral.writeValue(data, for: characteristic, type: type)
         return true
     }
 
