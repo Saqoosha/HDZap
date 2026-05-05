@@ -61,13 +61,13 @@ struct RaceMetrics: Equatable {
         "\(paceLaps)L"
     }
 
-    /// Padding width per OSD row. Fixed widths matter because the goggle
-    /// keeps prior overlay content between writes (we don't clear before
-    /// each row update); a shorter new value would leave stale chars
-    /// from the previous frame trailing the centered text. Padding to
-    /// a stable width per row pins the centered position so updates
-    /// always overwrite the same span.
-    static let osdRowWidths: [Int] = [13, 14, 19, 19]
+    /// Padding width per OSD row. All rows use the same width so every
+    /// line is centered at the same column — different widths would put
+    /// rows 0-1 at col 18 and rows 2-3 at col 15, making the display
+    /// look misaligned. The goggle keeps prior overlay content between
+    /// writes (no clear before each row), so a fixed width per row
+    /// ensures a shorter update cleanly overwrites a longer prior value.
+    static let osdRowWidths: [Int] = [19, 19, 19, 19]
 
     /// TIME LEFT row, padded so the centered position is stable as the
     /// digit count changes across the full session-limit range (single,
