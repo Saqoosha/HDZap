@@ -79,7 +79,7 @@ static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 /// instead of each triggering a separate 200 ms verify pass. 25 ms
 /// comfortably covers 4 back-to-back BLE writes so the Ready and
 /// Results displays (4 rows each) appear atomically.
-static constexpr uint32_t RENDER_STAGING_MS       = 25;
+static constexpr uint32_t RENDER_STAGING_MS       = 80;
 
 // --- Power saving (issue #5, phase 3 deep sleep) -------------------------
 // After g_sleep_timeout_ms of no operator activity (same definition as
