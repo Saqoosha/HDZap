@@ -134,13 +134,18 @@ struct RaceMetrics: Equatable {
         ]
     }
 
-    /// Pad to `width` with trailing spaces (or truncate to `width` if
-    /// the source is longer). Caps at `osdRowMaxBytes` regardless so
-    /// the BLE payload always fits the firmware's per-row limit.
+    /// Center text within `width` by adding equal leading and trailing
+    /// spaces. Caps at `osdRowMaxBytes` so the BLE payload always fits
+    /// the firmware's per-row limit. Unlike right-padding, this produces
+    /// a visually centered string on the goggle OSD.
     static func padOSD(_ line: String, width: Int) -> String {
         let cap = min(width, osdRowMaxBytes)
-        if line.count >= cap { return String(line.prefix(cap)) }
-        return line + String(repeating: " ", count: cap - line.count)
+        let text = String(line.prefix(cap))
+        let padding = cap - text.count
+        if padding <= 0 { return text }
+        let left = padding / 2
+        let right = padding - left
+        return String(repeating: " ", count: left) + text + String(repeating: " ", count: right)
     }
 
     private var osdAverageLine: String {
