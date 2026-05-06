@@ -258,3 +258,11 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 #error-msg { font-weight: 600; margin-top: 6px; }
+
+.lang-switch {
+  margin: 0 0 16px;
+  font-size: 0.9em;
+  color: var(--muted);
+  text-align: right;
+}
+.lang-switch strong { color: var(--text); }
