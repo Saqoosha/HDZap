@@ -2,6 +2,8 @@
 
 iPhone manual lap timer that sends lap times to HDZero FPV goggles via ESP32 bridge.
 
+> 📖 End-user manual: **[English](https://saqoosha.github.io/HDZap/)** ・ **[日本語](https://saqoosha.github.io/HDZap/ja/)**
+
 ```
 ┌──────────┐  BLE GATT  ┌──────────┐  ESP-NOW   ┌──────────┐
 │  iPhone  │ ─────────→ │  ESP32   │ ─────────→ │ HDZero   │
