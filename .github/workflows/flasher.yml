@@ -6,6 +6,7 @@ on:
     paths:
       - "firmware/**"
       - "docs/flash/**"
+      - "docs/manual/**"
       - ".github/workflows/flasher.yml"
   workflow_dispatch:
 
@@ -94,14 +95,32 @@ jobs:
           sha256sum *.bin > CHECKSUMS.txt
           cat CHECKSUMS.txt
 
-      - name: Stage Pages artefact (flash/ only — never expose docs/superpowers/, docs/REPORT.md, etc.)
+      - name: Stage Pages artefact (only allow-listed paths — never expose docs/superpowers/, docs/REPORT.md, etc.)
         run: |
           set -euo pipefail
           rm -rf _site
-          mkdir -p _site/flash
+          mkdir -p _site/flash _site/ja _site/images _site/ja/images
+
+          # Web Flasher (existing)
           cp -r docs/flash/. _site/flash/
+
+          # End-user manual: en at root, ja at /ja/, images mirrored under both
+          cp docs/manual/_pages/index.html _site/index.html
+          cp docs/manual/_pages/ja/index.html _site/ja/index.html
+          cp docs/manual/en.md _site/index.md
+          cp docs/manual/ja.md _site/ja/index.md
+          cp -r docs/manual/images/. _site/images/
+          cp -r docs/manual/images/. _site/ja/images/
+
+          # Favicons live at root for browser auto-discovery
+          cp docs/manual/favicon.ico        _site/favicon.ico
+          cp docs/manual/favicon-16x16.png  _site/favicon-16x16.png
+          cp docs/manual/favicon-32x32.png  _site/favicon-32x32.png
+          cp docs/manual/apple-touch-icon.png _site/apple-touch-icon.png
+
+          # Disable Jekyll — manual pages render markdown client-side via marked.js
           touch _site/.nojekyll
-          ls -la _site _site/flash
+          ls -la _site _site/flash _site/ja
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
