@@ -30,6 +30,9 @@ build/
 # Web flasher firmware bins (CI-generated, deployed via GitHub Pages)
 docs/flash/firmware/*.bin
 
+# Pages build output (CI-generated; see .github/workflows/flasher.yml)
+_site/
+
 # Claude Code
 .claude/*
 !.claude/commands/
