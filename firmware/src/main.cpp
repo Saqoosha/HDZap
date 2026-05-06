@@ -106,6 +106,9 @@ static constexpr uint32_t RENDER_STAGING_MS       = 80;
 //     just power, they want it responsive
 //   - g_sniff_active or g_sniff_start_requested — sleep would silently
 //     drop bind packets in flight (or lose the staged start request)
+//   - telemetry_sniff::g_telemetry_sniff_active or _start_requested —
+//     same reasoning: an iOS-driven backpack-telemetry debug session
+//     would silently die mid-stream
 //   - g_render_state != IDLE — mid-OSD-render, finish the cycle first
 //   - g_sleep_minutes_changed — pending config update goes first; see
 //     the consumer block immediately above the gate
@@ -630,8 +633,20 @@ void loop() {
     // --- TX sniff handling -------------------------------------------
     // Start/stop driven by iOS; capture relayed to iOS via BLE notify so
     // the operator can apply the caught UID as the new goggle target.
+    //
+    // Mutual exclusion with telemetry_sniff: ESP-NOW exposes one global
+    // recv_cb slot. Starting either sniff while the other is live would
+    // silently overwrite its handler, so we stop the other first. The
+    // BLE protocol exposes start/stop as independent commands per
+    // characteristic — centralising the ordering here keeps the iOS
+    // side from having to coordinate the two channels manually.
     if (g_sniff_start_requested) {
         g_sniff_start_requested = false;
+        if (telemetry_sniff::g_telemetry_sniff_active) {
+            if (telemetry_sniff::telemetry_sniff_stop()) {
+                Serial.println("Telemetry sniff: stopped (preempted by TX sniff)");
+            }
+        }
         if (sniff_start()) {
             Serial.println("TX sniff: started");
         }
@@ -653,6 +668,45 @@ void loop() {
         Serial.printf("TX UID captured: %02X:%02X:%02X:%02X:%02X:%02X\n",
                       uid[0], uid[1], uid[2], uid[3], uid[4], uid[5]);
         ble_notify_tx_uid(uid);
+    }
+
+    // --- Telemetry debug sniff handling ------------------------------
+    // Start/stop driven by iOS Backpack Telemetry Debug subview. Each
+    // captured ESP-NOW packet is shipped to iOS as a 20-byte record
+    // (telemetry_sniff::RECORD_SIZE / layout in telemetry_sniff.h).
+    // Mutually exclusive with TX sniff per the comment above.
+    if (telemetry_sniff::g_telemetry_start_requested) {
+        telemetry_sniff::g_telemetry_start_requested = false;
+        if (g_sniff_active) {
+            if (sniff_stop()) {
+                Serial.println("TX sniff: stopped (preempted by telemetry debug)");
+            }
+        }
+        if (telemetry_sniff::telemetry_sniff_start()) {
+            Serial.println("Telemetry sniff: started");
+        }
+    }
+
+    if (telemetry_sniff::g_telemetry_stop_requested) {
+        telemetry_sniff::g_telemetry_stop_requested = false;
+        if (telemetry_sniff::telemetry_sniff_stop()) {
+            Serial.println("Telemetry sniff: stopped");
+        }
+    }
+
+    // Drain one telemetry record per loop iteration. With the main loop
+    // delay(10) below this caps notify rate at ~100 packets/sec — well
+    // under what BLE can sustain at our 30-50 ms negotiated connection
+    // interval, but enough headroom for the ELRS telemetry rate (CRSF
+    // telemetry typically ≤ 50 Hz). Sustained overflow shows up in the
+    // dropped counter on the iOS view.
+    if (telemetry_sniff::g_telemetry_sniff_active) {
+        uint8_t record[telemetry_sniff::RECORD_SIZE];
+        uint16_t dropped;
+        uint32_t total;
+        if (telemetry_sniff::telemetry_pop(record, dropped, total)) {
+            ble_notify_telemetry_packet(record);
+        }
     }
 
     if (g_osd_reset_laps_requested) {
@@ -725,6 +779,8 @@ void loop() {
         !batteryMonitor.charging() &&
         !g_sniff_active &&
         !g_sniff_start_requested &&
+        !telemetry_sniff::g_telemetry_sniff_active &&
+        !telemetry_sniff::g_telemetry_start_requested &&
         g_render_state == RenderState::IDLE) {
         Serial.println("Deep sleep — wake on BtnA/BtnB press");
         // USB CDC Serial.flush() only drains the FreeRTOS-side queue, not

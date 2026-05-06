@@ -10,10 +10,61 @@ enum OSDCommand: UInt8 {
     case testOSD = 0x03
 }
 
-// Service UUID bumped from ...d479 → ...d489 in lockstep with firmware,
-// to defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
+/// One ESP-NOW packet captured by the firmware telemetry sniffer.
+/// Wire format is the 20-byte record produced by
+/// `telemetry_sniff::_telemetry_recv_cb` — keep this struct's decoder
+/// in lockstep with that layout.
+struct BackpackTelemetryRecord: Identifiable {
+    let id = UUID()
+    /// Wall-clock timestamp at iOS receive time. Used by the debug
+    /// view for the "packets/sec" rate calculation and for ordering
+    /// the live log; the firmware doesn't include a timestamp in the
+    /// record because the connection interval already serializes
+    /// arrivals to a few-ms resolution at the iOS side.
+    let receivedAt: Date
+    /// Source MAC of the ESP-NOW packet. ELRS backpacks use their UID
+    /// as the MAC, so this directly identifies the broadcaster (TX
+    /// backpack, goggle backpack, another peer).
+    let mac: [UInt8]
+    /// MSP function code (MSPv1 cmd byte or MSPv2 16-bit function),
+    /// or nil when the packet didn't carry an MSP preamble.
+    let mspFunctionCode: UInt16?
+    /// Raw ESP-NOW packet length, capped at 255 by the firmware.
+    let payloadLength: UInt8
+    /// True when the packet starts with `$X<` (modern ELRS format).
+    let isMSPv2: Bool
+    /// True when the packet starts with `$M<` (legacy MSP).
+    let isMSPv1: Bool
+    /// First 10 bytes of the raw packet, for hex-dump display.
+    let firstBytes: [UInt8]
+
+    /// Decode a 20-byte BLE notify payload into a record. Returns nil
+    /// on a short or malformed payload — same defensive pattern as the
+    /// status / battery decoders, which surface size mismatches as a
+    /// version-skew error rather than silently misinterpreting bytes.
+    init?(data: Data) {
+        guard data.count >= 20 else { return nil }
+        receivedAt = Date()
+        mac = Array(data[0..<6])
+        let fnRaw = UInt16(data[6]) | (UInt16(data[7]) << 8)
+        payloadLength = data[8]
+        let flags = data[9]
+        isMSPv2 = (flags & 0x01) != 0
+        isMSPv1 = (flags & 0x02) != 0
+        // 0xFFFF is the firmware's "non-MSP" sentinel — see
+        // telemetry_sniff.h::_telemetry_recv_cb.
+        mspFunctionCode = (isMSPv2 || isMSPv1) ? fnRaw : nil
+        firstBytes = Array(data[10..<20])
+    }
+}
+
+// Service UUID bumped d479 → d489 → d490 in lockstep with firmware, to
+// defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
 // added characteristics are otherwise invisible until the iPhone is rebooted).
-private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
+// This bump ships CHR_TELEMETRY_DEBUG_UUID for the Backpack Telemetry Debug
+// subview; existing pairings need a one-time toggle of iOS Bluetooth
+// (or forget-and-rescan) before the new characteristic becomes visible.
+private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d490")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
 // CHR_LAP_TIME_UUID (...d483) was retired when the firmware switched to the
@@ -24,6 +75,7 @@ private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
 private let osdTextUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d487")
 private let batteryUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d488")
+private let telemetryDebugUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48b")
 
 @MainActor
 @Observable
@@ -132,6 +184,32 @@ class BluetoothManager: NSObject {
     /// stay consistent without a reset. Cleared on user-initiated disconnect
     /// and tearDownConnection where firmware state is also discarded.
     private(set) var isTXSniffActive = false
+
+    /// True while the Backpack Telemetry Debug subview has asked the
+    /// firmware to capture all incoming ESP-NOW packets. Same locally-
+    /// toggled-no-firmware-echo pattern as isTXSniffActive. Cleared on
+    /// disconnect / teardown. Mutually exclusive with isTXSniffActive on
+    /// the firmware side — the iOS view does not need to track the
+    /// other state because the firmware silently preempts the loser.
+    private(set) var isTelemetryDebugActive = false
+
+    /// Rolling buffer of recently-captured backpack telemetry records,
+    /// newest first. Capped at `telemetryDebugCapacity` so a long-running
+    /// debug session can't grow @Observable state without bound. Cleared
+    /// when the user starts a fresh session (so per-session counts are
+    /// meaningful) and on disconnect / teardown.
+    private(set) var telemetryDebugRecords: [BackpackTelemetryRecord] = []
+    /// Total notifies received since the current session started. The
+    /// firmware ring's dropped count is logged to serial on the device
+    /// but not currently surfaced over BLE — the 20-byte notify payload
+    /// is fully spent on packet data. If/when ring overflow shows up in
+    /// real-world testing we can extend the wire format to include it.
+    private(set) var telemetryDebugTotalSeen: UInt32 = 0
+
+    /// Capacity for `telemetryDebugRecords`. ~200 lines covers several
+    /// seconds of even a chatty ELRS link without overwhelming the
+    /// SwiftUI list renderer or the @Observable diff cost.
+    static let telemetryDebugCapacity = 200
     /// Recent errors, newest at index 0. Capped at `errorLogCapacity`;
     /// overflows and consecutive-duplicate collapses both increment
     /// `droppedErrorCount`, which the UI surfaces as
@@ -264,6 +342,7 @@ class BluetoothManager: NSObject {
         previousUID = nil
         capturedTXUID = nil
         isTXSniffActive = false
+        resetTelemetryDebugState()
         resetBatteryState()
         centralManager.cancelPeripheralConnection(peripheral)
     }
@@ -358,7 +437,14 @@ class BluetoothManager: NSObject {
     @discardableResult
     func startTXSniff() -> Bool {
         let ok = write(data: Data([0x01]), to: txSniffUUID)
-        if ok { isTXSniffActive = true }
+        if ok {
+            isTXSniffActive = true
+            // Firmware preempts telemetry sniff on a TX-sniff start
+            // (one ESP-NOW recv-cb slot, see telemetry_sniff.h docstring).
+            // Mirror that here so the iOS state doesn't lie about the
+            // telemetry stream still being live after the preempt.
+            isTelemetryDebugActive = false
+        }
         return ok
     }
 
@@ -371,6 +457,44 @@ class BluetoothManager: NSObject {
 
     func clearCapturedTXUID() {
         capturedTXUID = nil
+    }
+
+    /// Ask the firmware to start streaming every captured ESP-NOW packet
+    /// over CHR_TELEMETRY_DEBUG_UUID. Wipes the local rolling log + per-
+    /// session counters so the debug view starts each session from a
+    /// clean slate; the firmware does the same on its side (see
+    /// telemetry_sniff::telemetry_sniff_start). Mutually exclusive with
+    /// TX sniff — the firmware preempts whichever was running.
+    @discardableResult
+    func startTelemetryDebug() -> Bool {
+        let ok = write(data: Data([0x01]), to: telemetryDebugUUID)
+        if ok {
+            isTelemetryDebugActive = true
+            // Mirror the firmware-side preempt: a telemetry-debug start
+            // takes the recv-cb slot away from TX sniff. Without this
+            // mirror, the Settings TX UID Capture row would keep
+            // showing the spinner while the firmware has already
+            // dropped the listener.
+            isTXSniffActive = false
+            telemetryDebugRecords = []
+            telemetryDebugTotalSeen = 0
+            telemetryDebugDropped = 0
+        }
+        return ok
+    }
+
+    @discardableResult
+    func stopTelemetryDebug() -> Bool {
+        let ok = write(data: Data([0x00]), to: telemetryDebugUUID)
+        if ok { isTelemetryDebugActive = false }
+        return ok
+    }
+
+    /// Wipe the local rolling log without touching the firmware sniffer.
+    /// Used by the debug view's "Clear log" button so the operator can
+    /// reset the visible window without restarting the capture.
+    func clearTelemetryDebugLog() {
+        telemetryDebugRecords = []
     }
 
     @discardableResult
@@ -404,6 +528,16 @@ class BluetoothManager: NSObject {
         batteryPercent = nil
         isCharging = false
         batteryAlarm = .none
+    }
+
+    /// Wipe all backpack-telemetry-debug state. Called on every teardown
+    /// path (user disconnect, app-initiated tear, peripheral drop) so a
+    /// stale capture window from a prior M5Stick can't surface against
+    /// the next one.
+    private func resetTelemetryDebugState() {
+        isTelemetryDebugActive = false
+        telemetryDebugRecords = []
+        telemetryDebugTotalSeen = 0
     }
 
     private static func osdASCIIData(for line: String) -> Data {
@@ -528,7 +662,8 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID, batteryUUID
+            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID,
+            osdTextUUID, batteryUUID, telemetryDebugUUID
         ], for: service)
     }
 
@@ -546,7 +681,8 @@ extension BluetoothManager: CBPeripheralDelegate {
         let chars = service.characteristics ?? []
         for char in chars {
             characteristics[char.uuid] = char
-            if char.uuid == statusUUID || char.uuid == txSniffUUID || char.uuid == batteryUUID {
+            if char.uuid == statusUUID || char.uuid == txSniffUUID
+                || char.uuid == batteryUUID || char.uuid == telemetryDebugUUID {
                 peripheral.setNotifyValue(true, for: char)
             }
             // Battery is push-only from firmware: the connect-edge notify
@@ -600,6 +736,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         previousUID = nil
         capturedTXUID = nil
         isTXSniffActive = false
+        resetTelemetryDebugState()
         resetBatteryState()
         connectedPeripheral = nil
         characteristics = [:]
@@ -617,6 +754,13 @@ extension BluetoothManager: CBPeripheralDelegate {
             if let error {
                 resetBatteryState()
                 lastError = "Battery subscribe failed: \(error.localizedDescription). Device battery state won't appear in-app."
+            }
+            return
+        }
+        if characteristic.uuid == telemetryDebugUUID {
+            if let error {
+                resetTelemetryDebugState()
+                lastError = "Telemetry debug subscribe failed: \(error.localizedDescription). Backpack Telemetry Debug won't show packets."
             }
             return
         }
@@ -651,6 +795,25 @@ extension BluetoothManager: CBPeripheralDelegate {
         if characteristic.uuid == txSniffUUID {
             guard let data = characteristic.value, data.count == 6 else { return }
             capturedTXUID = Array(data)
+            return
+        }
+        if characteristic.uuid == telemetryDebugUUID {
+            guard let data = characteristic.value,
+                  let record = BackpackTelemetryRecord(data: data) else {
+                let n = characteristic.value?.count ?? 0
+                lastError = "Telemetry debug frame unexpected size (\(n)B, expected 20). Firmware/app version mismatch?"
+                return
+            }
+            telemetryDebugRecords.insert(record, at: 0)
+            // Trim from the tail so the visible buffer stays bounded.
+            // SwiftUI's List handles a 200-element @Observable update
+            // cheaply; growing without bound would degrade scroll perf
+            // over a long debug session.
+            if telemetryDebugRecords.count > Self.telemetryDebugCapacity {
+                telemetryDebugRecords.removeLast(
+                    telemetryDebugRecords.count - Self.telemetryDebugCapacity)
+            }
+            telemetryDebugTotalSeen &+= 1
             return
         }
         if characteristic.uuid == batteryUUID {
@@ -754,6 +917,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         case txSniffUUID: return "TX sniff"
         case osdTextUUID: return "OSD text"
         case batteryUUID: return "Battery"
+        case telemetryDebugUUID: return "Telemetry debug"
         default: return uuid.uuidString
         }
     }

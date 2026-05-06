@@ -705,6 +705,23 @@ struct SettingsView: View {
                 _ = bluetooth.sendOSDControl(command: .clear)
             }
             .disabled(!bluetooth.isReady)
+
+            // Subview navigation — the Backpack Telemetry Debug screen
+            // toggles its own ESP-NOW capture mode on the firmware
+            // (mutually exclusive with TX UID Capture above). Disabled
+            // when not connected so the user doesn't push a screen that
+            // can't talk to anything.
+            NavigationLink {
+                BackpackTelemetryDebugView()
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Backpack Telemetry Debug")
+                    Text("Live ESP-NOW packet sniffer for verifying ELRS backpack telemetry forwarding.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!bluetooth.isConnected)
         }
     }
 

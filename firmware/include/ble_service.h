@@ -12,9 +12,10 @@
 #include <freertos/portmacro.h>
 #include "espnow_link.h"
 #include "tx_sniff.h"
+#include "telemetry_sniff.h"
 #include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
-// Service UUID bumped from ...d479 → ...d489 to defeat iOS CoreBluetooth's
+// Service UUID bumped d479 → d489 → d490 to defeat iOS CoreBluetooth's
 // per-peripheral GATT cache. Without bonding, iOS will not re-discover a
 // peripheral's services when characteristics are added — the original
 // service signature stays cached in bluetoothd, and discoverServices()
@@ -24,22 +25,23 @@
 // Adding a characteristic without bumping the service UUID is safe ONLY
 // if no existing iOS build attempts to read or write it — iOS will not
 // see the new char via its cached GATT tree until the service UUID
-// changes. Bump the service UUID in the SAME change that ships an iOS
-// build that uses CHR_SLEEP_CONFIG_UUID (e.g. d48b → BluetoothManager
-// service constant flipped to match).
+// changes.
 //
-// Current state: CHR_SLEEP_CONFIG (`…d48a`) was added without a bump.
-// The existing iOS app doesn't read or write it, so the cache miss is
-// harmless — peripheral seeds the timeout from NVS (default 5 min).
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d489"
-#define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
-#define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
-#define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
-#define CHR_STATUS_UUID         "f47ac10b-58cc-4372-a567-0e02b2c3d485"
-#define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
-#define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
-#define CHR_BATTERY_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d488"
-#define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
+// Current bump rationale: shipping CHR_TELEMETRY_DEBUG (`…d48b`) for the
+// iOS Backpack Telemetry Debug subview. iOS WILL read/write this char,
+// so the bump is owed (per the rule above). The previously-without-bump
+// CHR_SLEEP_CONFIG (`…d48a`) also becomes naturally visible after this
+// bump — it was harmless before because the iOS app never touched it.
+#define BLE_SERVICE_UUID         "f47ac10b-58cc-4372-a567-0e02b2c3d490"
+#define CHR_UID_CONFIG_UUID      "f47ac10b-58cc-4372-a567-0e02b2c3d481"
+#define CHR_BIND_CMD_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d482"
+#define CHR_OSD_CONTROL_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d484"
+#define CHR_STATUS_UUID          "f47ac10b-58cc-4372-a567-0e02b2c3d485"
+#define CHR_TX_SNIFF_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d486"
+#define CHR_OSD_TEXT_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d487"
+#define CHR_BATTERY_UUID         "f47ac10b-58cc-4372-a567-0e02b2c3d488"
+#define CHR_SLEEP_CONFIG_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
+#define CHR_TELEMETRY_DEBUG_UUID "f47ac10b-58cc-4372-a567-0e02b2c3d48b"
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -95,6 +97,7 @@ inline BLEServer *g_ble_server = nullptr;
 inline BLECharacteristic *g_status_chr = nullptr;
 inline BLECharacteristic *g_tx_sniff_chr = nullptr;
 inline BLECharacteristic *g_battery_chr = nullptr;
+inline BLECharacteristic *g_telemetry_chr = nullptr;
 inline volatile bool g_ble_connected = false;
 // Last Test OSD outcome, surfaced via status notify so the iOS pairing
 // flow can verify a fresh bind landed without asking the user to look at
@@ -220,10 +223,47 @@ class TXSniffCallback : public BLECharacteristicCallbacks {
     }
 };
 
+class TelemetryDebugCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() < 1) return;
+        uint8_t cmd = (uint8_t)val[0];
+        // Same start/stop wire format as TX sniff: 0x01=start, 0x00=stop.
+        // Mutual exclusion with TX sniff (they share the one ESP-NOW
+        // recv-callback slot) is enforced in main.cpp's flag handler,
+        // not here — keeping the callback identical across the two
+        // sniff modes makes the wire protocol uniform and the start
+        // ordering decision explicit at the consumer site.
+        if (cmd == 0x01) telemetry_sniff::g_telemetry_start_requested = true;
+        else if (cmd == 0x00) telemetry_sniff::g_telemetry_stop_requested = true;
+    }
+};
+
 inline void ble_notify_tx_uid(const uint8_t uid[6]) {
     if (!g_tx_sniff_chr) return;
     g_tx_sniff_chr->setValue(const_cast<uint8_t *>(uid), 6);
     g_tx_sniff_chr->notify();
+}
+
+/// Push a single telemetry packet record (RECORD_SIZE bytes, layout
+/// documented in telemetry_sniff.h) to iOS. Caller (main.cpp) owns
+/// the throttle decision — this helper just mirrors bytes onto the
+/// notify channel, mirroring the ble_update_battery / ble_notify_tx_uid
+/// pattern. Same null-guard behavior as ble_update_battery: a missing
+/// characteristic (createCharacteristic returned nullptr at boot due to
+/// numHandles overflow) logs once and silently drops, so the main loop
+/// keeps running.
+inline void ble_notify_telemetry_packet(const uint8_t record[telemetry_sniff::RECORD_SIZE]) {
+    if (!g_telemetry_chr) {
+        static bool warned = false;
+        if (!warned) {
+            Serial.println("ble_notify_telemetry_packet: g_telemetry_chr is null (GATT setup failed?)");
+            warned = true;
+        }
+        return;
+    }
+    g_telemetry_chr->setValue(const_cast<uint8_t *>(record), telemetry_sniff::RECORD_SIZE);
+    g_telemetry_chr->notify();
 }
 
 /// Push the latest battery payload to the iOS app. Caller (main.cpp) is
@@ -433,6 +473,12 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         uint8_t cur = nvs_store::loadSleepMinutes();
         pSleep->setValue(&cur, 1);
     }
+
+    g_telemetry_chr = pService->createCharacteristic(
+        CHR_TELEMETRY_DEBUG_UUID,
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
+    g_telemetry_chr->addDescriptor(new BLE2902());
+    g_telemetry_chr->setCallbacks(new TelemetryDebugCallback());
 
     pService->start();
 
