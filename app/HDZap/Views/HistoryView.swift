@@ -177,8 +177,8 @@ private struct HistoryRow: View {
 }
 
 /// Horizontal sparkline of lap times — one polyline through every lap,
-/// best lap dot in the race's stored accent. Top of the plot = fastest,
-/// bottom = slowest; a flat line reads as consistent pace, a spike as a
+/// best lap dot in the race's stored accent. Top of the plot = slowest,
+/// bottom = fastest; a flat line reads as consistent pace, a spike as a
 /// slow lap.
 private struct MiniLapTrendChart: View {
     let laps: [RaceRecord.LapEntry]
@@ -203,7 +203,7 @@ private struct MiniLapTrendChart: View {
             // instead of the line jumping to the top while the dots
             // center themselves.
             let yFor: (TimeInterval) -> CGFloat = { t in
-                hasVariation ? pad + CGFloat((t - minT) / range) * plotH
+                hasVariation ? pad + CGFloat((maxT - t) / range) * plotH
                              : pad + plotH / 2
             }
 
