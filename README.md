@@ -173,7 +173,7 @@ python3 -m http.server 8765 --directory docs --bind 127.0.0.1
 - **Current**: [M5StickS3](https://www.switch-science.com/products/10921) (ESP32-S3, 1.14" IPS LCD, BtnA/BtnB on GPIO11/12, AXP2101 PMIC, internal 250 mAh battery, USB-C, internal speaker)
 - HDZero Goggle with ELRS backpack
 - Buttons are multi-purpose: wake the LCD from idle sleep, silence the battery alarm, and wake from deep sleep (ext1 wake on GPIO11/12)
-- **Other compatible boards**: see [docs/compatible-devices.md](docs/compatible-devices.md) for the full list of ESP32 chips and dev boards (battery-included and battery-external) that can run HDZap firmware.
+- **Other ESP32 boards**: not currently supported. The firmware target in [`firmware/platformio.ini`](firmware/platformio.ini) is M5StickS3 only. [docs/compatible-devices.md](docs/compatible-devices.md) catalogues the chips and devkits that could *technically* run HDZap (BLE + ESP-NOW capable) — that's a future-support plan, not shipped functionality.
 
 ## Technical Details
 
