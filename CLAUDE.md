@@ -10,11 +10,21 @@ FPV drone racing use case: operator taps LAP on phone, lap time appears on pilot
 ```
 firmware/                 ESP32 PlatformIO project (Arduino framework)
 app/                      iOS SwiftUI app (iOS 18+, xcodegen)
-docs/                     Research reports and architecture docs (NOT served on Pages)
-docs/flash/               Browser firmware flasher served on GitHub Pages (esptool-js, M5StickS3)
-scripts/                  Test scripts
-.github/workflows/        CI: Web Flasher build/deploy (TestFlight is currently scripts/-driven)
+docs/                     Architecture, research, TestFlight setup (only docs/manual/ + docs/flash/ ship to Pages)
+docs/manual/              End-user manual (en + ja); served on GitHub Pages
+docs/flash/               Browser firmware flasher (esptool-js, M5StickS3); served on GitHub Pages
+scripts/                  build / upload-testflight / release helpers
+.github/workflows/        CI: builds firmware for both branches, composes Pages artefact, deploys
+.claude/skills/release/   Release skill (auto-triggers on "release" / "ship it" / etc.)
 ```
+
+## Branching & Deployment
+
+- `develop` (default) → CI deploys staging at `/dev/`, `/dev/flash/`, `/dev/ja/`.
+- `main` (PR-only, branch-protected) → CI deploys production at `/`, `/flash/`, `/ja/`.
+- Pages is one site per repo, so the workflow checks out **both** branches on every push, builds firmware for each, and composes a single `_site/` (main at root, develop mirrored under `/dev/`). Pushing to either branch refreshes its slice without disturbing the other.
+- Releases promote develop → main via a release PR driven by [`scripts/release.sh`](scripts/release.sh) / the [`release`](.claude/skills/release/SKILL.md) skill. Direct push to `main` is rejected by branch protection.
+- `manifest.json` is stamped per side as `<branch>-<short sha>` so the live page identifies which build it is.
 
 ## Build Commands
 

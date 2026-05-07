@@ -10,11 +10,20 @@ FPV drone racing use case: operator taps LAP on phone, lap time appears on pilot
 ```
 firmware/                 ESP32 PlatformIO project (Arduino framework)
 app/                      iOS SwiftUI app (iOS 18+, xcodegen)
-docs/                     Research reports and architecture docs (NOT served on Pages)
-docs/flash/               Browser firmware flasher served on GitHub Pages (esptool-js)
-scripts/                  Test scripts
-.github/workflows/        CI: Web Flasher build/deploy (TestFlight is currently scripts/-driven)
+docs/                     Architecture, research, TestFlight setup (allow-listed: only docs/manual/ + docs/flash/ ship to Pages)
+docs/manual/              End-user manual (en + ja); served on GitHub Pages
+docs/flash/               Browser firmware flasher (esptool-js); served on GitHub Pages
+scripts/                  build / upload-testflight / release helpers
+.github/workflows/        CI: builds firmware, composes Pages artefact, deploys (TestFlight upload is scripts/-driven via the release skill)
+.claude/skills/release/   Claude Code skill for cutting a release end-to-end (develop bump → TestFlight → PR develop→main → tag → GitHub Release)
 ```
+
+## Branching & Deployment
+
+- `develop` = default branch; CI deploys staging to <https://saqoosha.github.io/HDZap/dev/> (`/dev/flash/`, `/dev/ja/`).
+- `main` = release branch, protected (PR-only merge, no force push, no delete, admin bypass enabled). CI deploys production at the canonical paths (`/`, `/flash/`, `/ja/`).
+- Pages is one site per repo, so the workflow checks out **both** branches on every push, builds firmware for each, and composes a single `_site/` with main at the root and develop mirrored under `/dev/`. Pushing to either branch refreshes its slice without touching the other.
+- Releases promote develop → main through a release PR (script-driven). Direct push to `main` is rejected.
 
 ## Build Commands
 
@@ -31,8 +40,9 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 
 ## Web Flasher (`docs/flash/`)
 
-Browser-based firmware installer hosted on GitHub Pages at
-`https://saqoosha.github.io/HDZap/flash/`. Drives `esptool-js` directly (NOT
+Browser-based firmware installer hosted on GitHub Pages. Production at
+`https://saqoosha.github.io/HDZap/flash/`, staging at
+`https://saqoosha.github.io/HDZap/dev/flash/`. Drives `esptool-js` directly (NOT
 ESP Web Tools / `<esp-web-install-button>`) so the entire UI is custom Japanese
 copy with no English library dialogs. Target hardware: M5StickS3 only.
 
@@ -40,21 +50,30 @@ copy with no English library dialogs. Target hardware: M5StickS3 only.
   (idle / working / done / error). No external custom elements.
 - `docs/flash/flasher.js` — ES module that imports `ESPLoader` + `Transport`
   from `https://unpkg.com/esptool-js@0.5.7/bundle.js` and runs the flash flow.
-  Pinned to 0.5.7: 0.6.x has a known regression where compressed `writeFlash`
-  on ESP32-S3 fails with `status 201 (ESP_TOO_MUCH_DATA)`.
+  All firmware paths are resolved via `new URL("firmware/...", import.meta.url)`
+  so the page works at any subpath (root `/flash/` *and* `/dev/flash/`)
+  without modification. Pinned to 0.5.7: 0.6.x has a known regression where
+  compressed `writeFlash` on ESP32-S3 fails with
+  `status 201 (ESP_TOO_MUCH_DATA)`.
 - `docs/flash/manifest.json` — single field (`version`). CI overwrites the
-  value with `${GITHUB_REF_NAME}-<short SHA>` so the deployed page can show
-  which build is live; nothing else is consumed at runtime.
+  value with `<branch>-<short SHA>` (e.g. `main-743c728`, `develop-9f09570`)
+  per side so the deployed page can show which build is live and which slice
+  it belongs to; nothing else is consumed at runtime.
 - `docs/flash/m5sticks3.jpg` — product photo (M5Stack), credited in footer.
 - `docs/flash/firmware/*.bin` — produced by CI, **gitignored**; copying locally
   for testing is fine.
-- `.github/workflows/flasher.yml` — `pio run -e m5stick-s3` → stages 4 bins
-  (`bootloader.bin`, `partitions.bin`, `boot_app0.bin`, `firmware.bin → hdzap.bin`)
-  → size-checks each bin (>= 1 KiB) → writes `CHECKSUMS.txt` → stamps version
-  into `manifest.json` → copies `docs/flash/` into `_site/flash/` (NEVER the
-  whole `docs/` tree — that would expose `docs/superpowers/` and other prose
-  docs) → uploads `_site/` as the Pages artefact → deploys via
-  `actions/deploy-pages`.
+- `.github/workflows/flasher.yml` — checks out `main` and `develop` side by
+  side, runs `pio run -e m5stick-s3` for each, stages 4 bins
+  (`bootloader.bin`, `partitions.bin`, `boot_app0.bin`,
+  `firmware.bin → hdzap.bin`), size-checks each (>= 1 KiB), writes
+  `CHECKSUMS.txt`, stamps the per-branch `manifest.json`, then composes
+  `_site/` with **main at the root** (`_site/flash/`, `_site/index.html`,
+  `_site/ja/`) and **develop mirrored under `/dev/`** (`_site/dev/flash/`,
+  `_site/dev/index.html`, `_site/dev/ja/`). Allow-list approach: ONLY the
+  paths under `docs/manual/` and `docs/flash/` are copied — never the whole
+  `docs/` tree, so `docs/report.md` / `docs/architecture.md` / etc. stay
+  unpublished. PR builds compose the same artefact (with the PR head on the
+  targeted side) but the deploy job is gated to push events.
 - ESP32-S3 partition offsets used by `flasher.js` `PARTS`:
   `0x0 / 0x8000 / 0xe000 / 0x10000` (S3 starts the bootloader at 0,
   **not** 0x1000 like classic ESP32).
@@ -69,7 +88,9 @@ copy with no English library dialogs. Target hardware: M5StickS3 only.
   first; the page header will show `version: dev` because the CI version
   stamp only runs on deploy.
 - GitHub Pages must be set to Source = "GitHub Actions" in repo
-  Settings → Pages for the workflow to deploy.
+  Settings → Pages for the workflow to deploy. The `github-pages`
+  environment's deployment-branch policy explicitly allows both `main` and
+  `develop`; new branches that need to deploy must be added there.
 
 ## Key Technical Constraints
 

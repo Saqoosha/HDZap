@@ -198,17 +198,20 @@ External Testers（最大10000人）は Beta App Review が必要（初回のみ
 
 ## 次のリリース時の最小フロー
 
+`develop` で working tree クリーン、`origin/develop` と同期している状態から：
+
 ```sh
-# 一発でリリース：version bump → archive → upload → jj commit → tag → push
-./scripts/release.sh 1.0.1
+# 一発でリリース：bump → archive → upload → develop push → CI 待ち
+#   → PR develop → main → merge → tag → GitHub Release → develop fast-forward
+MODEL_NAME="Opus 4.7" ./scripts/release.sh 1.0.1
 ```
 
 スクリプトの中身：
 - `scripts/build.sh` — `xcodegen generate` + `xcodebuild archive`
 - `scripts/upload-testflight.sh` — `exportArchive` + `altool --upload-app`
-- `scripts/release.sh` — version 番号を `app/project.yml` の `MARKETING_VERSION` に書き込み、`CURRENT_PROJECT_VERSION` を +1、build → upload → jj commit → main bookmark 更新 → push → git tag
+- `scripts/release.sh` — pre-flight（`develop` 上、tree clean、`origin/develop` 同期、tag 未使用）→ `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` bump → build → TestFlight upload（**ここから先は不可逆**）→ `jj describe` + `develop` push → develop CI green 待ち → `gh pr create develop → main` → `gh pr merge --merge` → tag → `gh release create` → ローカル develop を main に fast-forward
 
-Claude Code から：`/release` で diff から自動的に version bump 種別を判断して走らせる（[`.claude/commands/release.md`](../.claude/commands/release.md)）。
+Claude Code から：`release` skill が "release" / "ship it" / "TestFlight build" 等のキーワードで自動発動して上のフローを走らせる（[`.claude/skills/release/SKILL.md`](../.claude/skills/release/SKILL.md)）。`MODEL_NAME` 環境変数は必須（commit の `Co-Authored-By` 行に走っているモデル名を載せるため）。
 
 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` は `app/project.yml` の `settings.base` で定義し、Info.plist では `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` placeholder で参照（Canopy と同じパターン）。
 
