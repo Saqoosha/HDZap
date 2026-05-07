@@ -13,6 +13,7 @@ struct TimerView: View {
     @Environment(BluetoothManager.self) private var bluetooth
     @Environment(LapAnnouncer.self) private var announcer
     @Environment(RaceHistoryStore.self) private var history
+    @Environment(OSDLayoutSettings.self) private var osdLayout
     @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
     @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
@@ -155,6 +156,15 @@ struct TimerView: View {
         }
         .onAppear {
             clampTargetLapCountSetting()
+            // .onChange(of: bluetooth.isReady) below only fires on
+            // transitions, so a TimerView that mounts AFTER an iOS
+            // auto-reconnect already settled would otherwise leave the
+            // M5Stick on its boot-default bottom-anchored layout. The
+            // sendOSDLayout silently no-ops when the layout char hasn't
+            // been discovered yet, so this is safe to call unconditionally.
+            if bluetooth.isReady {
+                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.yOffset)
+            }
         }
         .onChange(of: targetLapCount) { _, _ in
             handleTargetLapCountChange()
@@ -191,6 +201,25 @@ struct TimerView: View {
                 saveRaceIfNeeded()
                 sendResultOSD()
             }
+        }
+        // Replay the OSD layout Y offset whenever the goggle becomes
+        // reachable. Firmware doesn't persist this setting (per project
+        // decision: iOS owns it), so a fresh boot, deep-sleep wake, or
+        // BLE reconnect would otherwise revert the goggle to the
+        // bottom-anchored default while iOS still thinks the user's
+        // preferred offset is in effect.
+        .onChange(of: bluetooth.isReady) { _, ready in
+            if ready { _ = bluetooth.sendOSDLayout(yOffset: osdLayout.yOffset) }
+        }
+        // Same intent for layout changes from the Settings sheet: the
+        // user can be in a paused/idle race when they reopen the layout
+        // editor, and the editor's own debounced push only runs while
+        // its view is on screen. A subsequent layout tweak from this
+        // screen would then race with the next sendXxxOSD; explicitly
+        // resync here keeps both ends in step regardless of which view
+        // last touched the setting.
+        .onChange(of: osdLayout.yOffset) { _, newY in
+            if bluetooth.isReady { _ = bluetooth.sendOSDLayout(yOffset: newY) }
         }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
@@ -779,8 +808,10 @@ struct TimerView: View {
     /// (e.g. `TIME LEFT 9` after `TIME LEFT 45`) cleanly overwrites the
     /// prior text without a firmware-side clear.
     private func sendTimeLeftRow() {
-        bluetooth.sendOSDRow(row: 0,
-                             text: RaceMetrics.timeLeftRow(remainingSec: remaining))
+        bluetooth.sendOSDRow(
+            row: 0,
+            text: RaceMetrics.timeLeftRow(remainingSec: remaining,
+                                          layout: osdLayout.snapshot))
     }
 
     /// Push the bottom three rows (LAP / AVG / DIFF) when a lap is
@@ -791,7 +822,7 @@ struct TimerView: View {
     /// wiped it).
     private func sendMetricRows() {
         guard let metrics = metricsSnapshot else { return }
-        let rows = metrics.osdMetricRows
+        let rows = metrics.osdMetricRows(layout: osdLayout.snapshot)
         bluetooth.sendOSDRows([
             (row: 1, text: rows[0]),
             (row: 2, text: rows[1]),
@@ -805,7 +836,8 @@ struct TimerView: View {
     private func sendReadyOSD() {
         let rows = RaceMetrics.readyOSDRows(
             targetLapCount: clampedTargetLapCount,
-            sessionLimit: sessionLimit)
+            sessionLimit: sessionLimit,
+            layout: osdLayout.snapshot)
         bluetooth.sendOSDRows([
             (row: 0, text: rows[0]),
             (row: 1, text: rows[1]),
@@ -823,7 +855,8 @@ struct TimerView: View {
             lapCount: lapTimer.laps.count,
             totalTime: total,
             avgTime: avgTime,
-            bestTime: bestTime)
+            bestTime: bestTime,
+            layout: osdLayout.snapshot)
         bluetooth.sendOSDRows([
             (row: 0, text: rows[0]),
             (row: 1, text: rows[1]),

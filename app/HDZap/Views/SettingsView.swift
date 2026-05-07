@@ -69,6 +69,7 @@ struct SettingsView: View {
                 errorSection
                 raceSection
                 appearanceSection
+                osdLayoutSection
                 audioSection
                 bluetoothSection
                 currentUIDSection
@@ -411,6 +412,24 @@ struct SettingsView: View {
                 Text("More voices: Settings → Accessibility → Spoken Content → Voices.")
             }
             .font(.caption2)
+        }
+    }
+
+    /// One-line entry into the OSD layout editor (vertical position,
+    /// per-row alignment, per-row show/hide). Lives in its own NavigationLink
+    /// because the editor needs the full screen for the live preview rows.
+    private var osdLayoutSection: some View {
+        Section {
+            NavigationLink {
+                OSDLayoutSettingsView()
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("OSD Layout")
+                    Text("Position, alignment, show/hide on the goggle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

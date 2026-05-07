@@ -11,6 +11,7 @@ struct RaceMetrics: Equatable {
     static let minTargetLapCount = 2
     static let maxTargetLapCount = 99
     static let osdRowMaxBytes = 50  // OSD grid width (OSD_COLS)
+    static let osdTextRowCount = 4  // matches OSDTextDisplay::ROW_COUNT
 
     let targetLapCount: Int
     let targetLapSec: TimeInterval
@@ -75,23 +76,26 @@ struct RaceMetrics: Equatable {
     /// to 180s). The "S" suffix was dropped: on the HDZero glyph set
     /// `S` renders as a `5` and gets read as part of the number
     /// (`45S` → `455`).
-    static func timeLeftRow(remainingSec: TimeInterval) -> String {
+    static func timeLeftRow(remainingSec: TimeInterval,
+                            layout: OSDLayoutConfig = .default) -> String {
         let secs = max(0, Int(remainingSec.rounded()))
-        return padOSD("TIME LEFT \(secs)", width: osdRowWidths[0])
+        return layout.renderRow("TIME LEFT \(secs)", at: 0)
     }
 
     /// Pre-race "Ready" display: race time, target lap count, and target
     /// pace on the goggle so the pilot can verify settings before the start.
     /// No "s" suffix on numbers — the HDZero glyph set renders S as 5.
-    static func readyOSDRows(targetLapCount: Int, sessionLimit: TimeInterval) -> [String] {
+    static func readyOSDRows(targetLapCount: Int, sessionLimit: TimeInterval,
+                             layout: OSDLayoutConfig = .default) -> [String] {
         let target = clampedTargetLapCount(targetLapCount)
         let pace = targetLapSeconds(for: target, sessionLimit: sessionLimit)
-        return [
-            padOSD("READY", width: osdRowWidths[0]),
-            padOSD("RACE \(Int(sessionLimit))", width: osdRowWidths[1]),
-            padOSD("\(target)LAPS @ \(seconds(pace, decimals: 2))", width: osdRowWidths[2]),
-            padOSD("", width: osdRowWidths[3]),
+        let raws = [
+            "READY",
+            "RACE \(Int(sessionLimit))",
+            "\(target)LAPS @ \(seconds(pace, decimals: 2))",
+            "",
         ]
+        return raws.enumerated().map { i, raw in layout.renderRow(raw, at: i) }
     }
 
     /// Post-race results: lap count, total time, average, and best lap.
@@ -99,7 +103,8 @@ struct RaceMetrics: Equatable {
     /// Row 2 always keeps 1/100s precision — it drops spacing before
     /// dropping a decimal place.
     static func resultOSDRows(lapCount: Int, totalTime: TimeInterval,
-                              avgTime: TimeInterval, bestTime: TimeInterval?) -> [String] {
+                              avgTime: TimeInterval, bestTime: TimeInterval?,
+                              layout: OSDLayoutConfig = .default) -> [String] {
         let best = bestTime.map { seconds($0, decimals: 2) } ?? "--"
         let row2Full = "AVG \(seconds(avgTime, decimals: 2)) BEST \(best)"
         let row2: String
@@ -115,38 +120,52 @@ struct RaceMetrics: Equatable {
                 row2 = "AVG\(seconds(avgTime, decimals: 1)) BEST\(best1)"
             }
         }
-        return [
-            padOSD("DONE", width: osdRowMaxBytes),
-            padOSD("\(lapCount)LAPS \(seconds(totalTime, decimals: 2))", width: osdRowMaxBytes),
-            padOSD(row2, width: osdRowMaxBytes),
-            padOSD("", width: osdRowMaxBytes),
+        let raws = [
+            "DONE",
+            "\(lapCount)LAPS \(seconds(totalTime, decimals: 2))",
+            row2,
+            "",
         ]
+        return raws.enumerated().map { i, raw in layout.renderRow(raw, at: i) }
     }
 
     /// Bottom three rows derived from the latest lap, padded so they
     /// can overlay prior content without leftover chars. Sent only
     /// when a lap is recorded — independent of the TIME LEFT tick.
-    var osdMetricRows: [String] {
-        [
-            Self.padOSD("LAP \(lapNumber) \(Self.seconds(lastLapSec, decimals: 3))",
-                        width: Self.osdRowWidths[1]),
-            Self.padOSD(osdAverageLine, width: Self.osdRowWidths[2]),
-            Self.padOSD(osdDiffLine, width: Self.osdRowWidths[3])
+    /// Returned indices map to OSD rows 1, 2, 3 respectively (row 0 is
+    /// the TIME LEFT tick), which is also why per-row alignment lookup
+    /// adds 1 to the local enumeration index.
+    func osdMetricRows(layout: OSDLayoutConfig = .default) -> [String] {
+        let raws = [
+            "LAP \(lapNumber) \(Self.seconds(lastLapSec, decimals: 3))",
+            osdAverageLine,
+            osdDiffLine,
         ]
+        return raws.enumerated().map { i, raw in layout.renderRow(raw, at: i + 1) }
     }
 
-    /// Center text within `width` by adding equal leading and trailing
-    /// spaces. Caps at `osdRowMaxBytes` so the BLE payload always fits
-    /// the firmware's per-row limit. Unlike right-padding, this produces
-    /// a visually centered string on the goggle OSD.
-    static func padOSD(_ line: String, width: Int) -> String {
+    /// Pad text within `width` using `alignment` to decide which side
+    /// of the string the spaces go on. Caps at `osdRowMaxBytes` so the
+    /// BLE payload always fits the firmware's per-row limit.
+    /// Center is the legacy default — pre-existing call sites without
+    /// an alignment argument keep their original look.
+    static func padOSD(_ line: String, width: Int,
+                       alignment: OSDRowAlignment = .center) -> String {
         let cap = min(width, osdRowMaxBytes)
         let text = String(line.prefix(cap))
         let padding = cap - text.count
         if padding <= 0 { return text }
-        let left = padding / 2
-        let right = padding - left
-        return String(repeating: " ", count: left) + text + String(repeating: " ", count: right)
+        switch alignment {
+        case .left:
+            return text + String(repeating: " ", count: padding)
+        case .right:
+            return String(repeating: " ", count: padding) + text
+        case .center:
+            let left = padding / 2
+            let right = padding - left
+            return String(repeating: " ", count: left) + text
+                + String(repeating: " ", count: right)
+        }
     }
 
     private var osdAverageLine: String {

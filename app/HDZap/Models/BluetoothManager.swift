@@ -10,10 +10,12 @@ enum OSDCommand: UInt8 {
     case testOSD = 0x03
 }
 
-// Service UUID bumped from ...d479 → ...d489 in lockstep with firmware,
+// Service UUID bumped from ...d489 → ...d48c in lockstep with firmware,
 // to defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
 // added characteristics are otherwise invisible until the iPhone is rebooted).
-private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
+// This bump ships with the new osdLayoutUUID + the previously-deferred
+// CHR_SLEEP_CONFIG (...d48a).
+private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48c")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
 // CHR_LAP_TIME_UUID (...d483) was retired when the firmware switched to the
@@ -24,6 +26,7 @@ private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
 private let osdTextUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d487")
 private let batteryUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d488")
+private let osdLayoutUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48b")
 
 @MainActor
 @Observable
@@ -355,6 +358,33 @@ class BluetoothManager: NSObject {
         write(data: Data([command.rawValue]), to: osdControlUUID)
     }
 
+    /// Push the OSD layout Y offset to the firmware. Single signed byte:
+    /// rows to shift the 4-row block up from the bottom of the grid
+    /// (0 = bottom-anchored default, negative = move up). Per-row
+    /// alignment / show-hide are applied entirely on the iOS side via
+    /// the existing OSD text path, so they don't ride this characteristic.
+    /// Optional on the firmware side (older builds without the
+    /// characteristic just return false here without surfacing an error,
+    /// since the layout setting is a UX-only feature, not a correctness
+    /// requirement for laps).
+    @discardableResult
+    func sendOSDLayout(yOffset: Int) -> Bool {
+        let clamped = max(-128, min(127, yOffset))
+        let byte = UInt8(bitPattern: Int8(clamped))
+        guard characteristics[osdLayoutUUID] != nil else {
+            // Older firmware without CHR_OSD_LAYOUT: silently no-op so a
+            // mixed app/firmware version doesn't spam the error log every
+            // time the user touches a slider.
+            return false
+        }
+        return write(data: Data([byte]), to: osdLayoutUUID)
+    }
+
+    /// True once the OSD layout characteristic has been discovered.
+    /// Lets the layout-settings view show a hint when paired against
+    /// older firmware that doesn't carry the new char.
+    var supportsOSDLayout: Bool { characteristics[osdLayoutUUID] != nil }
+
     @discardableResult
     func startTXSniff() -> Bool {
         let ok = write(data: Data([0x01]), to: txSniffUUID)
@@ -528,7 +558,8 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID, batteryUUID
+            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID,
+            txSniffUUID, osdTextUUID, batteryUUID, osdLayoutUUID,
         ], for: service)
     }
 
@@ -754,6 +785,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         case txSniffUUID: return "TX sniff"
         case osdTextUUID: return "OSD text"
         case batteryUUID: return "Battery"
+        case osdLayoutUUID: return "OSD layout"
         default: return uuid.uuidString
         }
     }

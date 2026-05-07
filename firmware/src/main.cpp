@@ -417,6 +417,42 @@ void loop() {
         stickDisplay.showBindResult(ok);
     }
 
+    // --- OSD layout (Y offset) update from BLE --------------------------
+    // Apply BEFORE the OSD-text dirty drain so a coincident layout-change
+    // + content-update settles in one render cycle: setBaseRow re-marks
+    // every row dirty so the IDLE catch-up trigger below picks them up.
+    // Wipe the goggle overlay buffer before the next render, otherwise
+    // text from the prior base row stays visible alongside the new rows.
+    if (g_osd_layout_changed) {
+        int8_t y;
+        portENTER_CRITICAL(&g_ble_mux);
+        y = g_osd_layout_y_offset_pending;
+        g_osd_layout_changed = false;
+        portEXIT_CRITICAL(&g_ble_mux);
+        // Clamp y_offset to [-(MAX_BASE_ROW), 0]: 0 = bottom-anchored
+        // default, -MAX_BASE_ROW puts the block at the top of the grid.
+        // Any positive value (which would push the block off the bottom)
+        // collapses to 0; out-of-range negatives clamp to -MAX_BASE_ROW.
+        int newBase = (int)OSDTextDisplay::DEFAULT_BASE_ROW + (int)y;
+        if (newBase < 0) newBase = 0;
+        if (newBase > (int)OSDTextDisplay::MAX_BASE_ROW) {
+            newBase = OSDTextDisplay::MAX_BASE_ROW;
+        }
+        uint8_t prevBase = osdTextDisplay.baseRow();
+        osdTextDisplay.setBaseRow((uint8_t)newBase);
+        if (espnow_ready && (uint8_t)newBase != prevBase) {
+            // Best-effort: if the clear packet drops, the next render
+            // overwrites the new rows but the old ones at prevBase will
+            // linger until the operator hits Clear OSD. Logging that
+            // case so a "ghost text" report is diagnosable.
+            if (!osd.clear()) {
+                Serial.println("OSD layout: clear after base-row change failed");
+            }
+        }
+        Serial.printf("OSD layout: y_offset=%d base_row=%u\n",
+                      (int)y, (unsigned)newBase);
+    }
+
     {
         // Re-check the dirty bitmap *inside* the mux. The bare-volatile
         // read outside is a fast path so the loop doesn't grab the
