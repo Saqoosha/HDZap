@@ -163,7 +163,7 @@ struct TimerView: View {
             // sendOSDLayout silently no-ops when the layout char hasn't
             // been discovered yet, so this is safe to call unconditionally.
             if bluetooth.isReady {
-                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.yOffset)
+                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
             }
         }
         .onChange(of: targetLapCount) { _, _ in
@@ -209,7 +209,9 @@ struct TimerView: View {
         // bottom-anchored default while iOS still thinks the user's
         // preferred offset is in effect.
         .onChange(of: bluetooth.isReady) { _, ready in
-            if ready { _ = bluetooth.sendOSDLayout(yOffset: osdLayout.yOffset) }
+            if ready {
+                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+            }
         }
         // Same intent for layout changes from the Settings sheet: the
         // user can be in a paused/idle race when they reopen the layout
@@ -217,9 +219,29 @@ struct TimerView: View {
         // its view is on screen. A subsequent layout tweak from this
         // screen would then race with the next sendXxxOSD; explicitly
         // resync here keeps both ends in step regardless of which view
-        // last touched the setting.
-        .onChange(of: osdLayout.yOffset) { _, newY in
-            if bluetooth.isReady { _ = bluetooth.sendOSDLayout(yOffset: newY) }
+        // last touched the setting. `rows` is included because changing
+        // visibility shifts `firmwareYOffset` (visible-block height
+        // determines the buffer's top row).
+        .onChange(of: osdLayout.firstVisibleRow) { _, _ in
+            if bluetooth.isReady {
+                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+            }
+        }
+        .onChange(of: osdLayout.rows) { _, _ in
+            if bluetooth.isReady {
+                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+            }
+        }
+        // After the Settings sheet closes, repaint the live race frame
+        // so any dummy preview rows the OSDLayoutSettingsView pushed
+        // during editing are replaced by the current race state. Slot
+        // mappings can also have shifted (visibility/alignment edits),
+        // so a full 4-slot push clears stale slots that the partial
+        // sendTimeLeftRow / sendMetricRows paths would otherwise leave
+        // alone.
+        .onChange(of: showSettings) { _, isOpen in
+            guard !isOpen, bluetooth.isReady else { return }
+            flushCurrentRaceFrame()
         }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
@@ -804,46 +826,46 @@ struct TimerView: View {
                                 bestLapTime: bestTime)
     }
 
-    /// Push the TIME LEFT row to the goggle. Padded so a shorter value
-    /// (e.g. `TIME LEFT 9` after `TIME LEFT 45`) cleanly overwrites the
-    /// prior text without a firmware-side clear.
+    /// Push the TIME LEFT row to the goggle. Routes via the layout's
+    /// buffer slot so a hidden Time row simply skips the BLE write
+    /// instead of stamping a blank into the wrong slot. Padded so a
+    /// shorter value (e.g. `TIME LEFT 9` after `TIME LEFT 45`) cleanly
+    /// overwrites the prior text without a firmware-side clear.
     private func sendTimeLeftRow() {
-        bluetooth.sendOSDRow(
-            row: 0,
-            text: RaceMetrics.timeLeftRow(remainingSec: remaining,
-                                          layout: osdLayout.snapshot))
+        let snapshot = osdLayout.snapshot
+        guard let slot = snapshot.bufferSlot(forSemanticIndex: 0) else { return }
+        let raw = RaceMetrics.timeLeftRaw(remainingSec: remaining)
+        bluetooth.sendOSDRow(row: slot, text: snapshot.renderRow(raw, at: 0))
     }
 
-    /// Push the bottom three rows (LAP / AVG / DIFF) when a lap is
-    /// recorded, the session limit changes, or the operator changes
-    /// the target lap count (which feeds back into AVG/DIFF rendering).
-    /// Pre-lap there's nothing meaningful to display, so the rows are
-    /// left as the goggle's existing content (or blank if Clear OSD
-    /// wiped it).
+    /// Push the bottom three semantic rows (LAP / AVG / DIFF) when a lap
+    /// is recorded, the session limit changes, or the target lap count
+    /// changes. Each row is routed to its current buffer slot — hidden
+    /// rows are dropped (their slot is owned by another visible row or
+    /// a leading blank, both of which sendTimeLeftRow / the layout
+    /// flush already handle).
     private func sendMetricRows() {
         guard let metrics = metricsSnapshot else { return }
-        let rows = metrics.osdMetricRows(layout: osdLayout.snapshot)
-        bluetooth.sendOSDRows([
-            (row: 1, text: rows[0]),
-            (row: 2, text: rows[1]),
-            (row: 3, text: rows[2]),
-        ])
+        let snapshot = osdLayout.snapshot
+        let raws = metrics.osdMetricRaws()
+        let updates: [(row: Int, text: String)] = raws.enumerated().compactMap { i, raw in
+            let semantic = i + 1
+            guard let slot = snapshot.bufferSlot(forSemanticIndex: semantic) else { return nil }
+            return (row: slot, text: snapshot.renderRow(raw, at: semantic))
+        }
+        guard !updates.isEmpty else { return }
+        bluetooth.sendOSDRows(updates)
     }
 
-    /// Push the pre-race Ready display: race time, target lap count, and
-    /// target pace. All four rows are sent so stale content from a prior
-    /// race is fully overwritten.
+    /// Push the pre-race Ready display via the layout's full 4-slot
+    /// buffer. Hidden rows render as 50-space blanks so any stale text
+    /// from a prior race is wiped, and the visible block lands at the
+    /// pilot's chosen position.
     private func sendReadyOSD() {
-        let rows = RaceMetrics.readyOSDRows(
+        let raws = RaceMetrics.readyOSDRaws(
             targetLapCount: clampedTargetLapCount,
-            sessionLimit: sessionLimit,
-            layout: osdLayout.snapshot)
-        bluetooth.sendOSDRows([
-            (row: 0, text: rows[0]),
-            (row: 1, text: rows[1]),
-            (row: 2, text: rows[2]),
-            (row: 3, text: rows[3]),
-        ])
+            sessionLimit: sessionLimit)
+        pushOSDBuffer(semanticRaws: raws)
     }
 
     /// Push the post-race results summary to the goggle. Called once when
@@ -851,18 +873,55 @@ struct TimerView: View {
     private func sendResultOSD() {
         guard !lapTimer.laps.isEmpty else { return }
         let total = lapTimer.laps.reduce(0) { $0 + $1.time }
-        let rows = RaceMetrics.resultOSDRows(
+        let raws = RaceMetrics.resultOSDRaws(
             lapCount: lapTimer.laps.count,
             totalTime: total,
             avgTime: avgTime,
-            bestTime: bestTime,
-            layout: osdLayout.snapshot)
-        bluetooth.sendOSDRows([
-            (row: 0, text: rows[0]),
-            (row: 1, text: rows[1]),
-            (row: 2, text: rows[2]),
-            (row: 3, text: rows[3]),
-        ])
+            bestTime: bestTime)
+        pushOSDBuffer(semanticRaws: raws)
+    }
+
+    /// Render the 4 semantic raws through the current layout and push
+    /// the resulting buffer (always all 4 slots). Used for state
+    /// transitions (Ready / Result) and for stale-clear flushes after
+    /// the layout editor closes.
+    private func pushOSDBuffer(semanticRaws: [String]) {
+        let buffer = osdLayout.snapshot.renderBuffer(semanticRaws: semanticRaws)
+        let updates = (0..<OSDLayoutConfig.rowCount).map {
+            (row: $0, text: buffer[$0])
+        }
+        bluetooth.sendOSDRows(updates)
+    }
+
+    /// Repaint the goggle with whatever the current race state would
+    /// naturally show. Mirrors the push paths that would have fired had
+    /// the operator stayed on this screen instead of opening Settings:
+    /// Result for an ended race, Running (TIME LEFT + lap metrics) for
+    /// an in-flight race with at least one lap, Ready for a fresh /
+    /// pre-start state. No-op if BLE isn't ready (caller already checks
+    /// in the dismiss path, but defending here keeps the helper safe).
+    private func flushCurrentRaceFrame() {
+        guard bluetooth.isReady else { return }
+        if sessionEnded, !lapTimer.laps.isEmpty {
+            sendResultOSD()
+            return
+        }
+        if lapTimer.isRunning, let metrics = metricsSnapshot {
+            let raws: [String] = [RaceMetrics.timeLeftRaw(remainingSec: remaining)]
+                + metrics.osdMetricRaws()
+            pushOSDBuffer(semanticRaws: raws)
+            return
+        }
+        if lapTimer.isRunning {
+            // Running but pre-first-lap: keep showing TIME LEFT on top
+            // and clear the lower rows so stale Ready or dummy preview
+            // text doesn't linger.
+            pushOSDBuffer(semanticRaws: [
+                RaceMetrics.timeLeftRaw(remainingSec: remaining), "", "", "",
+            ])
+            return
+        }
+        sendReadyOSD()
     }
 
     private func clampTargetLapCountSetting() {

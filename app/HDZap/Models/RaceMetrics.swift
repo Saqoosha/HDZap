@@ -70,41 +70,37 @@ struct RaceMetrics: Equatable {
     /// ensures a shorter update cleanly overwrites a longer prior value.
     static let osdRowWidths: [Int] = [50, 50, 50, 50]  // fill full OSD row
 
-    /// TIME LEFT row, padded so the centered position is stable as the
-    /// digit count changes across the full session-limit range (single,
-    /// double, and triple digit values; the SettingsView slider goes up
-    /// to 180s). The "S" suffix was dropped: on the HDZero glyph set
-    /// `S` renders as a `5` and gets read as part of the number
-    /// (`45S` → `455`).
-    static func timeLeftRow(remainingSec: TimeInterval,
-                            layout: OSDLayoutConfig = .default) -> String {
+    /// TIME LEFT row, raw form (no padding/alignment — `OSDLayoutConfig`
+    /// applies those when rendering the buffer). The "S" suffix was
+    /// dropped: on the HDZero glyph set `S` renders as a `5` and gets
+    /// read as part of the number (`45S` → `455`).
+    static func timeLeftRaw(remainingSec: TimeInterval) -> String {
         let secs = max(0, Int(remainingSec.rounded()))
-        return layout.renderRow("TIME LEFT \(secs)", at: 0)
+        return "TIME LEFT \(secs)"
     }
 
-    /// Pre-race "Ready" display: race time, target lap count, and target
-    /// pace on the goggle so the pilot can verify settings before the start.
+    /// Pre-race "Ready" display: 4 raw semantic rows. The 4th is empty
+    /// because there's no useful split/diff line before any laps exist.
     /// No "s" suffix on numbers — the HDZero glyph set renders S as 5.
-    static func readyOSDRows(targetLapCount: Int, sessionLimit: TimeInterval,
-                             layout: OSDLayoutConfig = .default) -> [String] {
+    static func readyOSDRaws(targetLapCount: Int,
+                             sessionLimit: TimeInterval) -> [String] {
         let target = clampedTargetLapCount(targetLapCount)
         let pace = targetLapSeconds(for: target, sessionLimit: sessionLimit)
-        let raws = [
+        return [
             "READY",
             "RACE \(Int(sessionLimit))",
             "\(target)LAPS @ \(seconds(pace, decimals: 2))",
             "",
         ]
-        return raws.enumerated().map { i, raw in layout.renderRow(raw, at: i) }
     }
 
-    /// Post-race results: lap count, total time, average, and best lap.
-    /// All rows fill the full 50-col grid so labels never truncate.
-    /// Row 2 always keeps 1/100s precision — it drops spacing before
-    /// dropping a decimal place.
-    static func resultOSDRows(lapCount: Int, totalTime: TimeInterval,
-                              avgTime: TimeInterval, bestTime: TimeInterval?,
-                              layout: OSDLayoutConfig = .default) -> [String] {
+    /// Post-race results: 4 raw semantic rows (DONE / lap count + total /
+    /// AVG + BEST / blank). Row 2 always keeps 1/100s precision — it
+    /// drops spacing before dropping a decimal place so the line still
+    /// fits the full 50-col grid even with long values.
+    static func resultOSDRaws(lapCount: Int, totalTime: TimeInterval,
+                              avgTime: TimeInterval,
+                              bestTime: TimeInterval?) -> [String] {
         let best = bestTime.map { seconds($0, decimals: 2) } ?? "--"
         let row2Full = "AVG \(seconds(avgTime, decimals: 2)) BEST \(best)"
         let row2: String
@@ -120,28 +116,24 @@ struct RaceMetrics: Equatable {
                 row2 = "AVG\(seconds(avgTime, decimals: 1)) BEST\(best1)"
             }
         }
-        let raws = [
+        return [
             "DONE",
             "\(lapCount)LAPS \(seconds(totalTime, decimals: 2))",
             row2,
             "",
         ]
-        return raws.enumerated().map { i, raw in layout.renderRow(raw, at: i) }
     }
 
-    /// Bottom three rows derived from the latest lap, padded so they
-    /// can overlay prior content without leftover chars. Sent only
-    /// when a lap is recorded — independent of the TIME LEFT tick.
-    /// Returned indices map to OSD rows 1, 2, 3 respectively (row 0 is
-    /// the TIME LEFT tick), which is also why per-row alignment lookup
-    /// adds 1 to the local enumeration index.
-    func osdMetricRows(layout: OSDLayoutConfig = .default) -> [String] {
-        let raws = [
+    /// Bottom three semantic rows derived from the latest lap (LAP /
+    /// AVG+PACE / DIFF). Returned indices map to OSD semantic rows
+    /// 1, 2, 3 — TIME LEFT (semantic 0) is updated independently on the
+    /// 1 Hz tick.
+    func osdMetricRaws() -> [String] {
+        [
             "LAP \(lapNumber) \(Self.seconds(lastLapSec, decimals: 3))",
             osdAverageLine,
             osdDiffLine,
         ]
-        return raws.enumerated().map { i, raw in layout.renderRow(raw, at: i + 1) }
     }
 
     /// Pad text within `width` using `alignment` to decide which side
