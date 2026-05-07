@@ -182,3 +182,7 @@ python3 -m http.server 8765 --directory docs --bind 127.0.0.1
 - [docs/testflight-setup.md](docs/testflight-setup.md) — TestFlight team setup and release credentials.
 - [AGENTS.md](AGENTS.md) — knowledge base for AI coding agents (architecture invariants, gotchas, conventions).
 - [CLAUDE.md](CLAUDE.md) — Claude Code specific notes (firmware constraints, BLE invariants, hardware notes).
+
+## License
+
+[MIT](LICENSE) © Saqoosha
