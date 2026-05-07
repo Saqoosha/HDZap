@@ -240,6 +240,16 @@ final class OSDLayoutSettings {
         }
     }
 
+    /// True while the layout editor view is on screen and may be
+    /// pushing dummy preview rows to the goggle. TimerView watches the
+    /// false transition so it can repaint the live race frame the
+    /// moment the editor pops — `showSettings` (TimerView's local
+    /// state) only flips when the whole Settings sheet closes, which
+    /// can be much later than the editor's Done tap, leaving the
+    /// goggle on dummy content for the rest of the Settings session.
+    /// In-memory only; not persisted.
+    var previewEditorActive: Bool = false
+
     var rows: [OSDRowConfig] {
         didSet {
             // Defensive: reject any out-of-shape assignment so subscripting

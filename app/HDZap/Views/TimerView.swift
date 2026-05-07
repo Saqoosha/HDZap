@@ -215,32 +215,42 @@ struct TimerView: View {
             _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
             flushCurrentRaceFrame()
         }
-        // Same intent for layout changes from the Settings sheet: the
-        // user can be in a paused/idle race when they reopen the layout
-        // editor, and the editor's own debounced push only runs while
-        // its view is on screen. A subsequent layout tweak from this
-        // screen would then race with the next sendXxxOSD; explicitly
-        // resync here keeps both ends in step regardless of which view
-        // last touched the setting. `rows` is included because changing
-        // visibility shifts `firmwareYOffset` (visible-block height
-        // determines the buffer's top row).
+        // Resync the layout char whenever the user's stored layout
+        // changes from outside the editor (currently only `resetToDefaults`
+        // can hit this path while the editor is closed). While the editor
+        // is active, gate these handlers so they don't compete with the
+        // editor's own debounced push on every slider tick — each
+        // sendOSDLayout is a write-with-response and pushing 5–10 of them
+        // per second of slider drag wastes BLE airtime. `rows` is watched
+        // alongside `firstVisibleRow` because changing visibility shifts
+        // `firmwareYOffset` (visible-block height determines the buffer's
+        // top row).
         .onChange(of: osdLayout.firstVisibleRow) { _, _ in
-            if bluetooth.isReady {
-                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
-            }
+            guard !osdLayout.previewEditorActive, bluetooth.isReady else { return }
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
         }
         .onChange(of: osdLayout.rows) { _, _ in
-            if bluetooth.isReady {
-                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
-            }
+            guard !osdLayout.previewEditorActive, bluetooth.isReady else { return }
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
         }
-        // After the Settings sheet closes, repaint the live race frame
-        // so any dummy preview rows the OSDLayoutSettingsView pushed
-        // during editing are replaced by the current race state. Slot
-        // mappings can also have shifted (visibility/alignment edits),
-        // so a full 4-slot push clears stale slots that the partial
-        // sendTimeLeftRow / sendMetricRows paths would otherwise leave
-        // alone.
+        // The moment the layout editor pops, repaint the live race
+        // frame over whatever dummy preview rows the editor pushed. The
+        // outer Settings sheet often stays open afterward, so deferring
+        // to its dismiss alone would leave fake `LAP 3 12.345` etc. on
+        // the goggle for the rest of the Settings session.
+        .onChange(of: osdLayout.previewEditorActive) { _, active in
+            guard !active, bluetooth.isReady else { return }
+            // Re-issue the layout char too — the editor may have left
+            // the goggle on a different `firmwareYOffset` (e.g. user
+            // toggled visibility while there) that the editor's
+            // debounce dropped on cancel.
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+            flushCurrentRaceFrame()
+        }
+        // Belt-and-braces: if the user closes the Settings sheet
+        // without ever entering the layout editor — or the editor's
+        // disappear flush somehow missed (notification ordering, etc.)
+        // — re-flush on the sheet's true→false transition.
         .onChange(of: showSettings) { _, isOpen in
             guard !isOpen, bluetooth.isReady else { return }
             flushCurrentRaceFrame()

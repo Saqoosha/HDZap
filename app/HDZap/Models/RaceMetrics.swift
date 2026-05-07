@@ -11,7 +11,6 @@ struct RaceMetrics: Equatable {
     static let minTargetLapCount = 2
     static let maxTargetLapCount = 99
     static let osdRowMaxBytes = 50  // OSD grid width (OSD_COLS)
-    static let osdTextRowCount = 4  // matches OSDTextDisplay::ROW_COUNT
 
     let targetLapCount: Int
     let targetLapSec: TimeInterval

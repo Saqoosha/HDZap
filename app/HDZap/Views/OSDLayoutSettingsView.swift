@@ -42,6 +42,11 @@ struct OSDLayoutSettingsView: View {
             }
         }
         .onAppear {
+            // Flag the editor as active so TimerView pauses its own
+            // layout-char resync (avoids fighting the editor's debounce
+            // for slider drags) and knows to repaint the live race
+            // frame on the false transition when the editor pops.
+            layout.previewEditorActive = true
             // Push current settings on entry so the goggle shows the
             // dummy preview immediately rather than whatever stale
             // content was last drawn (race results, prior session, ...).
@@ -49,10 +54,14 @@ struct OSDLayoutSettingsView: View {
         }
         .onDisappear {
             // Cancel any debounce in flight so a `dummyRawRows` push
-            // can't land on the goggle after TimerView's dismiss flush
-            // has already repainted the live race frame.
+            // can't land on the goggle after TimerView's flush has
+            // already repainted the live race frame.
             debounceTask?.cancel()
             debounceTask = nil
+            // Releases TimerView's `previewEditorActive` watcher so it
+            // can repaint the goggle even if the user lingers in the
+            // outer Settings sheet before dismissing it.
+            layout.previewEditorActive = false
         }
         .onChange(of: layout.firstVisibleRow) { _, _ in schedulePush() }
         .onChange(of: layout.alignment) { _, _ in schedulePush() }
