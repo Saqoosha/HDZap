@@ -9,10 +9,9 @@ import SwiftUI
 /// Preview push strategy: every meaningful change debounces ~150 ms and
 /// then sends the layout char (Y offset only) plus the 4 buffer slots so
 /// the pilot sees the new arrangement on the goggle. Debounce avoids
-/// flooding ESP-NOW while the user drags the slider — the firmware's
-/// 200 ms render-staging window batches anything that lands inside it
-/// into a single ESP-NOW cycle anyway, so a 150 ms debounce gives the
-/// staging window a moment to settle before the next push.
+/// flooding ESP-NOW while the user drags the slider — 150 ms keeps each
+/// drag-frame's worth of intermediate values from each turning into its
+/// own BLE write while still feeling responsive on lift-off.
 struct OSDLayoutSettingsView: View {
     @Environment(BluetoothManager.self) private var bluetooth
     @Environment(OSDLayoutSettings.self) private var layout
@@ -48,6 +47,13 @@ struct OSDLayoutSettingsView: View {
             // content was last drawn (race results, prior session, ...).
             schedulePush(force: true)
         }
+        .onDisappear {
+            // Cancel any debounce in flight so a `dummyRawRows` push
+            // can't land on the goggle after TimerView's dismiss flush
+            // has already repainted the live race frame.
+            debounceTask?.cancel()
+            debounceTask = nil
+        }
         .onChange(of: layout.firstVisibleRow) { _, _ in schedulePush() }
         .onChange(of: layout.alignment) { _, _ in schedulePush() }
         .onChange(of: layout.rows) { _, _ in schedulePush() }
@@ -65,8 +71,9 @@ struct OSDLayoutSettingsView: View {
     /// every adjustment below is judged against the same canvas the
     /// pilot will see on the goggle. Spaces are visualised as `·` so
     /// the alignment effect is obvious at a glance. Hidden rows show
-    /// up as full-blank slots above the visible block — that mirrors
-    /// the firmware buffer the goggle actually receives.
+    /// up as full-blank slots flanking the visible block (above when
+    /// bottom-anchored, below when top-anchored) — that mirrors the
+    /// firmware buffer the goggle actually receives.
     private var previewSection: some View {
         let buffer = layout.snapshot.renderBuffer(semanticRaws: Self.dummyRawRows)
         return Section {
@@ -230,7 +237,7 @@ struct OSDLayoutSettingsView: View {
     /// LAP/AVG/DIFF mix, not a single short word that's identical
     /// regardless of alignment).
     /// Each row mimics the corresponding semantic content the pilot
-    /// actually sees in `RaceMetrics.osdMetricRows` for a mid-race lap.
+    /// actually sees in `RaceMetrics.osdMetricRaws` for a mid-race lap.
     static let dummyRawRows: [String] = [
         "TIME LEFT 45",
         "LAP 3 12.345",
@@ -240,8 +247,6 @@ struct OSDLayoutSettingsView: View {
 
     private func schedulePush(force: Bool = false) {
         debounceTask?.cancel()
-        let snapshot = layout.snapshot
-        let isInitial = lastPushed == nil
         debounceTask = Task { @MainActor in
             // 150 ms debounce — enough to coalesce a slider drag's many
             // intermediate values into a single push without feeling laggy.
@@ -251,6 +256,12 @@ struct OSDLayoutSettingsView: View {
                 try? await Task.sleep(nanoseconds: 150_000_000)
                 if Task.isCancelled { return }
             }
+            // Capture snapshot + isInitial *after* the debounce so the
+            // task pushes the latest layout, not whatever was set when
+            // schedulePush was called. Matters when a slider drag and
+            // a row-toggle land in the same debounce window.
+            let snapshot = layout.snapshot
+            let isInitial = lastPushed == nil
             await pushIfChanged(snapshot, force: force || isInitial)
         }
     }
@@ -263,12 +274,22 @@ struct OSDLayoutSettingsView: View {
         let topChanged = lastPushed?.firstVisibleRow != snapshot.firstVisibleRow
         if !force && !yChanged && !alignChanged && !rowsChanged && !topChanged { return }
 
+        // Track per-write success so `lastPushed` only advances when the
+        // goggle actually got the new state. Otherwise a transient BLE
+        // failure would suppress the next slider drag at the same value
+        // (the change-detection guard above sees "no diff vs lastPushed"
+        // and skips), leaving the goggle stuck on stale content.
+        var allOK = true
         if force || yChanged {
             // Firmware silently no-ops the layout write on older builds
             // that lack the characteristic — `sendOSDLayout` returns
-            // false in that case but doesn't surface an error. Alignment
-            // + visibility still apply via the OSD text path.
-            _ = bluetooth.sendOSDLayout(yOffset: snapshot.firmwareYOffset)
+            // false in that case (and writes its own diagnostic). Don't
+            // treat that as a hard failure for `lastPushed` tracking,
+            // since alignment + visibility still apply via the OSD text
+            // path; flag only when supportsOSDLayout claims the char
+            // exists yet the write itself failed.
+            let layoutOK = bluetooth.sendOSDLayout(yOffset: snapshot.firmwareYOffset)
+            if bluetooth.supportsOSDLayout && !layoutOK { allOK = false }
         }
         // Always push the full buffer (4 slots) so alignment, visibility,
         // and visible-block position changes (which ride the OSD text
@@ -279,7 +300,7 @@ struct OSDLayoutSettingsView: View {
         let rendered: [(row: Int, text: String)] = (0..<OSDLayoutConfig.rowCount).map {
             (row: $0, text: buffer[$0])
         }
-        _ = bluetooth.sendOSDRows(rendered)
-        lastPushed = snapshot
+        if !bluetooth.sendOSDRows(rendered) { allOK = false }
+        if allOK { lastPushed = snapshot }
     }
 }

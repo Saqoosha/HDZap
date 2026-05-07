@@ -45,7 +45,7 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - ESP-NOW max 10 packets per OSD cycle (clear + 8 writes + draw)
 - OSD grid: 50x18, lowercase ASCII maps to FPV glyphs (auto-uppercase in osd.h)
 - BLE UUIDs must match between firmware (ble_service.h) and iOS (BluetoothManager.swift)
-- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489` (bumped from `…d479` to defeat iOS CoreBluetooth's per-peripheral GATT cache when Battery was added). Adding a characteristic without a service bump is safe ONLY when no existing iOS build attempts to read or write it; bump in the same change that ships an iOS build using the new char (current case: CHR_SLEEP_CONFIG `…d48a` is in firmware but not yet in iOS, no bump owed).
+- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48c` (bumped from `…d489` so iOS CoreBluetooth's per-peripheral GATT cache picks up CHR_OSD_LAYOUT `…d48b` when its iOS write shipped; the previously-deferred CHR_SLEEP_CONFIG `…d48a` bump rode along in the same change). Adding a characteristic without a service bump is safe ONLY when no existing iOS build attempts to read or write it; bump in the same change that ships an iOS build using the new char.
 - `BLEServer::createService()` requires explicit `numHandles` (currently 32) — default 15 silently truncates overflow characteristics, last visible symptom was iOS only seeing 5 of 8 chars
 - Bind phrase UID derivation: MD5(`-DMY_BINDING_PHRASE="<phrase>"`), first 6 bytes, bit0 cleared
 - VTX not required for backpack OSD display

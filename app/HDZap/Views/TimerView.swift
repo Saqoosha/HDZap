@@ -203,15 +203,17 @@ struct TimerView: View {
             }
         }
         // Replay the OSD layout Y offset whenever the goggle becomes
-        // reachable. Firmware doesn't persist this setting (per project
-        // decision: iOS owns it), so a fresh boot, deep-sleep wake, or
-        // BLE reconnect would otherwise revert the goggle to the
-        // bottom-anchored default while iOS still thinks the user's
-        // preferred offset is in effect.
+        // reachable, then re-paint the live race frame so alignment +
+        // visibility (which ride the OSD text path, not the layout
+        // char) also land. Firmware doesn't persist any of these (per
+        // project decision: iOS owns them), so a fresh boot, deep-sleep
+        // wake, or BLE reconnect would otherwise revert to whatever the
+        // goggle's overlay buffer last held while iOS still thinks the
+        // user's preferred layout is in effect.
         .onChange(of: bluetooth.isReady) { _, ready in
-            if ready {
-                _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
-            }
+            guard ready else { return }
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+            flushCurrentRaceFrame()
         }
         // Same intent for layout changes from the Settings sheet: the
         // user can be in a paused/idle race when they reopen the layout

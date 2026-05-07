@@ -73,9 +73,14 @@ struct OSDLayoutConfig: Equatable {
 
     /// Wire-format Y offset for the firmware's CHR_OSD_LAYOUT char.
     /// Negative = "shift up from default bottom-anchored position"
-    /// (DEFAULT_BASE_ROW = `osdGridRows - rowCount` = 14).
+    /// (DEFAULT_BASE_ROW = `osdGridRows - rowCount` = 14). Returns 0
+    /// (no shift) when all rows are hidden — the buffer is all-blank
+    /// in that case, so the firmware position doesn't matter, and 0
+    /// keeps the goggle from drifting away from its boot default if
+    /// an all-hidden config is replayed on reconnect.
     var firmwareYOffset: Int {
-        bufferTopRow - (Self.osdGridRows - Self.rowCount)
+        guard visibleCount > 0 else { return 0 }
+        return bufferTopRow - (Self.osdGridRows - Self.rowCount)
     }
 
     /// Last row the visible block occupies on the goggle (1-indexed for
@@ -93,8 +98,9 @@ struct OSDLayoutConfig: Equatable {
 
     /// Bottom-anchored default for the given visible count: places the
     /// last visible row at the bottom edge of the goggle grid (row 17).
-    /// Falls back to `rowCount`-row anchoring when nothing is visible
-    /// so the slider still has a meaningful default.
+    /// Falls back to single-row anchoring when nothing is visible so
+    /// the slider still has a meaningful, in-range default value to
+    /// hold onto until the user re-enables a row.
     static func defaultFirstVisibleRow(visibleCount: Int) -> Int {
         let vc = max(1, min(rowCount, visibleCount))
         return osdGridRows - vc
@@ -156,7 +162,15 @@ struct OSDLayoutConfig: Equatable {
         let firstVisSlot = firstVisibleRow - bufferTopRow
         for (offset, semantic) in visibleSemantics.enumerated() {
             let slotIdx = firstVisSlot + offset
-            guard slotIdx >= 0, slotIdx < Self.rowCount else { continue }
+            guard slotIdx >= 0, slotIdx < Self.rowCount else {
+                // Unreachable in practice: `bufferTopRow` clamps such
+                // that `firstVisSlot + visibleCount - 1` always lands
+                // in `[0, rowCount-1]`. Trip an assertion in DEBUG so a
+                // future change to the clamp doesn't silently drop
+                // semantic rows from the goggle.
+                assertionFailure("bufferLayout: slot \(slotIdx) out of range — visible=\(visibleSemantics) firstVisSlot=\(firstVisSlot)")
+                continue
+            }
             slots[slotIdx] = semantic
         }
         return slots
