@@ -144,7 +144,15 @@ This step uses the **Web Flasher** — a tool that runs entirely in your browser
 
 ## 4. Installing the iPhone app
 
-1. Open the **TestFlight invitation link** the app author sent you on your iPhone.
+> ℹ️ **HDZap is still in beta.** It is currently distributed through TestFlight. A public App Store release is coming soon.
+
+1. On your iPhone, open the **TestFlight invitation link** below.
+
+   <div class="copy-link">
+     <a href="https://testflight.apple.com/join/gjjbKFp3" class="copy-link-url">https://testflight.apple.com/join/gjjbKFp3</a>
+     <button class="copy-link-btn" type="button" data-clipboard="https://testflight.apple.com/join/gjjbKFp3" data-copied-label="Copied ✓">Copy</button>
+   </div>
+
 2. Install **TestFlight** from the App Store first if you don't have it.
 3. In TestFlight, tap **Install** for HDZap.
 4. Tap the HDZap icon on your home screen to launch the app.
@@ -503,8 +511,8 @@ Only the **M5StickS3** is officially supported. Support for other ESP32 boards m
 ### Developer-facing technical details
 
 - [README](https://github.com/saqoosha/HDZap) (developer-oriented overview of the whole repository)
-- [docs/REPORT.md](https://github.com/saqoosha/HDZap/blob/main/docs/REPORT.md) (research notes on MSPv2 / ESP-NOW / ELRS bind protocols)
-- [docs/ARCHITECTURE.md](https://github.com/saqoosha/HDZap/blob/main/docs/ARCHITECTURE.md) (system architecture)
+- [docs/report.md](https://github.com/saqoosha/HDZap/blob/main/docs/report.md) (research notes on MSPv2 / ESP-NOW / ELRS bind protocols)
+- [docs/architecture.md](https://github.com/saqoosha/HDZap/blob/main/docs/architecture.md) (system architecture)
 
 ### License & contributing
 
