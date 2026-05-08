@@ -50,6 +50,15 @@ struct TimerView: View {
     /// doesn't depend on SwiftUI's body re-eval order relative to
     /// `lapTimer.stop()`. Cleared on regular LAP, START, and RESET.
     @State private var lastLapWasFinal = false
+    /// Tracks whether the operator explicitly tapped SHOW READY so the
+    /// pre-race goggle summary survives a Settings round-trip. Without
+    /// this, every Settings/OSD-Layout dismiss would auto-restore the
+    /// Ready frame even when the user never asked for it; with it, the
+    /// goggle stays blank until SHOW READY is pressed, and Settings
+    /// restores Ready only if the user had explicitly enabled it.
+    /// Cleared on START (race transitions to running) and RESET (clean
+    /// pre-race state again).
+    @State private var readyShown = false
     /// Wraps the temp PNG URL so `.sheet(item:)` has an `Identifiable` payload.
     /// Re-rendered on every `shareAction()` because laps and metrics may change
     /// between presentations.
@@ -254,6 +263,21 @@ struct TimerView: View {
         .onChange(of: showSettings) { _, isOpen in
             guard !isOpen, bluetooth.isReady else { return }
             flushCurrentRaceFrame()
+        }
+        // Race start: switch the goggle from any prior Ready frame
+        // (which uses the all-visible layout variant — different
+        // `firmwareYOffset` whenever the user has rows hidden) to the
+        // user's in-race partial layout, and pre-clear the slots that
+        // partial visibility leaves blank. Without this prelude, the
+        // first sendTimeLeftRow tick would route slot indices through
+        // the partial buffer math while the goggle still believed it
+        // was rendering the all-visible buffer, so TIME LEFT could
+        // land on the wrong grid row until the next full push.
+        .onChange(of: lapTimer.isRunning) { _, running in
+            guard running, bluetooth.isReady else { return }
+            pushOSDBuffer(osdLayout.snapshot, semanticRaws: [
+                RaceMetrics.timeLeftRaw(remainingSec: remaining), "", "", "",
+            ])
         }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
@@ -576,6 +600,7 @@ struct TimerView: View {
 
     private var readyButton: some View {
         Button {
+            readyShown = true
             sendReadyOSD()
         } label: {
             Text("SHOW READY")
@@ -711,6 +736,10 @@ struct TimerView: View {
             // the summary band doesn't briefly show the old pace value.
             metricsSnapshot = nil
             lastLapWasFinal = false
+            // Race takes over the goggle: Ready summary is no longer
+            // the active frame, so a future Settings dismiss shouldn't
+            // restore it.
+            readyShown = false
             lapTimer.start()
             // Audio cue for the start of the race; also warms the audio
             // session so the first lap announcement doesn't pay the
@@ -750,6 +779,11 @@ struct TimerView: View {
             if !lapTimer.laps.isEmpty || lapTimer.elapsedTime > 0 {
                 bluetooth.sendOSDControl(command: .resetLaps)
             }
+            // RESET also wipes the goggle overlay so DONE / final-result
+            // text from the prior race doesn't sit on the goggle through
+            // the next pre-race window. Ready isn't auto-restored — the
+            // operator taps SHOW READY again when they want it.
+            _ = bluetooth.sendOSDControl(command: .clear)
             // Silence any in-flight announcement before wiping state — a
             // stale "Lap 5, 12.34" trailing into the next session would be
             // disorienting since the visible state was just cleared.
@@ -758,6 +792,7 @@ struct TimerView: View {
             metricsSnapshot = nil
             manuallyEnded = false
             lastLapWasFinal = false
+            readyShown = false
             savedRaceID = nil
         }
     }
@@ -869,19 +904,22 @@ struct TimerView: View {
         bluetooth.sendOSDRows(updates)
     }
 
-    /// Push the pre-race Ready display via the layout's full 4-slot
-    /// buffer. Hidden rows render as 50-space blanks so any stale text
-    /// from a prior race is wiped, and the visible block lands at the
-    /// pilot's chosen position.
+    /// Push the pre-race Ready display via the all-visible layout
+    /// variant. Per-row hide/show is treated as in-race only — the
+    /// pilot still wants to see RACE / target laps / target pace
+    /// pre-race even if they hid Lap or Diff for the running display.
     private func sendReadyOSD() {
         let raws = RaceMetrics.readyOSDRaws(
             targetLapCount: clampedTargetLapCount,
             sessionLimit: sessionLimit)
-        pushOSDBuffer(semanticRaws: raws)
+        pushOSDBuffer(osdLayout.snapshot.allVisible, semanticRaws: raws)
     }
 
-    /// Push the post-race results summary to the goggle. Called once when
-    /// the session ends so the pilot sees the final tally on the OSD.
+    /// Push the post-race results summary to the goggle. Called once
+    /// when the session ends so the pilot sees the final tally on the
+    /// OSD. Same all-visible rationale as `sendReadyOSD` — no row of
+    /// DONE / total / AVG+BEST should be dropped because of an in-race
+    /// hide preference.
     private func sendResultOSD() {
         guard !lapTimer.laps.isEmpty else { return }
         let total = lapTimer.laps.reduce(0) { $0 + $1.time }
@@ -890,15 +928,21 @@ struct TimerView: View {
             totalTime: total,
             avgTime: avgTime,
             bestTime: bestTime)
-        pushOSDBuffer(semanticRaws: raws)
+        pushOSDBuffer(osdLayout.snapshot.allVisible, semanticRaws: raws)
     }
 
-    /// Render the 4 semantic raws through the current layout and push
-    /// the resulting buffer (always all 4 slots). Used for state
-    /// transitions (Ready / Result) and for stale-clear flushes after
-    /// the layout editor closes.
-    private func pushOSDBuffer(semanticRaws: [String]) {
-        let buffer = osdLayout.snapshot.renderBuffer(semanticRaws: semanticRaws)
+    /// Render the 4 semantic raws through `layout` and push the
+    /// resulting buffer (always all 4 slots) preceded by the matching
+    /// firmware Y offset. The Y-offset prelude matters when the layout
+    /// differs from whatever the goggle was last set to (Ready/Result
+    /// use `allVisible`, in-race uses the user's partial config) — the
+    /// offset and the buffer have to move together so partial-update
+    /// callers (sendTimeLeftRow / sendMetricRows) keep landing on the
+    /// right grid rows.
+    private func pushOSDBuffer(_ layout: OSDLayoutConfig,
+                               semanticRaws: [String]) {
+        _ = bluetooth.sendOSDLayout(yOffset: layout.firmwareYOffset)
+        let buffer = layout.renderBuffer(semanticRaws: semanticRaws)
         let updates = (0..<OSDLayoutConfig.rowCount).map {
             (row: $0, text: buffer[$0])
         }
@@ -910,8 +954,12 @@ struct TimerView: View {
     /// the operator stayed on this screen instead of opening Settings:
     /// Result for an ended race, Running (TIME LEFT + lap metrics) for
     /// an in-flight race with at least one lap, Ready for a fresh /
-    /// pre-start state. No-op if BLE isn't ready (caller already checks
-    /// in the dismiss path, but defending here keeps the helper safe).
+    /// pre-start state *only* if the operator had explicitly tapped
+    /// SHOW READY before opening Settings. Otherwise the goggle just
+    /// gets cleared so a stale dummy preview from the layout editor
+    /// doesn't linger and the pilot sees what they had before.
+    /// No-op if BLE isn't ready (caller already checks in the dismiss
+    /// path, but defending here keeps the helper safe).
     private func flushCurrentRaceFrame() {
         guard bluetooth.isReady else { return }
         if sessionEnded, !lapTimer.laps.isEmpty {
@@ -921,19 +969,27 @@ struct TimerView: View {
         if lapTimer.isRunning, let metrics = metricsSnapshot {
             let raws: [String] = [RaceMetrics.timeLeftRaw(remainingSec: remaining)]
                 + metrics.osdMetricRaws()
-            pushOSDBuffer(semanticRaws: raws)
+            pushOSDBuffer(osdLayout.snapshot, semanticRaws: raws)
             return
         }
         if lapTimer.isRunning {
             // Running but pre-first-lap: keep showing TIME LEFT on top
             // and clear the lower rows so stale Ready or dummy preview
             // text doesn't linger.
-            pushOSDBuffer(semanticRaws: [
+            pushOSDBuffer(osdLayout.snapshot, semanticRaws: [
                 RaceMetrics.timeLeftRaw(remainingSec: remaining), "", "", "",
             ])
             return
         }
-        sendReadyOSD()
+        if readyShown {
+            sendReadyOSD()
+            return
+        }
+        // Idle pre-race + Ready not requested: just wipe the goggle so
+        // any dummy preview rows from the layout editor disappear. The
+        // operator tapping SHOW READY (or starting the race) is what
+        // brings real content back.
+        _ = bluetooth.sendOSDControl(command: .clear)
     }
 
     private func clampTargetLapCountSetting() {

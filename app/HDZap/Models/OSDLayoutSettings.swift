@@ -197,6 +197,24 @@ struct OSDLayoutConfig: Equatable {
     func bufferSlot(forSemanticIndex index: Int) -> Int? {
         bufferLayout().firstIndex { $0 == index }
     }
+
+    /// Force-all-visible variant of this config, used for the Ready
+    /// pre-race summary and the post-race Result frame. Per-row
+    /// hide/show is intended as an in-race preference — pilots
+    /// shouldn't miss DONE / target laps / total time / best lap just
+    /// because they hid a row to clean up the in-race display.
+    /// `firstVisibleRow` is re-clamped to the all-visible range so a
+    /// bottom-anchored vis=1 user still ends up with a sensible
+    /// position when the block stretches back to 4 rows.
+    var allVisible: OSDLayoutConfig {
+        let allOn = Array(repeating: OSDRowConfig(visible: true),
+                          count: Self.rowCount)
+        let safeTop = Self.clampFirstVisibleRow(firstVisibleRow,
+                                                visibleCount: Self.rowCount)
+        return OSDLayoutConfig(firstVisibleRow: safeTop,
+                               alignment: alignment,
+                               rows: allOn)
+    }
 }
 
 /// User-configurable OSD layout. Persisted to UserDefaults; injected as
