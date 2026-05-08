@@ -1,0 +1,992 @@
+{
+  "sourceLanguage" : "en",
+  "version" : "1.0",
+  "strings" : {
+    "—" : {
+      "comment" : "Battery caption when no battery frame has arrived yet.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "—"
+          }
+        }
+      }
+    },
+    "%lld%%" : {
+      "comment" : "Battery percent only.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%%"
+          }
+        }
+      }
+    },
+    "%lld%% · Charging" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%% · 充電中"
+          }
+        }
+      }
+    },
+    "%lld%% · Critical (silenced)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%% · 危険(サイレント)"
+          }
+        }
+      }
+    },
+    "%lld%% · Critical — press button on device to silence" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%% · 危険 — デバイスのボタンを押すとサイレントにできます"
+          }
+        }
+      }
+    },
+    "%lld%% · Low (silenced)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%% · 残量低下(サイレント)"
+          }
+        }
+      }
+    },
+    "%lld%% · Low — press button on device to silence" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%% · 残量低下 — デバイスのボタンを押すとサイレントにできます"
+          }
+        }
+      }
+    },
+    "+%lld more queued" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+%lld 件待機中"
+          }
+        }
+      }
+    },
+    "+%lld suppressed" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+%lld 件抑制"
+          }
+        }
+      }
+    },
+    "%lld is out of range — decimal bytes must be 0–255." : {
+      "comment" : "Manual UID validation error: a decimal byte was outside 0–255.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld は範囲外 — 10 進数のバイトは 0〜255 でなければなりません。"
+          }
+        }
+      }
+    },
+    "'%@' is not a valid decimal number." : {
+      "comment" : "Manual UID validation error: a token couldn't parse as decimal.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は有効な 10 進数ではありません。"
+          }
+        }
+      }
+    },
+    "'%@' is not a valid hex byte (00–FF)." : {
+      "comment" : "Manual UID validation error: a token couldn't parse as a hex byte.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は有効な 16 進数バイト(00–FF)ではありません。"
+          }
+        }
+      }
+    },
+    "UID must be 6 bytes (got %lld parts). Use hex 60:D2:53:8A:B2:00 or decimal 96 210 83 138 178 0." : {
+      "comment" : "Manual UID validation error: wrong number of bytes parsed.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UID は 6 バイトである必要があります(検出: %lld 個)。16 進数 60:D2:53:8A:B2:00 か 10 進数 96 210 83 138 178 0 を使用してください。"
+          }
+        }
+      }
+    },
+    "96,210,83,138,178,0 or 60:D2:53:8A:B2:00" : {
+      "comment" : "TextField placeholder showing the two accepted UID input formats.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "96,210,83,138,178,0 または 60:D2:53:8A:B2:00"
+          }
+        }
+      }
+    },
+    "Appearance" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外観"
+          }
+        }
+      }
+    },
+    "Apply" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "適用"
+          }
+        }
+      }
+    },
+    "Apply UID" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UID を適用"
+          }
+        }
+      }
+    },
+    "Battery" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バッテリー"
+          }
+        }
+      }
+    },
+    "Best lap" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ベストラップ"
+          }
+        }
+      }
+    },
+    "Bind phrase" : {
+      "comment" : "TextField placeholder for entering an ELRS bind phrase.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バインドフレーズ"
+          }
+        }
+      }
+    },
+    "Bind Phrase" : {
+      "comment" : "Pairing-mode segment label.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バインドフレーズ"
+          }
+        }
+      }
+    },
+    "Bluetooth" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャンセル"
+          }
+        }
+      }
+    },
+    "Captured TX UID" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャプチャした TX UID"
+          }
+        }
+      }
+    },
+    "Change goggle pairing?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴーグルのペアリングを変更しますか？"
+          }
+        }
+      }
+    },
+    "Clear" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クリア"
+          }
+        }
+      }
+    },
+    "Clear all" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてクリア"
+          }
+        }
+      }
+    },
+    "Clear OSD" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OSD をクリア"
+          }
+        }
+      }
+    },
+    "Connect" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続"
+          }
+        }
+      }
+    },
+    "Current UID" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の UID"
+          }
+        }
+      }
+    },
+    "Debug" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバッグ"
+          }
+        }
+      }
+    },
+    "Decimal matches what HDZero goggles and the M5Stick LCD show; hex matches MAC tools." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10 進数は HDZero ゴーグルと M5Stick LCD の表示に対応し、16 進数は MAC ツールに対応します。"
+          }
+        }
+      }
+    },
+    "Disconnect" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切断"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完了"
+          }
+        }
+      }
+    },
+    "Error" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エラー"
+          }
+        }
+      }
+    },
+    "Goggle didn't accept the new pairing, and there was no previous pairing to fall back to." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴーグルが新しいペアリングを受け入れず、戻せる以前のペアリングもありません。"
+          }
+        }
+      }
+    },
+    "Goggle didn't accept the new pairing. Restored the previous one." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴーグルが新しいペアリングを受け入れませんでした。前のペアリングに戻しました。"
+          }
+        }
+      }
+    },
+    "Goggle didn't ack the verify packet, but the pairing on the M5Stick is unchanged — try again, or move closer to the goggle." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴーグルから確認パケットの応答がありませんでしたが、M5Stick のペアリングは変更されていません — もう一度試すか、ゴーグルに近づけてください。"
+          }
+        }
+      }
+    },
+    "Highlight color" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ハイライト色"
+          }
+        }
+      }
+    },
+    "Hue used for the live timer, best-lap marker, and split highlights." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブタイマー、ベストラップマーカー、スプリットハイライトに使用される色相。"
+          }
+        }
+      }
+    },
+    "If your goggle's backpack was flashed with a fixed bind phrase via ELRS Configurator, that phrase always wins after a reboot — New Pairing won't stick." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴーグルのバックパックが ELRS Configurator で固定のバインドフレーズで書き込まれている場合、再起動後は常にそのフレーズが優先されます — 新規ペアリングは保持されません。"
+          }
+        }
+      }
+    },
+    "Lap times will stop appearing on your current goggle and start going to a new one.\n\nMake sure your goggle is set up to receive from the new pairing — otherwise nothing will show up.\n\nFrom: %@\nTo:   %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在のゴーグルにラップタイムが表示されなくなり、新しいゴーグルに送信されるようになります。\n\n新しいペアリングを受信できるようゴーグル側を設定していることを確認してください — そうでないと何も表示されません。\n\n変更前: %1$@\n変更後: %2$@"
+          }
+        }
+      }
+    },
+    "Manual UID" : {
+      "comment" : "Pairing-mode segment label.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手動 UID"
+          }
+        }
+      }
+    },
+    "Mode" : {
+      "comment" : "Pairing-mode picker label.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "モード"
+          }
+        }
+      }
+    },
+    "New Pairing" : {
+      "comment" : "Pairing-mode segment label.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規ペアリング"
+          }
+        }
+      }
+    },
+    "Next" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次へ"
+          }
+        }
+      }
+    },
+    "No devices found. Tap Scan to search." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイスが見つかりません。「スキャン」をタップして検索してください。"
+          }
+        }
+      }
+    },
+    "No verification result. The M5Stick may be disconnected — try again." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認結果が得られませんでした。M5Stick が切断されている可能性があります — もう一度試してください。"
+          }
+        }
+      }
+    },
+    "No verification result. The M5Stick may be disconnected — try again, or use Restore previous goggle." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認結果が得られませんでした。M5Stick が切断されている可能性があります — もう一度試すか、「前のゴーグルに戻す」を使用してください。"
+          }
+        }
+      }
+    },
+    "Normalized: %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正規化済み: %@"
+          }
+        }
+      }
+    },
+    "Pair with a new goggle?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいゴーグルとペアリングしますか？"
+          }
+        }
+      }
+    },
+    "Pair with new goggle" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいゴーグルとペアリング"
+          }
+        }
+      }
+    },
+    "Pairing" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ペアリング"
+          }
+        }
+      }
+    },
+    "Pairing works — lap times will appear on this goggle." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ペアリング成功 — ラップタイムはこのゴーグルに表示されます。"
+          }
+        }
+      }
+    },
+    "Parsed: %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "解析結果: %@"
+          }
+        }
+      }
+    },
+    "Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TX の Bind を押して UID をブロードキャストしてください。TX とゴーグルの既存のバインドには影響しません。"
+          }
+        }
+      }
+    },
+    "Put your goggle in bind mode (ELRS menu → Bind), then tap Pair below. The M5Stick will switch to a fresh pairing ID and broadcast it to the goggle in one step." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴーグルをバインドモード(ELRS メニュー → Bind)にしてから、下の「ペアリング」をタップしてください。M5Stick が新しいペアリング ID に切り替わり、その ID をゴーグルへ一度に送信します。"
+          }
+        }
+      }
+    },
+    "Race" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レース"
+          }
+        }
+      }
+    },
+    "Race time" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レース時間"
+          }
+        }
+      }
+    },
+    "Reset" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リセット"
+          }
+        }
+      }
+    },
+    "Restore previous goggle" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前のゴーグルに戻す"
+          }
+        }
+      }
+    },
+    "Scan" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スキャン"
+          }
+        }
+      }
+    },
+    "Scanning…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スキャン中…"
+          }
+        }
+      }
+    },
+    "Send Test OSD" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テスト OSD を送信"
+          }
+        }
+      }
+    },
+    "Sends the current iPhone time to the goggle OSD. Each press shows a different value, so it's obvious when packets land." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の iPhone の時刻をゴーグルの OSD に送信します。押すたびに値が変わるため、パケットが届いているかひと目でわかります。"
+          }
+        }
+      }
+    },
+    "Settings" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定"
+          }
+        }
+      }
+    },
+    "Start TX UID Capture" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TX UID キャプチャを開始"
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止"
+          }
+        }
+      }
+    },
+    "Switching pairing… waiting for goggle to settle." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ペアリングを切り替え中… ゴーグルの安定を待機中。"
+          }
+        }
+      }
+    },
+    "Target lap" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目標ラップ数"
+          }
+        }
+      }
+    },
+    "Target pace" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目標ペース"
+          }
+        }
+      }
+    },
+    "Target pace is race time ÷ (target lap − 1)." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目標ペース = レース時間 ÷ (目標ラップ数 − 1)。"
+          }
+        }
+      }
+    },
+    "This switches the M5Stick to a fresh pairing ID and broadcasts it to your goggle in one step.\n\nMake sure your goggle is in bind mode (ELRS menu → Bind) BEFORE tapping Apply, otherwise the goggle won't pick up the new pairing.\n\nIf your goggle's backpack was flashed with a fixed bind phrase, the goggle will silently revert to that on its next reboot — use Restore previous goggle to get lap times back.\n\nCurrent pairing: %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "M5Stick を新しいペアリング ID に切り替え、その ID を一度の操作でゴーグルへブロードキャストします。\n\n「適用」をタップする前に、ゴーグルがバインドモード(ELRS メニュー → Bind)になっていることを必ず確認してください。そうしないと、ゴーグルは新しいペアリングを受け取りません。\n\nゴーグルのバックパックが固定のバインドフレーズで書き込まれている場合、再起動後は静かにそのフレーズへ戻ります — その場合は「前のゴーグルに戻す」でラップタイムを復帰できます。\n\n現在のペアリング: %@"
+          }
+        }
+      }
+    },
+    "TX UID Capture" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TX UID キャプチャ"
+          }
+        }
+      }
+    },
+    "UID: %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UID: %@"
+          }
+        }
+      }
+    },
+    "Unknown" : {
+      "comment" : "Fallback name for an unidentified BLE peripheral.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不明"
+          }
+        }
+      }
+    },
+    "unknown" : {
+      "comment" : "Inline placeholder for the From/To/Current pairing UID inside the apply-confirmation alert.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不明"
+          }
+        }
+      }
+    },
+    "Use Bind Phrase mode with the same phrase that was flashed, or reflash the backpack with the new phrase." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き込み済みと同じフレーズで「バインドフレーズ」モードを使用するか、新しいフレーズでバックパックを再書き込みしてください。"
+          }
+        }
+      }
+    },
+    "Verifying lap times can reach the goggle…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ラップタイムがゴーグルに届くか確認中…"
+          }
+        }
+      }
+    },
+    "Announce lap times" : {
+      "comment" : "Toggle that turns on TTS announcements after each lap.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ラップタイムを読み上げる"
+          }
+        }
+      }
+    },
+    "Audio" : {
+      "comment" : "Audio settings section header (TTS announcer).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オーディオ"
+          }
+        }
+      }
+    },
+    "English" : {
+      "comment" : "Language picker option (en).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "英語"
+          }
+        }
+      }
+    },
+    "Japanese" : {
+      "comment" : "Language picker option (ja).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日本語"
+          }
+        }
+      }
+    },
+    "Language" : {
+      "comment" : "Language picker label in the Audio section.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "言語"
+          }
+        }
+      }
+    },
+    "More voices: Settings → Accessibility → Spoken Content → Voices." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声を追加: 設定 → アクセシビリティ → 読み上げコンテンツ → 声"
+          }
+        }
+      }
+    },
+    "No voices installed for this language. Install one from iOS Settings → Accessibility → Spoken Content → Voices." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この言語の音声がインストールされていません。設定 → アクセシビリティ → 読み上げコンテンツ → 声 からインストールしてください。"
+          }
+        }
+      }
+    },
+    "Pitch" : {
+      "comment" : "Slider label for AVSpeechUtterance pitchMultiplier.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ピッチ"
+          }
+        }
+      }
+    },
+    "Plays through the speaker even when the ringer switch is silent. Other audio is briefly ducked during each announcement." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "着信スイッチがサイレントでもスピーカーから再生されます。読み上げ中は他のオーディオが一時的に小さくなります。"
+          }
+        }
+      }
+    },
+    "Rate" : {
+      "comment" : "Slider label for AVSpeechUtterance speech rate.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度"
+          }
+        }
+      }
+    },
+    "Say \"best lap\" on new best" : {
+      "comment" : "Toggle: append \"best lap\" suffix to the announcement when a new fastest lap is recorded.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ベスト更新時に「ベストラップ」と読み上げる"
+          }
+        }
+      }
+    },
+    "Selected voice is no longer installed — falling back to the system default." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択中の音声がインストールされていません。システム既定にフォールバックします。"
+          }
+        }
+      }
+    },
+    "System default" : {
+      "comment" : "Voice picker fallback option (uses AVSpeechSynthesisVoice for the current locale).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "システム既定"
+          }
+        }
+      }
+    },
+    "Test voice" : {
+      "comment" : "Button that previews the current voice with a sample lap announcement.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声テスト"
+          }
+        }
+      }
+    },
+    "Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Spoken Content → Voices for noticeably better quality." : {
+      "comment" : "Japanese-specific nudge in Audio settings — recommends Enhanced voices instead of the locked Siri voices.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ヒント: 設定 → アクセシビリティ → 読み上げコンテンツ → 声 から Kyoko / Otoya / O-ren (Enhanced) をインストールすると音質が大幅に向上します。"
+          }
+        }
+      }
+    },
+    "Voice" : {
+      "comment" : "Voice picker label in the Audio section.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声"
+          }
+        }
+      }
+    },
+    "Waiting for TX bind packet…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TX バインドパケットを待機中…"
+          }
+        }
+      }
+    }
+  }
+}

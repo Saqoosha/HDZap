@@ -198,6 +198,10 @@ struct OSDLayoutSettingsView: View {
 
     private func actionsSection(layout: OSDLayoutSettings) -> some View {
         Section {
+            Button("Send Test OSD") {
+                sendTestOSD()
+            }
+            .disabled(!bluetooth.isReady)
             Button("Clear OSD") {
                 _ = bluetooth.sendOSDControl(command: .clear)
             }
@@ -206,9 +210,41 @@ struct OSDLayoutSettingsView: View {
                 layout.resetToDefaults()
             }
         } footer: {
-            Text("Clear wipes the goggle overlay buffer immediately. Reset layout puts the editor back to bottom-anchored, centered, all rows visible — the goggle picks up the new layout on the next render.")
+            Text("Send Test OSD shows the current iPhone time on the goggle so you can confirm packets are landing. Clear wipes the overlay buffer. Reset layout returns the editor to bottom-anchored, centered, all rows visible.")
                 .font(.caption2)
         }
+    }
+
+    /// Push the iPhone's current date+time to the goggle so each press
+    /// visibly changes — easier to confirm packets are landing than a
+    /// fixed string that might already be on screen from a prior press.
+    /// Bypasses the editor's debounce/`lastPushed` cache, so the next
+    /// real layout change repaints from scratch (no spurious "no diff"
+    /// skip — the cache still reflects the dummy preview rows we last
+    /// sent, not the test content).
+    private func sendTestOSD() {
+        let now = Date()
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        let dateStr = f.string(from: now)
+        f.dateFormat = "HH:mm:ss"
+        let timeStr = f.string(from: now)
+        let ms = Int((now.timeIntervalSince1970 * 1000).rounded()) % 1000
+        _ = bluetooth.sendOSDRows([
+            (row: 0, text: RaceMetrics.padOSD("TEST OSD",
+                                             width: RaceMetrics.osdRowWidths[0])),
+            (row: 1, text: RaceMetrics.padOSD(dateStr,
+                                             width: RaceMetrics.osdRowWidths[1])),
+            (row: 2, text: RaceMetrics.padOSD("\(timeStr).\(String(format: "%03d", ms))",
+                                             width: RaceMetrics.osdRowWidths[2])),
+            // Send row 3 too so a stale DIFF row left over from a
+            // previous race doesn't sit underneath the test marker
+            // (the firmware no longer clears the goggle overlay
+            // between writes).
+            (row: 3, text: RaceMetrics.padOSD("",
+                                             width: RaceMetrics.osdRowWidths[3])),
+        ])
     }
 
     // MARK: - Preview helpers

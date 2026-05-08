@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HDZap Firmware Installer</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="../favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png" />
+  <link rel="apple-touch-icon" href="../apple-touch-icon.png" />
+</head>
+<body>
+  <main>
+    <p class="lang-switch"><strong>English</strong> ・ <a href="ja/">日本語</a></p>
+    <header>
+      <h1>HDZap Firmware Installer</h1>
+      <p class="tagline">Flash the M5StickS3 directly from your browser.</p>
+    </header>
+
+    <section id="device">
+      <h2>Supported device</h2>
+      <div class="device-row">
+        <img src="m5sticks3.jpg" alt="M5StickS3" class="device-img" />
+        <div class="device-text">
+          <p><strong>M5StickS3</strong> only. ESP32-S3 with native USB-C.</p>
+          <p class="meta">
+            Other ESP32-S3 boards (DevKitC, XIAO, AtomS3, etc.) will accept the flash,
+            but HDZap won't work correctly because the LCD, PMIC, buttons, and speaker
+            wiring differ.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="browser-check" class="unsupported">
+      <h2>This browser is not supported</h2>
+      <p>
+        Your browser does not support the <strong>Web Serial API</strong>.
+        Please open this page in
+        <strong>Google Chrome</strong>, <strong>Microsoft Edge</strong>,
+        or another Chromium-based browser (Brave, Opera, Vivaldi, Arc, etc.)
+        on macOS or Windows.
+      </p>
+      <p class="meta">Safari, Firefox, and all iOS browsers are unsupported.</p>
+    </section>
+
+    <section id="installer">
+      <h2>Install</h2>
+
+      <div id="state-idle">
+        <ol>
+          <li>Plug the M5StickS3 into your computer with a <strong>USB-C data cable</strong> (charge-only cables won't be detected).</li>
+          <li>Hold the <strong>power button (the small one) on the left side for 2 seconds</strong> to enter flash mode. The green LED starts blinking when you're in.</li>
+          <li>Click the button below and select the <strong>M5StickS3 serial port</strong> in the browser dialog.
+            <ul>
+              <li>macOS: <code>cu.usbmodem...</code></li>
+              <li>Windows: <code>COMx</code></li>
+            </ul>
+          </li>
+          <li>Flashing takes about 30–90 seconds. When it's done, <strong>press the power button once</strong> to boot HDZap.</li>
+        </ol>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="erase-all" />
+          <span>
+            <strong>Erase everything</strong>
+            <span class="meta"> &mdash; also wipes saved UID, pairing data, and sleep settings. Usually leave this unchecked.</span>
+          </span>
+        </label>
+
+        <div class="install-row">
+          <button id="install-btn" class="primary" type="button">Connect &amp; flash</button>
+          <span class="meta">Version: <strong id="version">loading…</strong></span>
+        </div>
+      </div>
+
+      <div id="state-working" hidden aria-live="polite" aria-busy="true">
+        <p id="status-msg" class="status">Working…</p>
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="status-msg">
+          <div id="progress-bar" class="progress-bar"></div>
+          <span id="progress-pct" class="progress-pct">0%</span>
+        </div>
+        <p id="progress-detail" class="meta"></p>
+        <p class="meta">Don't unplug the USB cable until this finishes.</p>
+      </div>
+
+      <div id="state-done" hidden aria-live="polite">
+        <p class="status ok">Flash complete!</p>
+        <p><strong>Press the power button on the left side once</strong> to boot HDZap.</p>
+        <p class="meta">The M5StickS3 is powered off right after flashing — press the power button to bring it up.</p>
+        <p id="reset-failed-hint" class="callout" hidden>
+          The auto-restart may have failed. Reseat the USB-C cable and press the power button once.
+        </p>
+        <ul>
+          <li>Once it's running, pair it with the iOS app over BLE and lap times will appear on the HDZero Goggle OSD.</li>
+          <li>To update the firmware later, come back to this page and re-flash with the same steps.</li>
+        </ul>
+        <button id="restart-btn" type="button">Flash again</button>
+      </div>
+
+      <div id="state-error" hidden aria-live="assertive">
+        <p class="status error">Error</p>
+        <p id="error-msg"></p>
+        <p id="error-hint" class="meta"></p>
+        <button id="retry-btn" type="button">Retry</button>
+      </div>
+    </section>
+
+    <section id="troubleshoot">
+      <h2>When things don't work</h2>
+      <ul>
+        <li><strong>The M5StickS3 doesn't show up in the port picker.</strong> Hold the power button for 2 seconds — the device must be in flash mode (green LED blinking). If it still doesn't show up, try a different USB-C data cable. On Windows, drivers may take a few seconds to install on first connect.</li>
+        <li><strong>"Couldn't connect to the bootloader" appears.</strong> Hold the power button for 2 seconds, confirm the <strong>green LED is blinking</strong>, then click "Connect &amp; flash". Without flash mode the connection will fail.</li>
+        <li><strong>"Couldn't open the serial port" appears.</strong> Make sure no other application (PlatformIO serial monitor, Arduino IDE, etc.) is using the same port.</li>
+        <li><strong>The browser refuses to connect at all.</strong> Use a Chromium-based browser (Chrome / Edge / Brave / Opera / Vivaldi / Arc) and check the page is served over <code>https://</code> or <code>localhost</code>.</li>
+        <li><strong>The power button doesn't boot the device after flashing.</strong> Check the battery level. Pressing the power button while the USB-C cable is still connected gives the most reliable boot.</li>
+      </ul>
+    </section>
+
+    <footer>
+      <p>
+        <a href="https://github.com/Saqoosha/HDZap">github.com/Saqoosha/HDZap</a>
+        ・
+        Flash engine: <a href="https://github.com/espressif/esptool-js">esptool-js</a>
+      </p>
+      <p class="meta">
+        Product photo: <a href="https://shop.m5stack.com/">M5Stack</a>
+      </p>
+    </footer>
+  </main>
+
+  <script type="module" src="flasher.js"></script>
+</body>
+</html>

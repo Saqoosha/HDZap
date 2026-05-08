@@ -1,0 +1,33 @@
+name: HDZap
+options:
+  bundleIdPrefix: sh.saqoo
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.4"
+  developmentLanguage: en
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "2"
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: "<TEAM_ID>"
+    CODE_SIGN_STYLE: Automatic
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+targets:
+  HDZap:
+    type: application
+    platform: iOS
+    sources:
+      - HDZap
+    info:
+      path: HDZap/Info.plist
+      properties:
+        NSBluetoothAlwaysUsageDescription: "Connect to HDZero OSD bridge device via Bluetooth"
+        ITSAppUsesNonExemptEncryption: false
+        UIBackgroundModes:
+          - bluetooth-central
+        CFBundleDisplayName: HDZap
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIRequiresFullScreen: YES
+        UILaunchScreen: {}

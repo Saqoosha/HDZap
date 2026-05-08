@@ -1,0 +1,412 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 612031ED1450E491C5A43621 /* EditorialTheme.swift */; };
+		12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E32709696D474AA71F7C90 /* UIDUtils.swift */; };
+		1A29BAB25C8509DF2CDA8248 /* RaceRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */; };
+		29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67948DF123DC370E6DBE5590 /* Assets.xcassets */; };
+		2AD1404D6B4FDDC34EBDE4D5 /* OSDLayoutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75564390559DAFCCE1D6F0E7 /* OSDLayoutSettingsView.swift */; };
+		3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */; };
+		3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63119602A4C7217E6D0C00A1 /* OKLCH.swift */; };
+		374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */; };
+		6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DB96B10D57102797F555BE /* BluetoothManager.swift */; };
+		7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFF7583FD58A10FE7357025 /* HDZapApp.swift */; };
+		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
+		8F9FA17CF494FA2673B7B305 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */; };
+		B7CE912801EC33801585517E /* LapAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */; };
+		B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4A2435CB82ED37EA712928 /* LapTimer.swift */; };
+		B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12757F8C010AFDC40357896D /* RaceShareCard.swift */; };
+		BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */; };
+		C2009A175D17BE0542FBCE43 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D691E6FC4DA267F798640A3 /* HistoryView.swift */; };
+		C377E0A27CFCE41D44BC6AB8 /* OSDLayoutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */; };
+		C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */; };
+		CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D706FE213381CDC8D3EC0893 /* TimerView.swift */; };
+		F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		12757F8C010AFDC40357896D /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
+		1D691E6FC4DA267F798640A3 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		2E0D671093AF13888B5701D3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		2E4A2435CB82ED37EA712928 /* LapTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapTimer.swift; sourceTree = "<group>"; };
+		37DB96B10D57102797F555BE /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
+		3AA9BB23D795AA5162829B3C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		3BFF7583FD58A10FE7357025 /* HDZapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDZapApp.swift; sourceTree = "<group>"; };
+		4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceHistoryStore.swift; sourceTree = "<group>"; };
+		612031ED1450E491C5A43621 /* EditorialTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialTheme.swift; sourceTree = "<group>"; };
+		63119602A4C7217E6D0C00A1 /* OKLCH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OKLCH.swift; sourceTree = "<group>"; };
+		66E32709696D474AA71F7C90 /* UIDUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIDUtils.swift; sourceTree = "<group>"; };
+		67948DF123DC370E6DBE5590 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		75564390559DAFCCE1D6F0E7 /* OSDLayoutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettingsView.swift; sourceTree = "<group>"; };
+		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettings.swift; sourceTree = "<group>"; };
+		B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
+		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
+		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
+		EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceRecord.swift; sourceTree = "<group>"; };
+		F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceDetailView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		086131ACEDDF3DCDB0361AC2 = {
+			isa = PBXGroup;
+			children = (
+				861A341F4ADE60A8E83D72AD /* HDZap */,
+				1D2FB57E9AD134EB42CA510E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1D2FB57E9AD134EB42CA510E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				9F1230617481693545D3B02A /* HDZap.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3802ABB4F858BEDF7105AAC6 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				2E0D671093AF13888B5701D3 /* ContentView.swift */,
+				612031ED1450E491C5A43621 /* EditorialTheme.swift */,
+				1D691E6FC4DA267F798640A3 /* HistoryView.swift */,
+				75564390559DAFCCE1D6F0E7 /* OSDLayoutSettingsView.swift */,
+				FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */,
+				12757F8C010AFDC40357896D /* RaceShareCard.swift */,
+				F2FF905397C0F3EE8B9597B9 /* SettingsView.swift */,
+				D706FE213381CDC8D3EC0893 /* TimerView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		42E89D1EA471AA0231C57139 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				37DB96B10D57102797F555BE /* BluetoothManager.swift */,
+				CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */,
+				2E4A2435CB82ED37EA712928 /* LapTimer.swift */,
+				B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */,
+				4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */,
+				D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */,
+				EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		861A341F4ADE60A8E83D72AD /* HDZap */ = {
+			isa = PBXGroup;
+			children = (
+				67948DF123DC370E6DBE5590 /* Assets.xcassets */,
+				3BFF7583FD58A10FE7357025 /* HDZapApp.swift */,
+				3AA9BB23D795AA5162829B3C /* Info.plist */,
+				6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */,
+				B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */,
+				42E89D1EA471AA0231C57139 /* Models */,
+				8CBD2DCE416C511DC56F7DB0 /* Utils */,
+				3802ABB4F858BEDF7105AAC6 /* Views */,
+			);
+			path = HDZap;
+			sourceTree = "<group>";
+		};
+		8CBD2DCE416C511DC56F7DB0 /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				63119602A4C7217E6D0C00A1 /* OKLCH.swift */,
+				66E32709696D474AA71F7C90 /* UIDUtils.swift */,
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2E1D612349C9541ADE063ED3 /* HDZap */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8B6D3238A62B20FD5B9A93C5 /* Build configuration list for PBXNativeTarget "HDZap" */;
+			buildPhases = (
+				8EB8D7AD4FF9BE9D97BB5DFE /* Sources */,
+				5EC44E9D8BC3FA63073F8E7E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HDZap;
+			packageProductDependencies = (
+			);
+			productName = HDZap;
+			productReference = 9F1230617481693545D3B02A /* HDZap.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B70DDCAFA51F00F9A797904D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1640;
+				TargetAttributes = {
+					2E1D612349C9541ADE063ED3 = {
+						DevelopmentTeam = "<TEAM_ID>";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 11336A24693A20596EE0C9AC /* Build configuration list for PBXProject "HDZap" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				ja,
+			);
+			mainGroup = 086131ACEDDF3DCDB0361AC2;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1D2FB57E9AD134EB42CA510E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2E1D612349C9541ADE063ED3 /* HDZap */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5EC44E9D8BC3FA63073F8E7E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */,
+				374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */,
+				F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8EB8D7AD4FF9BE9D97BB5DFE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */,
+				8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */,
+				085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */,
+				7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */,
+				C2009A175D17BE0542FBCE43 /* HistoryView.swift in Sources */,
+				B7CE912801EC33801585517E /* LapAnnouncer.swift in Sources */,
+				B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */,
+				3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */,
+				C377E0A27CFCE41D44BC6AB8 /* OSDLayoutSettings.swift in Sources */,
+				2AD1404D6B4FDDC34EBDE4D5 /* OSDLayoutSettingsView.swift in Sources */,
+				3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */,
+				C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */,
+				BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */,
+				1A29BAB25C8509DF2CDA8248 /* RaceRecord.swift in Sources */,
+				B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */,
+				8F9FA17CF494FA2673B7B305 /* SettingsView.swift in Sources */,
+				CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */,
+				12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		01681088A3580317A803D9C2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 2;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "<TEAM_ID>";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		042C6F033069867369709B78 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 2;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "<TEAM_ID>";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		081611FFA14A7D1DEC655F13 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = HDZap/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = sh.saqoo.HDZap;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		3B8AA2A870FD31F1E7CEFCC8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = HDZap/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = sh.saqoo.HDZap;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		11336A24693A20596EE0C9AC /* Build configuration list for PBXProject "HDZap" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				01681088A3580317A803D9C2 /* Debug */,
+				042C6F033069867369709B78 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8B6D3238A62B20FD5B9A93C5 /* Build configuration list for PBXNativeTarget "HDZap" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3B8AA2A870FD31F1E7CEFCC8 /* Debug */,
+				081611FFA14A7D1DEC655F13 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B70DDCAFA51F00F9A797904D /* Project object */;
+}
