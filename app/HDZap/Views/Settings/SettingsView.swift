@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Settings root: error banner, connection status card, Race controls
-/// (kept inline because they're changed every session), and drilldown
-/// rows for the device-side and app-side configuration screens. The
-/// pairing / connection / audio / appearance bodies live in their own
-/// sub-views under Views/Settings/ to keep the root short and to give
-/// each domain room for its own conditional UI.
+/// Settings root: error banner, Format controls (race time + target
+/// lap, kept inline because they change every session), Device
+/// drilldowns (M5StickS3 status row + Goggle pairing + OSD layout),
+/// and App drilldowns (Lap announcer + Appearance). Each sub-view
+/// lives in its own file under Views/Settings/ to keep the root short
+/// and to give each domain room for its own conditional UI.
 struct SettingsView: View {
     @Environment(BluetoothManager.self) private var bluetooth
     @Environment(OSDLayoutSettings.self) private var layout
@@ -26,7 +26,6 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 errorSection
-                statusSection
                 raceSection
                 deviceSection
                 appSection
@@ -81,30 +80,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Status card
-
-    /// Compact connection summary — name + battery percent on one line,
-    /// tap-through to the full Connection screen. Mirrors the Apple
-    /// Settings "Wi-Fi · MyNetwork" pattern: a single row with the
-    /// current state on the right, a chevron to the configuration
-    /// screen.
-    private var statusSection: some View {
-        Section {
-            NavigationLink {
-                ConnectionSettingsView()
-            } label: {
-                HStack(spacing: 10) {
-                    statusDot
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Connection")
-                        Text(statusSubtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-    }
+    // MARK: - Status helpers (used by the M5StickS3 row in deviceSection)
 
     @ViewBuilder
     private var statusDot: some View {
@@ -127,7 +103,7 @@ struct SettingsView: View {
         return String(localized: "\(name) · \(pct)%")
     }
 
-    // MARK: - Race (inline — most-changed)
+    // MARK: - Format (race time + target lap; inline — most-changed)
 
     private var raceSection: some View {
         // Hoisted out of the Text(...) so the formula is greppable and
@@ -174,7 +150,7 @@ struct SettingsView: View {
                     .monospacedDigit()
             }
         } header: {
-            Text("Race")
+            Text("Format")
         } footer: {
             Text("Target pace is race time ÷ (target lap − 1).")
                 .font(.caption2)
@@ -185,6 +161,26 @@ struct SettingsView: View {
 
     private var deviceSection: some View {
         Section("Device") {
+            // M5StickS3 row leads the Device section so the connection
+            // state is glanceable above the goggle-side configuration
+            // (pairing, OSD layout) that depends on it. Two-line layout
+            // matches Apple Settings's connection rows: status dot +
+            // device name and battery on the secondary line. Tap-
+            // through opens ConnectionSettingsView for scan / Disconnect /
+            // discovered list.
+            NavigationLink {
+                ConnectionSettingsView()
+            } label: {
+                HStack(spacing: 10) {
+                    statusDot
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("M5StickS3")
+                        Text(statusSubtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             NavigationLink {
                 PairingSettingsView()
             } label: {
@@ -231,12 +227,16 @@ struct SettingsView: View {
 
     // MARK: - Drilldown summaries
 
-    /// Hex form (`60:D2:53:8A:B2:00`) — compact and matches the form the
-    /// pairing screen surfaces. Decimal would be longer and crowd the
-    /// row's right edge.
+    /// Decimal form (`96,210,83,138,178,0`) — matches what HDZero
+    /// goggles and the M5Stick LCD display, so the operator can compare
+    /// the row at a glance against the hardware they're pairing to.
+    /// Reads `lastKnownUID` rather than `currentUID` so a fresh app
+    /// launch surfaces the remembered UID immediately, before BLE
+    /// reconnects. The Pairing sub-screen's "Current UID" section
+    /// stays bound to live `currentUID` for authoritative display.
     private var pairingSummary: String {
-        guard let uid = bluetooth.currentUID else { return String(localized: "—") }
-        return formatUID(uid)
+        guard let uid = bluetooth.lastKnownUID else { return String(localized: "—") }
+        return formatUIDDecimal(uid)
     }
 
     private var osdLayoutSummary: String {

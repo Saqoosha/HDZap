@@ -1,10 +1,10 @@
 import SwiftUI
 import CoreBluetooth
 
-/// Connection sub-screen: connected device + battery + discovered list +
-/// scan trigger. Reachable from the root settings status card. Lives on
-/// its own screen so the discovered list has room to grow without
-/// crowding the root settings list.
+/// M5StickS3 connection sub-screen: connected device + battery +
+/// discovered list + scan trigger. Reachable from the M5StickS3 row in
+/// the Settings root's Device section. Lives on its own screen so the
+/// discovered list has room to grow without crowding the root list.
 struct ConnectionSettingsView: View {
     @Environment(BluetoothManager.self) private var bluetooth
 
@@ -14,7 +14,7 @@ struct ConnectionSettingsView: View {
             discoveredSection
             scanSection
         }
-        .navigationTitle("Connection")
+        .navigationTitle("M5StickS3")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -67,7 +67,7 @@ struct ConnectionSettingsView: View {
                             .stroke(.secondary, lineWidth: 1)
                             .frame(width: 10, height: 10)
                         VStack(alignment: .leading) {
-                            Text(peripheral.name ?? "Unknown").font(.body)
+                            Text(bluetooth.displayName(for: peripheral) ?? "Unknown").font(.body)
                             Text(peripheral.identifier.uuidString.prefix(8) + "...")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
