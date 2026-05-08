@@ -46,6 +46,21 @@ class BluetoothManager: NSObject {
     }
 
     private(set) var discoveredDevices: [CBPeripheral] = []
+    /// Local name captured from advertisement / scan response, keyed by
+    /// peripheral identifier. Solves the "Unknown" first-pairing flicker:
+    /// while iOS has no cached GAP 0x2A00 device name for this peripheral,
+    /// `peripheral.name` is nil during scan because the firmware's BLE
+    /// library auto-spills the local name into the scan response (the
+    /// 128-bit service UUID consumes most of the 31-byte primary adv
+    /// slot — see `firmware/include/ble_service.h::ble_init`; if that
+    /// ever switches to a 16-bit UUID this iOS-side mitigation can be
+    /// dropped). The scan response *is* delivered in `advertisementData`,
+    /// so we capture it here and let the UI prefer this over
+    /// `peripheral.name`. Load-bearing whenever iOS lacks a cached GAP
+    /// name — typically the first pairing per app install, but also
+    /// after a Bluetooth cache reset, OS BT toggle, or "Forget This
+    /// Device".
+    private(set) var advertisedNames: [UUID: String] = [:]
     private(set) var connectedDeviceName: String?
     /// Identifier of the currently-connected peripheral, if any.
     /// Lets the UI deduplicate the discovered-devices list against the
@@ -240,8 +255,22 @@ class BluetoothManager: NSObject {
             return
         }
         discoveredDevices = []
+        // Drop names from a prior scan so a peripheral that was renamed
+        // out-of-band (rare, but possible if the firmware was reflashed
+        // with a different `ble_init` name) can't keep its stale label.
+        advertisedNames = [:]
         isScanning = true
-        centralManager.scanForPeripherals(withServices: [serviceUUID])
+        // `allowDuplicates: true` so we keep getting `didDiscover`
+        // callbacks for the same peripheral — without it iOS only fires
+        // the first one, and on first pairing that first event can land
+        // before the scan response has been merged in (the local name
+        // lives in the scan response, not the primary adv packet).
+        // Allowing duplicates means the next event after the scan
+        // response arrives will include the name and we update the map.
+        centralManager.scanForPeripherals(
+            withServices: [serviceUUID],
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
+        )
     }
 
     func stopScan() {
@@ -269,6 +298,17 @@ class BluetoothManager: NSObject {
         isTXSniffActive = false
         resetBatteryState()
         centralManager.cancelPeripheralConnection(peripheral)
+    }
+
+    /// Best-known display name for a discovered peripheral. Prefers the
+    /// scan-response local name we captured during `didDiscover`, then
+    /// the OS-cached GAP name on `CBPeripheral`, then nil. The UI layer
+    /// owns the "Unknown" fallback so that decision stays in one place.
+    func displayName(for peripheral: CBPeripheral) -> String? {
+        if let name = advertisedNames[peripheral.identifier], !name.isEmpty {
+            return name
+        }
+        return peripheral.name
     }
 
     /// Bind phrases share a 63-byte cap with the firmware so the MD5 input
@@ -519,6 +559,15 @@ extension BluetoothManager: CBCentralManagerDelegate {
         if !discoveredDevices.contains(where: { $0.identifier == peripheral.identifier }) {
             discoveredDevices.append(peripheral)
         }
+        // Local name lives in the firmware's scan response — capture it
+        // so the discovered-devices row can show "HDZeroOSD" instead of
+        // "Unknown" before the first connect. Only update on a real
+        // change so the @Observable storage doesn't churn the UI on
+        // every duplicate scan tick.
+        if let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String,
+           advertisedNames[peripheral.identifier] != name {
+            advertisedNames[peripheral.identifier] = name
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -528,10 +577,13 @@ extension BluetoothManager: CBCentralManagerDelegate {
         // after an unexpected drop) got us here.
         suppressAutoReconnect = false
         userTappedDisconnect = false
-        // peripheral.name can be nil before the remote name is resolved; fall
-        // back to a short identifier prefix so the UI shows *something* rather
-        // than implying there's no active connection.
-        connectedDeviceName = peripheral.name
+        // `displayName(for:)` returns the captured scan-response local
+        // name when present, otherwise the OS-cached GAP name, otherwise
+        // nil. The trailing `??` adds a short identifier prefix so the
+        // UI shows *something* rather than implying there's no active
+        // connection — `peripheral.name` can still be nil at didConnect
+        // on a first pairing, before iOS has resolved the GAP name.
+        connectedDeviceName = displayName(for: peripheral)
             ?? "Device \(peripheral.identifier.uuidString.prefix(8))"
         peripheral.delegate = self
         peripheral.discoverServices([serviceUUID])

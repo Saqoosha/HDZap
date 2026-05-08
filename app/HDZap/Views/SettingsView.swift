@@ -189,7 +189,7 @@ struct SettingsView: View {
                         .stroke(.secondary, lineWidth: 1)
                         .frame(width: 10, height: 10)
                     VStack(alignment: .leading) {
-                        Text(peripheral.name ?? "Unknown").font(.body)
+                        Text(bluetooth.displayName(for: peripheral) ?? "Unknown").font(.body)
                         Text(peripheral.identifier.uuidString.prefix(8) + "...")
                             .font(.caption)
                             .foregroundStyle(.secondary)

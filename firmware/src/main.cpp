@@ -25,6 +25,16 @@ static_assert(OSDTextDisplay::ROW_TEXT_MAX == OSD_TEXT_ROW_MAX,
               "OSD text row max length mismatch between ble_service.h and osd_text_display.h");
 
 uint8_t g_uid[6] = {};
+// True only when the displayed UID came from the MAC fallback in
+// setup() — i.e. `nvs_store::loadUid` reported no saved UID and we
+// derived `g_uid` from `esp_read_mac` instead. Stays false on a
+// previously-bound boot (NVS hit) and on every subsequent successful
+// `applyStagedUid` (NVS write). Exists so the LCD can flag UNBOUND
+// for the Web Flasher "Erase All" case: the MAC fallback is hardware-
+// fixed per chip, so without this flag the post-erase UID is byte-
+// for-byte identical to the pre-erase one and the wipe looks like
+// it did nothing.
+static bool g_uid_is_default = false;
 static OSD osd;
 static OSDTextDisplay osdTextDisplay;
 static StickDisplay stickDisplay;
@@ -189,6 +199,9 @@ static void applyStagedUid() {
     portENTER_CRITICAL(&g_ble_mux);
     memcpy(g_uid, new_uid, 6);
     portEXIT_CRITICAL(&g_ble_mux);
+    // The UID is now backed by an NVS save, not the MAC fallback —
+    // drop the UNBOUND flag so the LCD stops flagging the band.
+    g_uid_is_default = false;
 
     bool wasRadioDown = !espnow_ready;
     bool radioOk;
@@ -208,7 +221,7 @@ static void applyStagedUid() {
             Serial.println("ESP-NOW init still failing after UID change");
         }
     }
-    stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
+    stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready, g_uid_is_default);
     if (!radioOk) {
         stickDisplay.showMessage("ESPNOW FAIL", stickDisplay.colorErr());
     } else {
@@ -275,6 +288,7 @@ void setup() {
 
     if (!nvs_store::loadUid(g_uid)) {
         esp_read_mac(g_uid, ESP_MAC_WIFI_STA);
+        g_uid_is_default = true;
         Serial.println("No saved UID, using MAC");
     }
 
@@ -307,7 +321,7 @@ void setup() {
     ble_init("HDZeroOSD");
     Serial.println("BLE initialized, advertising...");
 
-    stickDisplay.showStatus(g_uid, false, espnow_ready);
+    stickDisplay.showStatus(g_uid, false, espnow_ready, g_uid_is_default);
 
     // Boot counts as activity; without this the panel could sleep before
     // the operator has had a chance to interact at all.
@@ -391,7 +405,7 @@ void loop() {
 
     if (g_ble_connected != last_ble_state) {
         last_ble_state = g_ble_connected;
-        stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
+        stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready, g_uid_is_default);
         // Push the current battery snapshot on every connect edge so a
         // newly-paired iOS gets a value immediately, not on the next poll
         // delta. Without this the first 5 s after connect leave the iOS
@@ -721,7 +735,7 @@ void loop() {
             stickDisplay.showMessage("RESET FAIL", stickDisplay.colorErr());
         } else {
             Serial.println("Laps reset");
-            stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
+            stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready, g_uid_is_default);
             // Drop any stale "LAPS FULL" / "LAP RENDER FAIL" from the
             // sticky strip — a fresh reset is a clean slate.
             stickDisplay.clearMessage();

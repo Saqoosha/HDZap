@@ -48,10 +48,12 @@ public:
         drawHairlines();
     }
 
-    void showStatus(const uint8_t uid[6], bool bleConnected, bool radioReady) {
+    void showStatus(const uint8_t uid[6], bool bleConnected, bool radioReady,
+                    bool uidIsDefault = false) {
         memcpy(m_uid, uid, 6);
         m_bleConnected = bleConnected;
         m_radioReady = radioReady;
+        m_uidIsDefault = uidIsDefault;
         clearTakeover();
         drawUidBand();
         drawLapBand();
@@ -216,6 +218,16 @@ private:
     bool m_radioReady = false;
     bool m_bindActive = false;
 
+    // True when the UID on display came from the MAC-derived fallback in
+    // setup(), not from an NVS load or a runtime BLE bind. Surfaces a
+    // small "UNBOUND" tag in the UID band caption so a Web Flasher
+    // "Erase All" run is visibly distinct from a previously-bound
+    // device — without this, the MAC fallback is byte-for-byte the
+    // same value across erase + reflash and looks like the wipe was a
+    // no-op. main.cpp owns the source-of-truth flag and passes it on
+    // every showStatus call.
+    bool m_uidIsDefault = false;
+
     bool m_haveLap = false;
     uint8_t m_lapNum = 0;
     uint32_t m_lapMs = 0;
@@ -278,6 +290,22 @@ private:
         M5.Display.setTextColor(m_bindActive ? m_colWarn : m_colSub, TFT_BLACK);
         M5.Display.setCursor(6, 6);
         M5.Display.print("UID");
+        // UNBOUND tag: tucked right after the "UID" caption in the UID
+        // band's top row, in warn-yellow so it reads as "needs attention"
+        // without escalating to error-red. Suppressed during a bind
+        // takeover (m_bindActive) so the band is visually clean — that
+        // takeover is itself the "binding now" affordance.
+        if (m_uidIsDefault && !m_bindActive) {
+            // x-offset = "UID" caption start (6 px) + width of "UID "
+            // (Font0 is 6 px/char, so 4 chars × 6 px = 24 px). Computed
+            // so a future caption rename can't silently desync it.
+            constexpr int kUidCaptionPxPerChar = 6;
+            constexpr int kUidCaptionPad = (int)sizeof("UID ") - 1; // strlen("UID ")
+            M5.Display.setTextColor(m_colWarn, TFT_BLACK);
+            M5.Display.setCursor(6 + kUidCaptionPad * kUidCaptionPxPerChar, 6);
+            M5.Display.print("UNBOUND");
+            M5.Display.setTextColor(m_colSub, TFT_BLACK);
+        }
 
         const char* bleLabel = m_bleConnected ? "BLE" : "BLE OFF";
         uint16_t bleCol = m_bleConnected ? m_colOk : m_colErr;
