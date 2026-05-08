@@ -363,6 +363,11 @@ class BluetoothManager: NSObject {
     /// (0 = bottom-anchored default, negative = move up). Per-row
     /// alignment / show-hide are applied entirely on the iOS side via
     /// the existing OSD text path, so they don't ride this characteristic.
+    /// Fire-and-forget: write-without-response, same as `sendOSDRows`,
+    /// so a slider drag's layout writes don't each pay the ~30 ms ATT
+    /// ack round-trip. Single-byte payload always fits one connection
+    /// event; if a write does drop, the next debounced push (or the
+    /// next state-transition flush) re-sends the value.
     /// Optional on the firmware side (older builds without the
     /// characteristic just return false here without surfacing an error,
     /// since the layout setting is a UX-only feature, not a correctness
@@ -377,7 +382,7 @@ class BluetoothManager: NSObject {
             // time the user touches a slider.
             return false
         }
-        return write(data: Data([byte]), to: osdLayoutUUID)
+        return writeWithoutResponse(data: Data([byte]), to: osdLayoutUUID)
     }
 
     /// True once the OSD layout characteristic has been discovered.

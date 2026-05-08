@@ -76,11 +76,13 @@ static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
 static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 /// Staging window before the first render dispatch. New dirty rows
 /// that arrive within this window are batched into a single cycle
-/// instead of each triggering a separate 200 ms verify pass. 80 ms
-/// covers 4 back-to-back BLE writes (worst-case ~30 ms connection
-/// interval each) with margin, so Ready and Results displays (4 rows
-/// each) appear atomically.
-static constexpr uint32_t RENDER_STAGING_MS       = 80;
+/// instead of each triggering a separate 200 ms verify pass. iOS now
+/// fires the OSD-text writes back-to-back as `writeWithoutResponse`
+/// (one or two connection events for all 4 rows) and pre-pends the
+/// layout char in the same burst, so 40 ms is enough to coalesce a
+/// full Ready / Result frame while halving the perceived render lag
+/// versus the previous 80 ms window.
+static constexpr uint32_t RENDER_STAGING_MS       = 40;
 
 // --- Power saving (issue #5, phase 3 deep sleep) -------------------------
 // After g_sleep_timeout_ms of no operator activity (same definition as

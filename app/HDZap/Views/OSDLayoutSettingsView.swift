@@ -257,12 +257,15 @@ struct OSDLayoutSettingsView: View {
     private func schedulePush(force: Bool = false) {
         debounceTask?.cancel()
         debounceTask = Task { @MainActor in
-            // 150 ms debounce — enough to coalesce a slider drag's many
-            // intermediate values into a single push without feeling laggy.
-            // The initial onAppear push skips the wait so the goggle
-            // updates the moment the user opens the screen.
+            // 80 ms debounce — short enough that the goggle update
+            // feels immediate (one BLE connection event + the firmware
+            // staging window adds another ~40 ms; total perceived lag
+            // sits comfortably under 150 ms), long enough to coalesce a
+            // slider drag's many intermediate values into a single
+            // push. The initial onAppear push skips the wait so the
+            // goggle updates the moment the user opens the screen.
             if !force {
-                try? await Task.sleep(nanoseconds: 150_000_000)
+                try? await Task.sleep(nanoseconds: 80_000_000)
                 if Task.isCancelled { return }
             }
             // Capture snapshot + isInitial *after* the debounce so the
