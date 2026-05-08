@@ -11,11 +11,11 @@ struct HDZapApp: App {
     init() {
         UserDefaults.standard.register(defaults: [
             "raceSessionLimit": 90,
-            "accentHue": EditorialTheme.defaultAccentHue,
+            EditorialTheme.accentHueStorageKey: EditorialTheme.defaultAccentHue,
             "targetLapCount": RaceMetrics.defaultTargetLapCount,
-            LapAnnouncerDefaults.enabledKey: false,
+            LapAnnouncerDefaults.enabledKey: LapAnnouncerDefaults.defaultEnabled,
             LapAnnouncerDefaults.languageKey: LapAnnouncerDefaults.defaultLanguageRaw,
-            LapAnnouncerDefaults.announceBestKey: true,
+            LapAnnouncerDefaults.announceBestKey: LapAnnouncerDefaults.defaultAnnounceBest,
             LapAnnouncerDefaults.rateKey: Double(LapAnnouncerDefaults.defaultRate),
             LapAnnouncerDefaults.pitchKey: Double(LapAnnouncerDefaults.defaultPitch),
             LapAnnouncerDefaults.voiceIdentifierKey: "",

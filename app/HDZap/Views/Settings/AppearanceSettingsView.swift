@@ -4,7 +4,8 @@ import SwiftUI
 /// across the app. Single setting, dedicated screen so the gradient
 /// preview has room to read clearly.
 struct AppearanceSettingsView: View {
-    @AppStorage("accentHue") private var accentHue: Double = EditorialTheme.defaultAccentHue
+    @AppStorage(EditorialTheme.accentHueStorageKey) private var accentHue: Double
+        = EditorialTheme.defaultAccentHue
 
     var body: some View {
         List {

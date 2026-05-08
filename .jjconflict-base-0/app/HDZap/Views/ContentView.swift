@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct ContentView: View {
-    @AppStorage("accentHue") private var accentHue: Double = EditorialTheme.defaultAccentHue
+    @AppStorage(EditorialTheme.accentHueStorageKey) private var accentHue: Double
+        = EditorialTheme.defaultAccentHue
 
     var body: some View {
         TimerView()

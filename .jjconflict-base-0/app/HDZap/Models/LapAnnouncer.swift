@@ -26,6 +26,12 @@ enum LapAnnouncerDefaults {
     /// a precondition rather than silently drifting.
     static let defaultRate: Float = 0.5
     static let defaultPitch: Float = 1.0
+    /// Master toggle default — off, so the app stays silent until the
+    /// operator explicitly opts in to TTS announcements.
+    static let defaultEnabled = false
+    /// "best lap" callout default — on. Cheap, useful, and only fires
+    /// at the moments that warrant a callout.
+    static let defaultAnnounceBest = true
     /// Empirical bounds verified on iOS 18 with the system fallback voices
     /// (Samantha en-US, Kyoko Enhanced ja-JP): below 0.30 the voice trails
     /// into incomprehensible mush; above 0.65 the engine chops sub-second
@@ -141,7 +147,8 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func announceLap(_ lap: Lap, isBest: Bool) {
-        let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool ?? true
+        let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool
+            ?? LapAnnouncerDefaults.defaultAnnounceBest
         speak(phrase(for: lap, isBest: isBest && announceBest))
     }
 

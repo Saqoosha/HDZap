@@ -222,14 +222,27 @@ struct OSDLayoutSettingsView: View {
     /// real layout change repaints from scratch (no spurious "no diff"
     /// skip — the cache still reflects the dummy preview rows we last
     /// sent, not the test content).
-    private func sendTestOSD() {
-        let now = Date()
+    /// Cached so each Test OSD tap doesn't allocate a fresh
+    /// `DateFormatter`. POSIX locale pinned so `yyyy-MM-dd` doesn't
+    /// localise into e.g. Japanese-era forms on a JP device — the
+    /// goggle's OSD glyph set is 7-bit ASCII.
+    private static let testOSDDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
-        let dateStr = f.string(from: now)
+        return f
+    }()
+    private static let testOSDTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "HH:mm:ss"
-        let timeStr = f.string(from: now)
+        return f
+    }()
+
+    private func sendTestOSD() {
+        let now = Date()
+        let dateStr = Self.testOSDDateFormatter.string(from: now)
+        let timeStr = Self.testOSDTimeFormatter.string(from: now)
         let ms = Int((now.timeIntervalSince1970 * 1000).rounded()) % 1000
         _ = bluetooth.sendOSDRows([
             (row: 0, text: RaceMetrics.padOSD("TEST OSD",

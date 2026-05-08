@@ -13,8 +13,10 @@ struct SettingsView: View {
 
     @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
-    @AppStorage("accentHue") private var accentHue: Double = EditorialTheme.defaultAccentHue
-    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
+    @AppStorage(EditorialTheme.accentHueStorageKey) private var accentHue: Double
+        = EditorialTheme.defaultAccentHue
+    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled
+        = LapAnnouncerDefaults.defaultEnabled
     @AppStorage(LapAnnouncerDefaults.languageKey) private var ttsLanguageRaw
         = LapAnnouncerDefaults.defaultLanguageRaw
 

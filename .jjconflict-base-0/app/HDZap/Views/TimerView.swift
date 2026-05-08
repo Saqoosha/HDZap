@@ -16,7 +16,8 @@ struct TimerView: View {
     @Environment(OSDLayoutSettings.self) private var osdLayout
     @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
     @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
-    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
+    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled
+        = LapAnnouncerDefaults.defaultEnabled
     @Environment(\.accentHue) private var accentHue: Double
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
     private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }

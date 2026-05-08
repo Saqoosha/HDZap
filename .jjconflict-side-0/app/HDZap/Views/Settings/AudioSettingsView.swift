@@ -5,10 +5,12 @@ import SwiftUI
 /// missing-voice banners have room to render without crowding the root.
 struct AudioSettingsView: View {
     @Environment(LapAnnouncer.self) private var announcer
-    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled = false
+    @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled
+        = LapAnnouncerDefaults.defaultEnabled
     @AppStorage(LapAnnouncerDefaults.languageKey) private var ttsLanguageRaw
         = LapAnnouncerDefaults.defaultLanguageRaw
-    @AppStorage(LapAnnouncerDefaults.announceBestKey) private var announceBest = true
+    @AppStorage(LapAnnouncerDefaults.announceBestKey) private var announceBest
+        = LapAnnouncerDefaults.defaultAnnounceBest
     @AppStorage(LapAnnouncerDefaults.voiceIdentifierKey) private var voiceIdentifier = ""
     @AppStorage(LapAnnouncerDefaults.rateKey) private var ttsRate: Double
         = Double(LapAnnouncerDefaults.defaultRate)
@@ -137,14 +139,15 @@ struct AudioSettingsView: View {
                             // Restores every Audio @AppStorage key to the value
                             // registered in HDZapApp.init(), including the master
                             // toggle — otherwise "Reset" leaves TTS enabled while
-                            // claiming defaults were restored, which doesn't match
-                            // the registered default of false.
-                            lapTTSEnabled = false
+                            // claiming defaults were restored. All defaults route
+                            // through `LapAnnouncerDefaults` so a future tweak to
+                            // the registered default propagates here in one edit.
+                            lapTTSEnabled = LapAnnouncerDefaults.defaultEnabled
                             ttsRate = Double(LapAnnouncerDefaults.defaultRate)
                             ttsPitch = Double(LapAnnouncerDefaults.defaultPitch)
                             ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
                             voiceIdentifier = ""
-                            announceBest = true
+                            announceBest = LapAnnouncerDefaults.defaultAnnounceBest
                         }
                         .buttonStyle(.bordered)
                     }

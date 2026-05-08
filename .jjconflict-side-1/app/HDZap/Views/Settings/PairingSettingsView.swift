@@ -350,6 +350,14 @@ struct PairingSettingsView: View {
     /// good UID — that's the recovery path the Restore button exposes
     /// manually, plus a baseline-checking phase to avoid acting on a
     /// stale frame from before this attempt.
+    ///
+    /// `@MainActor` is explicit (not just inherited from the View) so
+    /// the compiler rejects future call sites that try to invoke this
+    /// from `Task.detached` or another non-main async helper —
+    /// `BluetoothManager.recordError` runtime-asserts main-actor
+    /// isolation, so a silent isolation drift would crash at runtime
+    /// rather than fail at build time.
+    @MainActor
     private func runPairingFlow(mode: UIDMode) async {
         // Capture the rollback target up-front — once we send the new
         // UID config the firmware's notify will reflect the new value.
