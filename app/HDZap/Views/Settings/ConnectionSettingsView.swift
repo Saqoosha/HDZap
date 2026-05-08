@@ -11,11 +11,36 @@ struct ConnectionSettingsView: View {
     var body: some View {
         List {
             connectedSection
+            renameSection
             discoveredSection
             scanSection
         }
         .navigationTitle("M5StickS3")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private var renameSection: some View {
+        // Only surface the rename drilldown when paired against firmware
+        // that carries CHR_DEVICE_NAME — older firmware would silently
+        // 404 the write. `supportsDeviceRename` flips false on
+        // disconnect, so the row also hides when offline (renaming
+        // requires a live connection anyway).
+        if bluetooth.isConnected && bluetooth.supportsDeviceRename {
+            Section {
+                NavigationLink {
+                    DeviceRenameView()
+                } label: {
+                    LabeledContent("Bluetooth name") {
+                        Text(bluetooth.currentDeviceName
+                             ?? bluetooth.connectedDeviceName
+                             ?? "—")
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
