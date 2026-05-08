@@ -598,19 +598,31 @@ struct TimerView: View {
 
     // MARK: - Ready button
 
+    /// Toggle: tap to push the Ready summary to the goggle, tap again
+    /// to wipe it. State lives on `readyShown` so a Settings dismiss
+    /// restores Ready iff it was the active frame, and START / RESET
+    /// reset the toggle back to off so the next pre-race window starts
+    /// with the goggle clean.
     private var readyButton: some View {
         Button {
-            readyShown = true
-            sendReadyOSD()
+            if readyShown {
+                readyShown = false
+                _ = bluetooth.sendOSDControl(command: .clear)
+            } else {
+                readyShown = true
+                sendReadyOSD()
+            }
         } label: {
-            Text("SHOW READY")
+            Text(readyShown ? "HIDE READY" : "SHOW READY")
                 .font(.editorialMono(12, weight: .bold))
                 .tracking(2.0)
                 .foregroundStyle(EditorialTheme.ink)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 12)
                 .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(EditorialTheme.ink.opacity(0.2), lineWidth: 0.5))
+                .overlay(Capsule().stroke(
+                    EditorialTheme.ink.opacity(readyShown ? 0.5 : 0.2),
+                    lineWidth: readyShown ? 1 : 0.5))
         }
     }
 
