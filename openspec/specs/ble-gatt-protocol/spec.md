@@ -8,9 +8,11 @@ Define the BLE GATT contract between the iOS app and the M5StickS3 firmware so e
 
 ### Requirement: Single primary service / 単一のプライマリサービス
 
-The firmware SHALL advertise exactly one primary BLE service whose Service UUID is `f47ac10b-58cc-4372-a567-0e02b2c3d48d`. The iOS app SHALL filter scans by this Service UUID, MUST NOT discover the device by local name alone, and MUST NOT operate against any other service on the peripheral.
+The firmware SHALL advertise exactly one primary BLE service. The current Service UUID is `f47ac10b-58cc-4372-a567-0e02b2c3d48d` (revision byte `d`). On every breaking GATT-shape change (added/removed characteristic, property change, payload schema change), the trailing revision byte SHALL be bumped, and the iOS app SHALL be released in lockstep with the new value.
 
-このサービス UUID の末尾バイト (`d`) は iOS CoreBluetooth の GATT 形状キャッシュ無効化に使われる。Characteristic の追加または property 変更を行った change では、同じ change の中でこの UUID をバンプし、両端でロックステップに更新する。
+The iOS app SHALL filter scans by the current Service UUID, MUST NOT discover the device by local name alone, and MUST NOT operate against any other service on the peripheral. The base prefix `f47ac10b-58cc-4372-a567-0e02b2c3d48` (15 bytes) is reserved for HDZap; only the trailing revision byte may change across firmware/app versions.
+
+サービス UUID の末尾バイトは iOS CoreBluetooth の GATT 形状キャッシュ無効化に使われる。iOS は peripheral ごとに characteristic / property 構成をキャッシュするため、UUID を据え置いたまま GATT 形状を変えると古い iOS ビルドはステイル形状で動き続ける。リリースパスの責任分界: spec を更新する change が UUID をバンプし、firmware と iOS の両方を同 change で揃える。
 
 #### Scenario: iOS scans for the device
 - Given the iOS app has Bluetooth enabled and a paired or new M5StickS3 nearby
@@ -25,7 +27,7 @@ The firmware SHALL advertise exactly one primary BLE service whose Service UUID 
 
 ### Requirement: Characteristic shape / Characteristic 形状
 
-The service SHALL expose exactly the following characteristics, with the listed UUID, properties, and payload semantics. Changing any of these (UUID, properties, or payload schema) is a breaking change and MUST be paired with a Service UUID bump.
+The service SHALL expose exactly the following characteristics, with the listed UUID, properties, and payload semantics. Changing any of these (UUID, properties, or payload schema) is a breaking GATT-shape change and MUST be paired with a Service UUID revision-byte bump per the Single primary service requirement above.
 
 | Characteristic | UUID suffix | Properties | Payload |
 |---|---|---|---|

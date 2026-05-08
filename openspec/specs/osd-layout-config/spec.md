@@ -30,7 +30,9 @@ Pre-race the rows show READY / RACE limit / N LAPS @ pace / blank. Post-race the
 
 The user-visible position knob SHALL be `firstVisibleRow` — the 0-indexed top row of the **visible** block on the 18-row goggle grid. Hidden rows do NOT reserve grid space — visible rows are packed, so a 4-row block with one hidden row occupies 3 contiguous grid rows starting at `firstVisibleRow`.
 
-The slider range SHALL be `[0, osdGridRows - visibleCount] = [0, 18 - visibleCount]`.
+When `visibleCount > 0`, the slider range SHALL be `[0, osdGridRows - visibleCount]` (i.e. `[0, 18 - visibleCount]`).
+
+When `visibleCount == 0` (all rows hidden), `firstVisibleRow` is meaningless on the grid (no visible block to position). The settings store SHALL retain the user's last positive-`visibleCount` value of `firstVisibleRow` in UserDefaults so re-enabling a row restores the previous position. The slider control SHALL be disabled in this state. `firmwareYOffset` SHALL fall through to the all-hidden rule defined in the Firmware Y offset wire format requirement (sends `0`).
 
 Earlier schema versions (`v1`, `v2`) used a different position semantic ("top of the 4-row buffer", including hidden slots) and SHALL NOT be auto-migrated to v3. Both v1 and v2 only shipped on draft / TestFlight builds; auto-migrating would silently move the pilot's OSD position.
 
@@ -84,11 +86,14 @@ The horizontal alignment SHALL be a single value (left / center / right) shared 
 
 ### Requirement: Per-row visibility / 行ごとの表示・非表示
 
-Each of the 4 rows SHALL have an independent `visible: Bool`. Hidden rows MUST be sent as 50 spaces over BLE so the goggle's overlay buffer (which retains prior content between writes) is cleanly cleared at that row instead of leaving stale text behind.
+Each of the 4 rows SHALL have an independent `visible: Bool`. Visibility is applied differently for full-frame writes vs. partial updates:
 
-Visible rows are packed: the visible block has height = `visibleCount`. Hidden rows do NOT occupy a position in the buffer — the firmware buffer slot mapping (`bufferLayout()`) skips them.
+- **Full-frame writes** (Ready frame, Result frame, full repaint after layout / base-row change, reconnect replay): iOS SHALL transmit exactly `OSDLayoutConfig.rowCount` (4) firmware buffer slots after applying the packed mapping. Visible semantic rows occupy contiguous slots starting at the slot derived from `firstVisibleRow`; the remaining slots — those above and below the visible block, plus any slot a hidden semantic row would have occupied — SHALL be sent as 50-space blanks so the goggle's overlay buffer (which retains prior content between writes) is cleanly cleared at those rows.
+- **Partial updates** (TIME LEFT 1 Hz tick, single-lap event): iOS SHALL look up the target firmware slot via `bufferSlot(forSemanticIndex:)`. When the lookup returns a slot index, iOS SHALL write that one slot only. When the lookup returns `nil` (the semantic row is hidden), iOS SHALL emit no BLE write — the goggle continues to display whatever was last sent at that grid position (typically a 50-space blank from the previous full-frame write).
 
-下の `bufferLayout()` の正しさは subscript 範囲外を含む edge case の積み重ねなので、`visibleCount > 0` を保証する `bufferTopRow` の clamp に依存する。
+Visible rows are packed: the visible block has height = `visibleCount`. The firmware buffer slot mapping (`bufferLayout()`) skips hidden semantic rows when assigning slots. iOS computes blank-vs-content per slot at full-frame time; firmware does not need to know about hidden rows.
+
+`bufferLayout()` の正しさは subscript 範囲外を含む edge case の積み重ねなので、`visibleCount > 0` を保証する `bufferTopRow` の clamp に依存する。`visibleCount == 0` のときは 4 スロット全部が blank で送られ、firmware は overlay を全 clear する。
 
 #### Scenario: Hidden Pace row
 - Given `rows[2].visible = false` (Pace hidden), all others visible

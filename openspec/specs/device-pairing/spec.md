@@ -59,10 +59,11 @@ The firmware MUST log unrecognized modes and short payloads without staging a UI
 - Then `uid_from_bind_phrase("myracer", new_uid)` runs
 - And `new_uid` is staged under `g_ble_mux` with `g_uid_config_requested = true`
 
-#### Scenario: Manual UID write
-- Given iOS writes `[0x02][0xAA,0xBB,0xCC,0xDD,0xEE,0xFF]` to CHR_UID_CONFIG
+#### Scenario: Manual UID write with multicast bit set on byte 0
+- Given iOS writes `[0x02][0xAB,0xCD,0xEF,0x12,0x34,0x56]` to CHR_UID_CONFIG (byte 0 = `AB` = `10101011`, bit 0 set)
 - When the callback parses
-- Then `new_uid = AA:BB:CC:DD:EE:FF` is staged with bit0 cleared (resulting in AA:BB:CC:DD:EE:FE)
+- Then `new_uid` is staged with bit 0 of byte 0 cleared (result: `AA:CD:EF:12:34:56`)
+- And only byte 0's LSB is masked — the remaining 5 bytes are passed through unchanged
 
 ### Requirement: ELRS bind broadcast / ELRS bind ブロードキャスト
 
@@ -163,5 +164,5 @@ The firmware SHALL encode the most recent Test OSD outcome into the CHR_STATUS f
 - Given iOS triggers Test OSD via CHR_OSD_CONTROL `0x03`
 - When the firmware completes the probe with all packets MAC-acked
 - Then `g_last_test_result = 1` under the mux
-- And `ble_update_status` notifies with byte[7] = 1
+- And `ble_update_status` notifies with the frame's last byte = 1 (per the length-discriminated layout in `ble-gatt-protocol`)
 - And iOS observes `lastTestResult == .ok` and `testResultRevision` increments
