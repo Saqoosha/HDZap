@@ -14,20 +14,18 @@
 #include "tx_sniff.h"
 #include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
-// Service UUID bumped from ...d48c → ...d48d to defeat iOS CoreBluetooth's
-// per-peripheral GATT cache after CHR_OSD_LAYOUT gained PROPERTY_WRITE_NR.
-// Properties are part of the cached GATT shape, and iOS silently drops
-// `writeWithoutResponse` calls against a characteristic whose cached
-// property bitmap doesn't advertise the WRITE_NR bit. Without a service
-// UUID change, the d48c discovery from a prior connect would persist and
-// the slider's layout writes would land in iOS's queue but never reach
-// the firmware.
+// Service UUID bumped from ...d48d → ...d48e to defeat iOS CoreBluetooth's
+// per-peripheral GATT cache after a new characteristic (CHR_DEVICE_NAME,
+// ...d489) was added. Adding a characteristic — like changing properties
+// on an existing one — is a GATT shape change, and iOS would otherwise
+// keep using its cached service definition and silently fail to discover
+// the new char.
 //
 // Adding a characteristic without bumping the service UUID is safe ONLY
 // if no existing iOS build attempts to read or write it. The same rule
 // applies to changing a characteristic's *properties* — iOS treats it
 // as a shape change.
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48d"
+#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48e"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
@@ -35,6 +33,7 @@
 #define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
 #define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
 #define CHR_BATTERY_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d488"
+#define CHR_DEVICE_NAME_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
 #define CHR_OSD_LAYOUT_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48b"
 
@@ -53,6 +52,16 @@
 //   g_uid                                     (6 bytes; main loop writes
 //       under the mux in applyStagedUid, BLE task reads under the mux in
 //       ble_update_status so the notify frame never carries a torn pair)
+//   g_sleep_minutes_pending + g_sleep_minutes_changed
+//       (deep-sleep timeout config; single byte staged with the flag
+//       so a second iOS write between the loop's flag-check and value-
+//       read can't be silently dropped)
+//   g_device_name_pending + g_device_name_changed
+//       (BLE rename staging; variable-length string that can't fit in
+//       any atomic op, so the buffer + flag pair lives under the mux.
+//       Consumer in main.cpp reboots after persisting, so a second
+//       rename arriving inside the 200 ms ATT-ack window is acceptable
+//       to drop — the user has not yet seen the first rename's effect)
 //
 // Bare-volatile single-flag — idempotent commands, rapid double-write
 // collapses into one edge (which is fine, the action just means
@@ -107,6 +116,15 @@ inline volatile uint8_t g_last_test_result = 0;
 // on the rising edge of g_sleep_minutes_changed.
 inline volatile bool g_sleep_minutes_changed = false;
 inline volatile uint8_t g_sleep_minutes_pending = 0;
+
+// Device-name rename request. iOS writes the new advertised BLE name as
+// UTF-8 bytes to CHR_DEVICE_NAME; the callback stages the bytes under
+// `g_ble_mux` and sets `g_device_name_changed`. Main loop persists to
+// NVS and reboots — `BLEDevice::init(name)` is one-shot, so a clean
+// restart is cheaper and safer than tearing the BLE stack down at
+// runtime. Bonded iOS auto-reconnects after the ~3 s reboot window.
+inline volatile bool g_device_name_changed = false;
+inline char g_device_name_pending[nvs_store::kDeviceNameMaxLen + 1] = {};
 
 // OSD layout config — global Y offset for the 4-row OSD text block.
 // 1 signed byte = rows to shift up from the bottom (0 = bottom anchored,
@@ -277,6 +295,23 @@ class SleepConfigCallback : public BLECharacteristicCallbacks {
     }
 };
 
+class DeviceNameCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() == 0 || val.length() > nvs_store::kDeviceNameMaxLen) {
+            Serial.printf("DeviceName: invalid length %u (max %u)\n",
+                          (unsigned)val.length(),
+                          (unsigned)nvs_store::kDeviceNameMaxLen);
+            return;
+        }
+        portENTER_CRITICAL(&g_ble_mux);
+        memcpy(g_device_name_pending, val.data(), val.length());
+        g_device_name_pending[val.length()] = 0;
+        g_device_name_changed = true;
+        portEXIT_CRITICAL(&g_ble_mux);
+    }
+};
+
 class OSDLayoutCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
@@ -378,7 +413,13 @@ inline void _ble_gap_diag_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_p
     }
 }
 
-inline void ble_init(const char *device_name = "HDZeroOSD") {
+// `device_name` is required (no default) because the only correct
+// source is `nvs_store::loadDeviceName`, which always returns the
+// resolved name including its first-boot fallback. A literal default
+// here would silently mask a setup() refactor that drops the load
+// step and start the device advertising as "HDZeroOSD" regardless of
+// the user's saved rename.
+inline void ble_init(const char *device_name) {
     BLEDevice::init(device_name);
     BLEDevice::setCustomGapHandler(_ble_gap_diag_handler);
 
@@ -450,6 +491,18 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         CHR_BATTERY_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_battery_chr->addDescriptor(new BLE2902());
+
+    BLECharacteristic *pDeviceName = pService->createCharacteristic(
+        CHR_DEVICE_NAME_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+    pDeviceName->setCallbacks(new DeviceNameCallback());
+    {
+        // Seed the read value with the actual current name so iOS can
+        // populate the rename UI without a write-then-read round trip.
+        // The string passed to ble_init is the resolved current name
+        // (default or NVS-loaded), so reuse it here.
+        pDeviceName->setValue((uint8_t *)device_name, strlen(device_name));
+    }
 
     BLECharacteristic *pSleep = pService->createCharacteristic(
         CHR_SLEEP_CONFIG_UUID,
