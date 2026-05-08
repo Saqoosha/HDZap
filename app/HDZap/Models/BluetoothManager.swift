@@ -323,6 +323,13 @@ class BluetoothManager: NSObject {
     /// content. Caller pre-pads `text` to a stable width per row so
     /// the centered position is invariant across updates (otherwise
     /// shorter text leaves the prior longer text's tail visible).
+    /// `writeWithoutResponse` (matches `sendOSDRows`) so a 1 Hz TIME
+    /// LEFT tick that lands right after a `sendMetricRows` burst still
+    /// fits inside the firmware's 40 ms render-staging window — a
+    /// `.withResponse` write here would add a ~30 ms ATT round-trip and
+    /// push the TIME LEFT row past the window onto a separate render
+    /// cycle, which the operator sees as the lap row settling first
+    /// and TIME LEFT settling a beat later.
     @discardableResult
     func sendOSDRow(row: Int, text: String) -> Bool {
         guard (0..<4).contains(row) else {
@@ -331,7 +338,7 @@ class BluetoothManager: NSObject {
         }
         var data = Data([UInt8(row)])
         data.append(Self.osdASCIIData(for: text))
-        return write(data: data, to: osdTextUUID)
+        return writeWithoutResponse(data: data, to: osdTextUUID)
     }
 
     /// Send a batch of OSD rows without waiting for per-row BLE
@@ -428,17 +435,17 @@ class BluetoothManager: NSObject {
     /// Write without waiting for ATT-layer acknowledgement. Used for bulk
     /// OSD rows where speed matters more than per-write confirmation —
     /// 4 rows fire back-to-back instead of serialising 30+ ms each.
-    /// Falls back to write-with-response when CoreBluetooth's outbound
-    /// queue is saturated (`canSendWriteWithoutResponse == false`):
-    /// writeWithoutResponse data is silently dropped past the queue,
-    /// which would scramble a Ready / Result frame's tail rows. The
-    /// fallback pays one ATT round-trip but guarantees delivery.
+    /// CoreBluetooth queues writes past `canSendWriteWithoutResponse`
+    /// rather than dropping them in practice, and a 5-write burst
+    /// (1 layout char + 4 rows) sits well inside the queue depth on
+    /// every supported iOS version we ship to. A prior attempt to gate
+    /// on `canSendWriteWithoutResponse` and fall back to write-with-
+    /// response added a 30 ms ATT round-trip to every saturated write,
+    /// turning the slider drag into a visibly laggy path. Atomicity-
+    /// critical writes (state-transition layout char) opt into write-
+    /// with-response via the `urgent` flag on `sendOSDLayout` instead.
     @discardableResult
     private func writeWithoutResponse(data: Data, to uuid: CBUUID) -> Bool {
-        if let peripheral = connectedPeripheral,
-           !peripheral.canSendWriteWithoutResponse {
-            return write(data: data, to: uuid, type: .withResponse)
-        }
         return write(data: data, to: uuid, type: .withoutResponse)
     }
 
