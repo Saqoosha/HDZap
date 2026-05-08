@@ -14,20 +14,19 @@
 #include "tx_sniff.h"
 #include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
-// Service UUID bumped from ...d48c → ...d48d to defeat iOS CoreBluetooth's
-// per-peripheral GATT cache after CHR_OSD_LAYOUT gained PROPERTY_WRITE_NR.
-// Properties are part of the cached GATT shape, and iOS silently drops
-// `writeWithoutResponse` calls against a characteristic whose cached
-// property bitmap doesn't advertise the WRITE_NR bit. Without a service
-// UUID change, the d48c discovery from a prior connect would persist and
-// the slider's layout writes would land in iOS's queue but never reach
-// the firmware.
+// Service UUID bumped from ...d48d → ...d48e in lockstep with iOS to
+// defeat CoreBluetooth's per-peripheral GATT cache after the new
+// CHR_FW_VERSION (...d489) characteristic was added — adding a
+// characteristic, like changing a characteristic's properties (the
+// reason for the previous d48c → d48d bump), is a GATT shape change
+// from iOS's perspective and the cached old shape persists across
+// reconnects until the service UUID changes.
 //
 // Adding a characteristic without bumping the service UUID is safe ONLY
-// if no existing iOS build attempts to read or write it. The same rule
-// applies to changing a characteristic's *properties* — iOS treats it
-// as a shape change.
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48d"
+// if no existing iOS build attempts to read or write it. Since this
+// change ships an iOS build that reads CHR_FW_VERSION on connect, the
+// service UUID must move at the same time.
+#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48e"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
@@ -35,8 +34,18 @@
 #define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
 #define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
 #define CHR_BATTERY_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d488"
+#define CHR_FW_VERSION_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
 #define CHR_OSD_LAYOUT_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48b"
+
+// Resolved by the PlatformIO pre-script `scripts/inject_version.py` from
+// `git describe --tags --dirty --always`. Falls back to "unknown" when
+// no git history is available (e.g. source tarball build); iOS treats
+// "unknown" as "skip the major-version compare" so dev builds don't
+// produce a spurious mismatch warning every connect.
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "unknown"
+#endif
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -450,6 +459,17 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         CHR_BATTERY_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_battery_chr->addDescriptor(new BLE2902());
+
+    // Firmware version string for iOS-side compatibility check. READ-only
+    // (compile-time constant for the running build), no callback, no
+    // notify — iOS reads once after characteristic discovery and parses
+    // the major-version component.
+    BLECharacteristic *pFwVersion = pService->createCharacteristic(
+        CHR_FW_VERSION_UUID, BLECharacteristic::PROPERTY_READ);
+    {
+        const char *v = FIRMWARE_VERSION;
+        pFwVersion->setValue((uint8_t *)v, strlen(v));
+    }
 
     BLECharacteristic *pSleep = pService->createCharacteristic(
         CHR_SLEEP_CONFIG_UUID,

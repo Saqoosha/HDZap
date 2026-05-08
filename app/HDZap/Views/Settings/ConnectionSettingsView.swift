@@ -46,6 +46,41 @@ struct ConnectionSettingsView: View {
                 }
 
                 BatteryStatusRow()
+
+                versionRow
+            }
+        }
+    }
+
+    /// App + firmware version row. Hidden until the firmware version
+    /// characteristic has been read (the connected section is otherwise
+    /// already populated with name + battery, so a brief absence here
+    /// won't look broken). When the firmware reports a major version
+    /// that disagrees with the app's, the row turns into an inline
+    /// warning so the user has a place to see the version pair after
+    /// dismissing the top-of-screen error banner.
+    @ViewBuilder
+    private var versionRow: some View {
+        if let fw = bluetooth.firmwareVersion {
+            let app = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Version")
+                    if bluetooth.firmwareIncompatible {
+                        Text("Major version mismatch — update HDZap or reflash the M5StickS3.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("App \(app)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("FW \(fw)")
+                        .font(.caption)
+                        .foregroundStyle(bluetooth.firmwareIncompatible ? .red : .secondary)
+                }
             }
         }
     }
