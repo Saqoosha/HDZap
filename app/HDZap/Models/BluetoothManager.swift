@@ -67,20 +67,55 @@ class BluetoothManager: NSObject {
     /// active connection without exposing the full `CBPeripheral`.
     var connectedIdentifier: UUID? { connectedPeripheral?.identifier }
     private(set) var currentUID: [UInt8]?
+    /// Last UID seen from a live status frame, persisted to UserDefaults
+    /// so the Settings root can show it across app launches before a BLE
+    /// reconnect lands. Distinct from `currentUID` (which is `nil` while
+    /// disconnected) so callers needing live truth — pairing flow,
+    /// rollback baseline, current-UID-section gating — keep those
+    /// semantics. Best-effort cache; UserDefaults write failures (disk
+    /// full, sandbox revocation) surface as a regression to "—" on the
+    /// next launch but never block the in-memory copy.
+    ///
+    /// Clearing policy:
+    /// - User-tapped `disconnect()` clears the stash explicitly so a
+    ///   stash from the prior M5Stick doesn't display after the user
+    ///   swaps devices.
+    /// - A short / malformed status frame (firmware/app version skew)
+    ///   also clears it — the stash would otherwise contradict the
+    ///   error banner that announces the schema mismatch.
+    /// - Involuntary disconnects (range / sleep / OS BT toggle) do
+    ///   *not* clear the stash. The whole point of persistence is to
+    ///   survive those drops so the operator sees the remembered UID
+    ///   on next launch before BLE reconnects.
+    private(set) var lastKnownUID: [UInt8]?
+    private static let lastKnownUIDKey = "lastKnownUID"
     /// Latest Test OSD outcome from the firmware status notify.
     /// Encodes the `g_last_test_result` byte:
     ///   .none      = no test result yet (or the firmware byte was 0)
     ///   .ok        = ESP-NOW MAC layer ack'd every test packet
     ///   .lost      = at least one test packet was not delivered
     ///
-    /// Bumped each time a fresh status frame arrives, regardless of whether
-    /// the value changed. Drives the auto-test+rollback workflow in
-    /// `SettingsView` — that view tracks a sequence number from
+    /// Bumped each time a fresh status frame *carrying a real test
+    /// result* arrives. Drives the auto-test+rollback workflow in
+    /// `PairingSettingsView` — that view tracks a sequence number from
     /// `testResultRevision` so it can ignore stale frames that arrived
     /// before its own pairing attempt.
+    ///
+    /// Disconnect frames (byte 0 == 0) are deliberately skipped: the
+    /// firmware reuses `g_last_test_result` rather than clearing it on
+    /// disconnect, so a disconnect-during-verify would otherwise replay
+    /// a stale `.ok` and falsely report success on the next attempt.
     enum TestResult: UInt8 { case none = 0, ok = 1, lost = 2 }
     private(set) var lastTestResult: TestResult = .none
     private(set) var testResultRevision: UInt32 = 0
+    /// Reset by `PairingSettingsView` immediately before sending its
+    /// verify probe so the loop can wait on `lastTestResult != .none`
+    /// (i.e. "an actual test result has landed") rather than just on
+    /// the revision counter — which can advance from any status frame
+    /// the firmware fires for an unrelated reason.
+    func clearTestResult() {
+        lastTestResult = .none
+    }
     /// UID we displaced on the most recent Apply attempt. Survives the
     /// Settings sheet being dismissed (which is why it lives here, not
     /// on the view) so the user can return to the sheet later and still
@@ -198,6 +233,29 @@ class BluetoothManager: NSObject {
     override init() {
         super.init()
         centralManager = CBCentralManager(delegate: self, queue: nil)
+        // Restore the last UID we saw on a previous run so the Settings
+        // root's "Goggle pairing" row can render the remembered value
+        // immediately on launch, before a BLE reconnect populates the
+        // live `currentUID`. Length-checked because Data of any other
+        // size means a corrupted preference (older app version, manual
+        // edit) and we'd rather show "—" than a malformed UID. This is
+        // a display-only stash, so the unicast-MAC bit-0 invariant
+        // (`uid[0] & 0x01 == 0`) isn't enforced here — if this ever
+        // feeds a write path, normalize it first.
+        //
+        // Self-heal: a non-Data type or wrong-length Data would
+        // otherwise re-fail on every launch with no recovery short of
+        // deleting the app, so wipe the bad value and log it once.
+        if let any = UserDefaults.standard.object(forKey: Self.lastKnownUIDKey) {
+            if let saved = any as? Data, saved.count == 6 {
+                lastKnownUID = Array(saved)
+            } else {
+                let kind = (any as? Data).map { "wrong length (\($0.count)B)" }
+                    ?? "wrong type (\(type(of: any)))"
+                print("BLE lastKnownUID restore: discarding persisted value — \(kind).")
+                UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
+            }
+        }
     }
 
     /// Dismiss the currently-displayed error. Other queued errors stay
@@ -294,6 +352,11 @@ class BluetoothManager: NSObject {
         // different M5Stick / goggle pair, and silently surfacing the prior
         // pair's UID as "Restore" would write the wrong value to the new one.
         previousUID = nil
+        // Same reasoning: clear the persisted summary stash so the
+        // Settings root doesn't keep parading the prior pair's UID
+        // after the user has explicitly walked away from this device.
+        lastKnownUID = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
         capturedTXUID = nil
         isTXSniffActive = false
         resetBatteryState()
@@ -825,9 +888,13 @@ extension BluetoothManager: CBPeripheralDelegate {
             // Short frame points at firmware/app version skew — surface as
             // actionable error and invalidate the derived fields so the UI
             // doesn't keep showing a UID that no longer reflects the
-            // firmware.
+            // firmware. Drop the persisted summary stash too: the
+            // Settings root would otherwise keep rendering the prior
+            // UID while the error banner contradicts it.
             let n = characteristic.value?.count ?? 0
             currentUID = nil
+            lastKnownUID = nil
+            UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
             lastError = "Status frame unexpected size (\(n)B, expected ≥8). Firmware/app version mismatch?"
             return
         }
@@ -841,7 +908,37 @@ extension BluetoothManager: CBPeripheralDelegate {
         // the pairing-flow auto-rollback (e.g. lap_count == 2 reads
         // as .lost and rolls back a successful pairing). Discriminate
         // on length instead.
-        currentUID = Array(data[1...6])
+        let uid = Array(data[1...6])
+        currentUID = uid
+        // Disconnect frame: firmware sends one final status update with
+        // byte 0 = 0 just before tearing down the BLE link, but it
+        // doesn't clear `g_last_test_result` first. Trusting the test
+        // result byte here would replay a stale `.ok` (or `.lost`) and
+        // poison the next pairing attempt's verify probe. We'll get a
+        // CB didDisconnect callback shortly anyway.
+        //
+        // Sit *above* the `lastKnownUID` persist below so the goodbye
+        // frame can't poison the persisted summary stash either —
+        // matches the documented "byte 0 == 0 means don't trust this
+        // frame" invariant for every derived field, not just
+        // `lastTestResult`.
+        guard data[0] != 0 else { return }
+        // All-zeros sanity: a real paired UID is never 00:00:00:00:00:00
+        // (firmware refuses to apply it in `applyStagedUid`). Treat as
+        // transient garbage from the firmware's BSS-zero state pre-NVS-
+        // load rather than ground truth — without this guard a too-
+        // early status frame would persist zeros into UserDefaults and
+        // the Settings root would render "0,0,0,0,0,0" forever.
+        let isAllZero = !uid.contains { $0 != 0 }
+        // Persist on UID change (cheap UserDefaults write; the
+        // byte-equality guard skips the no-op steady-state writes). The
+        // Settings root reads the stash on next launch before BLE
+        // reconnects so the "Goggle pairing" row can show the
+        // remembered value immediately.
+        if !isAllZero, lastKnownUID != uid {
+            lastKnownUID = uid
+            UserDefaults.standard.set(Data(uid), forKey: Self.lastKnownUIDKey)
+        }
         let testResultByte: UInt8 = data.count >= 9 ? data[8] : data[7]
         lastTestResult = TestResult(rawValue: testResultByte) ?? .none
         // Bump even when the encoded value matches — observers want to

@@ -10,15 +10,15 @@ struct HDZapApp: App {
 
     init() {
         UserDefaults.standard.register(defaults: [
-            "raceSessionLimit": 90,
-            "accentHue": EditorialTheme.defaultAccentHue,
-            "targetLapCount": RaceMetrics.defaultTargetLapCount,
-            LapAnnouncerDefaults.enabledKey: false,
+            RaceMetrics.raceSessionLimitStorageKey: RaceMetrics.defaultSessionLimit,
+            EditorialTheme.accentHueStorageKey: EditorialTheme.defaultAccentHue,
+            RaceMetrics.targetLapCountStorageKey: RaceMetrics.defaultTargetLapCount,
+            LapAnnouncerDefaults.enabledKey: LapAnnouncerDefaults.defaultEnabled,
             LapAnnouncerDefaults.languageKey: LapAnnouncerDefaults.defaultLanguageRaw,
-            LapAnnouncerDefaults.announceBestKey: true,
+            LapAnnouncerDefaults.announceBestKey: LapAnnouncerDefaults.defaultAnnounceBest,
             LapAnnouncerDefaults.rateKey: Double(LapAnnouncerDefaults.defaultRate),
             LapAnnouncerDefaults.pitchKey: Double(LapAnnouncerDefaults.defaultPitch),
-            LapAnnouncerDefaults.voiceIdentifierKey: "",
+            LapAnnouncerDefaults.voiceIdentifierKey: LapAnnouncerDefaults.defaultVoiceIdentifier,
         ])
         #if DEBUG
         _oklchSanityCheck()
