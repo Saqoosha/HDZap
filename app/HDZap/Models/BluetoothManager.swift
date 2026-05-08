@@ -73,14 +73,27 @@ class BluetoothManager: NSObject {
     ///   .ok        = ESP-NOW MAC layer ack'd every test packet
     ///   .lost      = at least one test packet was not delivered
     ///
-    /// Bumped each time a fresh status frame arrives, regardless of whether
-    /// the value changed. Drives the auto-test+rollback workflow in
-    /// `SettingsView` — that view tracks a sequence number from
+    /// Bumped each time a fresh status frame *carrying a real test
+    /// result* arrives. Drives the auto-test+rollback workflow in
+    /// `PairingSettingsView` — that view tracks a sequence number from
     /// `testResultRevision` so it can ignore stale frames that arrived
     /// before its own pairing attempt.
+    ///
+    /// Disconnect frames (byte 0 == 0) are deliberately skipped: the
+    /// firmware reuses `g_last_test_result` rather than clearing it on
+    /// disconnect, so a disconnect-during-verify would otherwise replay
+    /// a stale `.ok` and falsely report success on the next attempt.
     enum TestResult: UInt8 { case none = 0, ok = 1, lost = 2 }
     private(set) var lastTestResult: TestResult = .none
     private(set) var testResultRevision: UInt32 = 0
+    /// Reset by `PairingSettingsView` immediately before sending its
+    /// verify probe so the loop can wait on `lastTestResult != .none`
+    /// (i.e. "an actual test result has landed") rather than just on
+    /// the revision counter — which can advance from any status frame
+    /// the firmware fires for an unrelated reason.
+    func clearTestResult() {
+        lastTestResult = .none
+    }
     /// UID we displaced on the most recent Apply attempt. Survives the
     /// Settings sheet being dismissed (which is why it lives here, not
     /// on the view) so the user can return to the sheet later and still
@@ -842,6 +855,13 @@ extension BluetoothManager: CBPeripheralDelegate {
         // as .lost and rolls back a successful pairing). Discriminate
         // on length instead.
         currentUID = Array(data[1...6])
+        // Disconnect frame: firmware sends one final status update with
+        // byte 0 = 0 just before tearing down the BLE link, but it
+        // doesn't clear `g_last_test_result` first. Trusting the test
+        // result byte here would replay a stale `.ok` (or `.lost`) and
+        // poison the next pairing attempt's verify probe. We'll get a
+        // CB didDisconnect callback shortly anyway.
+        guard data[0] != 0 else { return }
         let testResultByte: UInt8 = data.count >= 9 ? data[8] : data[7]
         lastTestResult = TestResult(rawValue: testResultByte) ?? .none
         // Bump even when the encoded value matches — observers want to

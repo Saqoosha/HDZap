@@ -218,9 +218,9 @@ struct OSDLayoutConfig: Equatable {
 }
 
 /// User-configurable OSD layout. Persisted to UserDefaults; injected as
-/// an environment object so SettingsView can edit and TimerView can
-/// apply without prop-drilling. Firmware persists nothing — the iOS app
-/// replays the y-offset to the M5Stick on connect.
+/// an environment object so OSDLayoutSettingsView can edit and TimerView
+/// can apply without prop-drilling. Firmware persists nothing — the iOS
+/// app replays the y-offset to the M5Stick on connect.
 @Observable
 @MainActor
 final class OSDLayoutSettings {

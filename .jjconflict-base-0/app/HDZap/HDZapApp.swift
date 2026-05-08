@@ -18,7 +18,7 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.announceBestKey: LapAnnouncerDefaults.defaultAnnounceBest,
             LapAnnouncerDefaults.rateKey: Double(LapAnnouncerDefaults.defaultRate),
             LapAnnouncerDefaults.pitchKey: Double(LapAnnouncerDefaults.defaultPitch),
-            LapAnnouncerDefaults.voiceIdentifierKey: "",
+            LapAnnouncerDefaults.voiceIdentifierKey: LapAnnouncerDefaults.defaultVoiceIdentifier,
         ])
         #if DEBUG
         _oklchSanityCheck()

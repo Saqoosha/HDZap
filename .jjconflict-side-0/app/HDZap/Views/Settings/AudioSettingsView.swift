@@ -11,7 +11,8 @@ struct AudioSettingsView: View {
         = LapAnnouncerDefaults.defaultLanguageRaw
     @AppStorage(LapAnnouncerDefaults.announceBestKey) private var announceBest
         = LapAnnouncerDefaults.defaultAnnounceBest
-    @AppStorage(LapAnnouncerDefaults.voiceIdentifierKey) private var voiceIdentifier = ""
+    @AppStorage(LapAnnouncerDefaults.voiceIdentifierKey) private var voiceIdentifier
+        = LapAnnouncerDefaults.defaultVoiceIdentifier
     @AppStorage(LapAnnouncerDefaults.rateKey) private var ttsRate: Double
         = Double(LapAnnouncerDefaults.defaultRate)
     @AppStorage(LapAnnouncerDefaults.pitchKey) private var ttsPitch: Double
@@ -21,8 +22,9 @@ struct AudioSettingsView: View {
         // Re-snapshot the voice list on every body eval — language picker
         // changes trigger this via `@AppStorage`. A voice installed in
         // iOS Settings while we're on screen won't show up until something
-        // else drives a re-eval (toggling the section, dismissing and
-        // reopening Settings); acceptable since installing a voice also
+        // else drives a re-eval (toggling the section, popping back to
+        // the Settings root and re-entering, or dismissing the whole
+        // Settings sheet); acceptable since installing a voice also
         // requires leaving the app.
         let language = LapAnnouncerLanguage(rawValue: ttsLanguageRaw) ?? .english
         let voices = LapAnnouncerVoiceCatalog.availableVoices(for: language)
@@ -44,13 +46,13 @@ struct AudioSettingsView: View {
                         // to the old language; clear it so the picker falls
                         // back to "System default" for the new language rather
                         // than getting silently overridden by `currentVoice()`.
-                        voiceIdentifier = ""
+                        voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
                     }
 
                     Toggle("Say \"best lap\" on new best", isOn: $announceBest)
 
                     Picker("Voice", selection: $voiceIdentifier) {
-                        Text("System default").tag("")
+                        Text("System default").tag(LapAnnouncerDefaults.defaultVoiceIdentifier)
                         ForEach(voices) { voice in
                             Text(voice.displayName).tag(voice.id)
                         }
@@ -146,7 +148,7 @@ struct AudioSettingsView: View {
                             ttsRate = Double(LapAnnouncerDefaults.defaultRate)
                             ttsPitch = Double(LapAnnouncerDefaults.defaultPitch)
                             ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
-                            voiceIdentifier = ""
+                            voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
                             announceBest = LapAnnouncerDefaults.defaultAnnounceBest
                         }
                         .buttonStyle(.bordered)

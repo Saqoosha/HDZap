@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// Battery dot + caption used by ConnectionSettingsView. The dot color
-/// is driven entirely by the firmware-decided `batteryAlarm` tier so a
-/// future tweak to the firmware thresholds doesn't require a matching
-/// change here. Stroke (vs. fill) signals the firmware hasn't yet
-/// pushed a battery frame — older firmware without `batteryUUID`, or
-/// the sub-second window between connect and the first notify.
+/// Battery dot + caption used by ConnectionSettingsView. Charging
+/// overrides the alarm tier so the cyan dot appears the moment the
+/// stick is plugged in, regardless of the percent at that moment. When
+/// not charging, the color is driven entirely by the firmware-decided
+/// `batteryAlarm` tier so a future tweak to the firmware thresholds
+/// doesn't require a matching change here. Stroke (vs. fill) signals
+/// the firmware hasn't yet pushed a battery frame — older firmware
+/// without `batteryUUID`, or the sub-second window between connect and
+/// the first notify.
 struct BatteryStatusRow: View {
     @Environment(BluetoothManager.self) private var bluetooth
 

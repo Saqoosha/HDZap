@@ -1,18 +1,28 @@
 import SwiftUI
 
-enum UIDConfigMode: Int, CaseIterable {
+private enum UIDConfigMode: CaseIterable {
     case bindPhrase, manualUID, newPairing
 }
 
 /// Captures the proposed UID change so the confirmation alert can
-/// describe it precisely. We carry the resolved UID for the modes
-/// where it's known up-front (bindPhrase / manualUID); newPairing is
-/// only "the M5Stick's hardware MAC" — that value lives on the
-/// firmware side, so the alert just warns it'll change.
-struct PendingApply: Identifiable {
+/// describe it precisely. `resolvedUID` is derived from `mode`, so the
+/// alert message can render the exact UID for `bindPhrase`/`manualUID`
+/// (computing it again here would duplicate the parser logic) and
+/// returns nil for `newPairing` (the firmware decides).
+private struct PendingApply: Identifiable {
     let id = UUID()
     let mode: UIDMode
-    let resolvedUID: [UInt8]?
+
+    /// Computed from `mode` so the alert message and the underlying
+    /// transport state can never disagree — there's no separate field
+    /// to keep in sync.
+    var resolvedUID: [UInt8]? {
+        switch mode {
+        case .bindPhrase(let phrase): return uidFromBindPhrase(phrase)
+        case .manualUID(let uid): return uid
+        case .newPairing: return nil
+        }
+    }
 }
 
 /// Goggle pairing sub-screen: current UID + restore-previous + the
@@ -41,6 +51,11 @@ struct PairingSettingsView: View {
     /// Success / Failed (rolled back)" progression instead of
     /// leaving the user to guess whether the new pairing took.
     @State private var pairingPhase: PairingPhase = .idle
+    /// Held so we can cancel the in-flight pairing flow if the user
+    /// pops the navigation stack mid-flow (no orphaned BLE writes
+    /// against a deallocated view), or starts a second Apply before
+    /// the success/failure badge auto-clears (one in-flight at a time).
+    @State private var pairingTask: Task<Void, Never>?
 
     enum PairingPhase: Equatable {
         case idle
@@ -51,6 +66,9 @@ struct PairingSettingsView: View {
         case failedNoRollback // Test failed and there was no previous UID to restore to
         case verifyFailedSameUID // Test failed but pairing was a same-UID re-apply — nothing changed
         case timedOut       // Never saw a fresh test result frame
+        case bindBroadcastFailed // newPairing: UID committed locally, bind packet didn't go out
+        case restoring      // Restore-previous-goggle button: BLE write in flight
+        case restoreFailed  // Restore-previous-goggle BLE write bounced
     }
 
     var body: some View {
@@ -66,10 +84,23 @@ struct PairingSettingsView: View {
             Button("Apply", role: .destructive) {
                 let mode = pending.mode
                 pendingApply = nil
-                Task { await runPairingFlow(mode: mode) }
+                // Cancel any prior in-flight flow first — covers the
+                // double-tap window between a success/failure badge
+                // showing and its auto-clear sleep finishing.
+                pairingTask?.cancel()
+                pairingTask = Task { await runPairingFlow(mode: mode) }
             }
         } message: { pending in
             Text(applyAlertMessage(for: pending))
+        }
+        .onDisappear {
+            // User popped the navigation stack mid-flow. Cancel any
+            // in-flight task so its remaining BLE writes (rollback
+            // sendUIDConfig, success-path Clear OSD) don't fire against
+            // a torn-down view's `@State`. The user reaches the same
+            // recovery path via the Restore button on re-entry.
+            pairingTask?.cancel()
+            pairingTask = nil
         }
     }
 
@@ -95,8 +126,17 @@ struct PairingSettingsView: View {
                 // after the user has already restored.
                 if let prev = bluetooth.previousUID, prev != uid {
                     Button {
+                        // Drive `pairingPhase` so a BLE-write failure
+                        // surfaces visibly here on the sub-screen — the
+                        // root error banner isn't visible from this
+                        // drilldown, so a silent no-op would leave the
+                        // user re-tapping with no feedback.
+                        pairingPhase = .restoring
                         if bluetooth.sendUIDConfig(mode: .manualUID(prev)) {
                             bluetooth.recordPreviousUID(nil)
+                            pairingPhase = .idle
+                        } else {
+                            pairingPhase = .restoreFailed
                         }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
@@ -274,7 +314,7 @@ struct PairingSettingsView: View {
                     // accidentally change pairings with a single tap and
                     // not realise lap times stopped reaching the goggle.
                     _ = bluetooth.stopTXSniff()
-                    pendingApply = PendingApply(mode: .manualUID(uid), resolvedUID: uid)
+                    pendingApply = PendingApply(mode: .manualUID(uid))
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!bluetooth.isReady)
@@ -324,6 +364,24 @@ struct PairingSettingsView: View {
                 ? "No verification result. The M5Stick may be disconnected — try again, or use Restore previous goggle."
                 : "No verification result. The M5Stick may be disconnected — try again."
             Label(timeoutKey,
+                  systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        case .bindBroadcastFailed:
+            // newPairing path: the UID write to the M5Stick succeeded
+            // (so the local pairing changed) but the bind broadcast
+            // didn't go out. The goggle never heard about the new UID,
+            // so lap times silently stop landing. Tell the user the
+            // recovery path explicitly: tap Restore.
+            Label("Couldn't broadcast the bind packet. The M5Stick switched to a fresh pairing but your goggle wasn't notified — use Restore previous goggle.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+        case .restoring:
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Restoring previous pairing…")
+            }
+        case .restoreFailed:
+            Label("Couldn't restore the previous pairing — the M5Stick may have disconnected. Try again.",
                   systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
         }
@@ -384,9 +442,16 @@ struct PairingSettingsView: View {
         let isNewPairing: Bool
         if case .newPairing = mode {
             guard bluetooth.sendBindCommand() else {
-                // The UID write already landed, so `previousUID` is a
-                // valid rollback target — keep it for the user.
-                pairingPhase = .timedOut
+                // UID write landed but the bind broadcast didn't go out
+                // — the M5Stick has switched to a fresh pairing UID
+                // that the goggle never heard about, so lap times will
+                // silently stop reaching it. Show the dedicated
+                // `.bindBroadcastFailed` copy that points at Restore
+                // (the actionable recovery), not `.timedOut` ("M5Stick
+                // disconnected") which would send the user looking for
+                // a phantom BLE issue. `previousUID` stays valid as the
+                // rollback target — keep it for the user.
+                pairingPhase = .bindBroadcastFailed
                 return
             }
             isNewPairing = true
@@ -399,13 +464,15 @@ struct PairingSettingsView: View {
         // re-init). Be generous so we don't false-fail on the bind path.
         let settleNanos: UInt64 = isNewPairing ? 2_500_000_000 : 500_000_000
         try? await Task.sleep(nanoseconds: settleNanos)
+        if Task.isCancelled { return }
 
         // Snapshot revision BEFORE sending the test, then wait for it
         // to bump. The revision counter advances on every status frame
-        // that includes the test_result byte, so we don't accidentally
-        // act on a frame that landed for an unrelated reason (lap
-        // count change, BLE reconnect status, etc).
+        // that carries a real test result; clearing `lastTestResult`
+        // first means a stale `.ok` from a prior verify can't be read
+        // out of the loop on an unrelated status frame's revision bump.
         let baselineRev = bluetooth.testResultRevision
+        bluetooth.clearTestResult()
         pairingPhase = .verifying
         // If even the verify probe can't go out, the loop below will spin
         // out the whole 2.5s waiting for a notify that will never arrive.
@@ -418,12 +485,20 @@ struct PairingSettingsView: View {
 
         // Test OSD verify window = 200 ms in firmware + status notify
         // round trip. 2.5s gives comfortable margin even on a slow link.
+        // Loop until the revision bumps AND a real test result has
+        // landed (`lastTestResult != .none`) — guards against an
+        // unrelated status frame ending the loop with a stale value.
         let verifyDeadline = Date().addingTimeInterval(2.5)
-        while Date() < verifyDeadline && bluetooth.testResultRevision == baselineRev {
+        while Date() < verifyDeadline {
+            if bluetooth.testResultRevision != baselineRev
+                && bluetooth.lastTestResult != .none {
+                break
+            }
             try? await Task.sleep(nanoseconds: 100_000_000)
+            if Task.isCancelled { return }
         }
 
-        if bluetooth.testResultRevision == baselineRev {
+        if bluetooth.lastTestResult == .none {
             pairingPhase = .timedOut
             return
         }
@@ -440,6 +515,7 @@ struct PairingSettingsView: View {
             // Auto-clear the success badge after a moment — leave the
             // current UID section as the durable "what's set" indicator.
             try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if Task.isCancelled { return }
             if pairingPhase == .success { pairingPhase = .idle }
         case .lost, .none:
             // Skip the rollback when there's no *different* UID to revert
@@ -469,6 +545,7 @@ struct PairingSettingsView: View {
                 pairingPhase = .failedNoRollback
             }
             try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if Task.isCancelled { return }
             switch pairingPhase {
             case .rolledBack, .failedNoRollback, .verifyFailedSameUID:
                 pairingPhase = .idle
@@ -479,23 +556,21 @@ struct PairingSettingsView: View {
 
     private func applyUID() {
         let mode: UIDMode
-        let resolved: [UInt8]?
         switch selectedMode {
         case .bindPhrase:
             mode = .bindPhrase(bindPhrase)
-            resolved = uidFromBindPhrase(bindPhrase)
         case .manualUID:
             guard case .success(let raw) = parseUID(manualUIDText) else { return }
-            let normalized = normalizeUID(raw)
-            mode = .manualUID(normalized)
-            resolved = normalized
+            mode = .manualUID(normalizeUID(raw))
         case .newPairing:
             mode = .newPairing
-            resolved = nil
         }
         // Stage the change behind the confirmation alert. The actual
         // BLE write only happens when the user taps Apply in the alert.
-        pendingApply = PendingApply(mode: mode, resolvedUID: resolved)
+        // `PendingApply.resolvedUID` is computed from `mode`, so the
+        // alert message can render the exact UID without us threading
+        // a parallel field that could fall out of sync.
+        pendingApply = PendingApply(mode: mode)
     }
 
     private var applyAlertBinding: Binding<Bool> {

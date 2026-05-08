@@ -20,9 +20,10 @@ enum EditorialTheme {
     /// Default accent hue in degrees — derived from the legacy pink #DB65A9.
     static let defaultAccentHue: Double = 356.0
     /// `@AppStorage` key for the user-adjustable accent hue. Centralized
-    /// so HDZapApp's `register(defaults:)` block, the Settings root, and
-    /// the Appearance editor all reach for the same constant — a typo
-    /// in one site would silently fork the saved hue.
+    /// so every site that binds the value (HDZapApp's
+    /// `register(defaults:)` block, ContentView, the Settings root, and
+    /// the Appearance editor) reaches for the same symbol — a typo in
+    /// one site would silently fork the saved hue.
     static let accentHueStorageKey = "accentHue"
 
     /// Resolve the accent color for a given hue (degrees).

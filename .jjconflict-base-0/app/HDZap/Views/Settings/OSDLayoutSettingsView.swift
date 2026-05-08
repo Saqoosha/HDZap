@@ -6,12 +6,14 @@ import SwiftUI
 /// the goggle in real time so the pilot can see the new arrangement
 /// without running a race.
 ///
-/// Preview push strategy: every meaningful change debounces ~150 ms and
-/// then sends the layout char (Y offset only) plus the 4 buffer slots so
-/// the pilot sees the new arrangement on the goggle. Debounce avoids
-/// flooding ESP-NOW while the user drags the slider — 150 ms keeps each
-/// drag-frame's worth of intermediate values from each turning into its
-/// own BLE write while still feeling responsive on lift-off.
+/// Preview push strategy: every meaningful change debounces by
+/// `previewDebounceNanos` (80 ms) and then sends the layout char (Y
+/// offset only) plus the 4 buffer slots so the pilot sees the new
+/// arrangement on the goggle. Debounce avoids flooding ESP-NOW while
+/// the user drags the slider — coalesces a drag's intermediate values
+/// into one BLE write while staying well under the perceptual lag floor
+/// (one BLE connection event + the firmware staging window adds ~40 ms;
+/// total perceived lag sits comfortably under 150 ms).
 struct OSDLayoutSettingsView: View {
     @Environment(BluetoothManager.self) private var bluetooth
     @Environment(OSDLayoutSettings.self) private var layout
@@ -22,9 +24,14 @@ struct OSDLayoutSettingsView: View {
     /// rows. Persisting it across pushes also lets us skip a re-send
     /// when the user lands back on the same value.
     @State private var lastPushed: OSDLayoutConfig?
-    /// Debounce token. Each settings mutation cancels the prior task and
-    /// schedules a fresh 150 ms timer.
+    /// Debounce token. Each settings mutation cancels the prior task
+    /// and schedules a fresh `previewDebounceNanos` timer.
     @State private var debounceTask: Task<Void, Never>?
+
+    /// Slider-drag coalescing window — see struct docstring for the
+    /// budget breakdown (BLE connection event + firmware staging adds
+    /// another ~40 ms, total perceived lag stays under 150 ms).
+    private static let previewDebounceNanos: UInt64 = 80_000_000
 
     var body: some View {
         List {
@@ -53,15 +60,17 @@ struct OSDLayoutSettingsView: View {
             schedulePush(force: true)
         }
         .onDisappear {
-            // Cancel any debounce in flight so a `dummyRawRows` push
-            // can't land on the goggle after TimerView's flush has
-            // already repainted the live race frame.
+            // Order matters: clear `previewEditorActive` BEFORE
+            // cancelling the debounce task. `pushIfChanged` re-checks
+            // the flag after its sleep to close the small race where a
+            // task already past `Task.isCancelled` lands a dummy-rows
+            // write on the goggle after TimerView's flush has repainted
+            // the live race frame. If we cancelled first, a Task
+            // already in `pushIfChanged` would still see `true` and
+            // proceed to write.
+            layout.previewEditorActive = false
             debounceTask?.cancel()
             debounceTask = nil
-            // Releases TimerView's `previewEditorActive` watcher so it
-            // can repaint the goggle even if the user lingers in the
-            // outer Settings sheet before dismissing it.
-            layout.previewEditorActive = false
         }
         .onChange(of: layout.firstVisibleRow) { _, _ in schedulePush() }
         .onChange(of: layout.alignment) { _, _ in schedulePush() }
@@ -215,13 +224,6 @@ struct OSDLayoutSettingsView: View {
         }
     }
 
-    /// Push the iPhone's current date+time to the goggle so each press
-    /// visibly changes — easier to confirm packets are landing than a
-    /// fixed string that might already be on screen from a prior press.
-    /// Bypasses the editor's debounce/`lastPushed` cache, so the next
-    /// real layout change repaints from scratch (no spurious "no diff"
-    /// skip — the cache still reflects the dummy preview rows we last
-    /// sent, not the test content).
     /// Cached so each Test OSD tap doesn't allocate a fresh
     /// `DateFormatter`. POSIX locale pinned so `yyyy-MM-dd` doesn't
     /// localise into e.g. Japanese-era forms on a JP device — the
@@ -239,6 +241,14 @@ struct OSDLayoutSettingsView: View {
         return f
     }()
 
+    /// Push the iPhone's current date+time to the goggle so each press
+    /// visibly changes — easier to confirm packets are landing than a
+    /// fixed string that might already be on screen from a prior press.
+    /// Bypasses the editor's debounce/`lastPushed` cache (intentionally:
+    /// see `sendOSDRows` call below), so the next real layout change
+    /// still re-diffs against `lastPushed` and repaints from scratch —
+    /// no spurious "no diff" skip, because the cache still reflects the
+    /// dummy preview rows we last sent, not the test content.
     private func sendTestOSD() {
         let now = Date()
         let dateStr = Self.testOSDDateFormatter.string(from: now)
@@ -306,15 +316,12 @@ struct OSDLayoutSettingsView: View {
     private func schedulePush(force: Bool = false) {
         debounceTask?.cancel()
         debounceTask = Task { @MainActor in
-            // 80 ms debounce — short enough that the goggle update
-            // feels immediate (one BLE connection event + the firmware
-            // staging window adds another ~40 ms; total perceived lag
-            // sits comfortably under 150 ms), long enough to coalesce a
-            // slider drag's many intermediate values into a single
-            // push. The initial onAppear push skips the wait so the
-            // goggle updates the moment the user opens the screen.
+            // Debounce window — see `previewDebounceNanos` for budget.
+            // The initial onAppear push skips the wait (force == true)
+            // so the goggle updates the moment the user opens the
+            // screen.
             if !force {
-                try? await Task.sleep(nanoseconds: 80_000_000)
+                try? await Task.sleep(nanoseconds: Self.previewDebounceNanos)
                 if Task.isCancelled { return }
             }
             // Capture snapshot + isInitial *after* the debounce so the

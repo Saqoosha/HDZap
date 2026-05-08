@@ -18,10 +18,10 @@ struct RaceMetrics: Equatable {
     static let minSessionLimit = 60
     static let maxSessionLimit = 180
     static let sessionLimitStep = 5
-    /// `@AppStorage` keys. Centralized so HDZapApp's
-    /// `register(defaults:)` block and the settings views all point at
-    /// the same string — a typo on one side would silently fork the
-    /// saved value into a parallel key.
+    /// `@AppStorage` keys. Centralized so every binding site
+    /// (HDZapApp's `register(defaults:)` block, TimerView, and the
+    /// Settings root) points at the same string — a typo on one side
+    /// would silently fork the saved value into a parallel key.
     static let targetLapCountStorageKey = "targetLapCount"
     static let raceSessionLimitStorageKey = "raceSessionLimit"
     static let osdRowMaxBytes = 50  // OSD grid width (OSD_COLS)
