@@ -10,12 +10,12 @@ enum OSDCommand: UInt8 {
     case testOSD = 0x03
 }
 
-// Service UUID bumped from ...d489 → ...d48c in lockstep with firmware,
+// Service UUID bumped from ...d48c → ...d48d in lockstep with firmware,
 // to defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
 // added characteristics are otherwise invisible until the iPhone is rebooted).
 // This bump ships with the new osdLayoutUUID + the previously-deferred
 // CHR_SLEEP_CONFIG (...d48a).
-private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48c")
+private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48d")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
 // CHR_LAP_TIME_UUID (...d483) was retired when the firmware switched to the

@@ -255,7 +255,7 @@ Three paths leave the connected state:
 
 ### BLE GATT
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48c`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics without a phone reboot. Most recent bump (`…d489 → …d48c`) shipped with CHR_OSD_LAYOUT (`…d48b`) and rolled up the previously-deferred CHR_SLEEP_CONFIG (`…d48a`) bump.
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48d`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics — *or property-bitmap changes* — without a phone reboot. Most recent bump (`…d48c → …d48d`) accompanied CHR_OSD_LAYOUT gaining `PROPERTY_WRITE_NR` so iOS's slider can use `writeWithoutResponse`.
 
 | Characteristic | UUID | Properties | Payload |
 |---|---|---|---|

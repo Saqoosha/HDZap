@@ -14,20 +14,20 @@
 #include "tx_sniff.h"
 #include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
-// Service UUID bumped from ...d489 → ...d48c to defeat iOS CoreBluetooth's
-// per-peripheral GATT cache. Without bonding, iOS will not re-discover a
-// peripheral's services when characteristics are added — the original
-// service signature stays cached in bluetoothd, and discoverServices()
-// returns the stale tree forever. A fresh service UUID has no cache, so
-// iOS falls through to a real GATT discovery and picks up every newly-
-// added characteristic. iOS app's CBUUID must move in lockstep.
+// Service UUID bumped from ...d48c → ...d48d to defeat iOS CoreBluetooth's
+// per-peripheral GATT cache after CHR_OSD_LAYOUT gained PROPERTY_WRITE_NR.
+// Properties are part of the cached GATT shape, and iOS silently drops
+// `writeWithoutResponse` calls against a characteristic whose cached
+// property bitmap doesn't advertise the WRITE_NR bit. Without a service
+// UUID change, the d48c discovery from a prior connect would persist and
+// the slider's layout writes would land in iOS's queue but never reach
+// the firmware.
 //
 // Adding a characteristic without bumping the service UUID is safe ONLY
-// if no existing iOS build attempts to read or write it. In this change
-// we ship CHR_OSD_LAYOUT (`…d48b`) AND the iOS-side write that uses it,
-// so the bump is required — the previously-deferred bump for
-// CHR_SLEEP_CONFIG (`…d48a`) also rides along.
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48c"
+// if no existing iOS build attempts to read or write it. The same rule
+// applies to changing a characteristic's *properties* — iOS treats it
+// as a shape change.
+#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48d"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
@@ -462,9 +462,16 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         pSleep->setValue(&cur, 1);
     }
 
+    // PROPERTY_WRITE_NR enables iOS to use writeWithoutResponse, which
+    // skips the ATT ack round-trip on slider drags (the layout char
+    // gets pushed every debounced editor frame, so the ~30 ms saving
+    // per write is the difference between feeling immediate and
+    // feeling laggy).
     BLECharacteristic *pOSDLayout = pService->createCharacteristic(
         CHR_OSD_LAYOUT_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+        BLECharacteristic::PROPERTY_READ
+            | BLECharacteristic::PROPERTY_WRITE
+            | BLECharacteristic::PROPERTY_WRITE_NR);
     pOSDLayout->setCallbacks(new OSDLayoutCallback());
     {
         // Seed the read value with the current y_offset (always 0 at boot
