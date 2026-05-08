@@ -171,20 +171,31 @@ Connect the iPhone to the M5StickS3 over Bluetooth.
 
 1. Power on the M5StickS3 (the LCD should be lit).
 2. Open the HDZap app on the iPhone, then tap the **gear icon (⚙️)** in the top right to open the Settings sheet.
-3. Find the **Bluetooth** section in the sheet.
-4. Tap **Scan**. Nearby M5StickS3 devices appear in the list.
-5. Tap **Connect** next to the device named **HDZeroOSD**.
+3. Under the **Device** section tap **M5StickS3** to drill into the connection screen.
+4. Tap **Scan**. Nearby M5StickS3 devices appear under **Other devices**.
+5. Tap **Connect** next to the device named **HDZeroOSD** (or whatever name you previously gave it — see [Renaming the M5StickS3](#renaming-the-m5sticks3-optional) below).
 
-   <img src="images/05-bluetooth-before.png" alt="Bluetooth section before connecting" width="320" />
+   <img src="images/05-bluetooth-before.png" alt="M5StickS3 sub-screen before connecting" width="320" />
 
 6. On a successful connection:
-   - A green indicator turns on
-   - The battery percentage appears
+   - A green dot appears in the **Connected** section with the device name and a Disconnect button
+   - The battery percentage and charging icon show up below the name
    - The M5StickS3's LCD also shows the connected state
 
-   <img src="images/05-bluetooth-after.png" alt="Bluetooth section after connecting" width="320" />
+   <img src="images/05-bluetooth-after.png" alt="M5StickS3 sub-screen after connecting" width="320" />
 
 You now have a working link between the iPhone and the M5StickS3. Next: bind to the Goggle.
+
+### Renaming the M5StickS3 (optional)
+
+If you have several M5StickS3 units, the default `HDZeroOSD` name makes them hard to tell apart. While connected:
+
+1. Settings → **Device** → **M5StickS3**.
+2. Tap **Bluetooth name**.
+3. Type the new name (UTF-8, up to 20 bytes — emoji counts as 4 bytes each) and tap **Save**.
+4. The M5StickS3 reboots once (about 3 seconds). The iPhone reconnects automatically; the new name appears on the M5StickS3's LCD UID band and in the iOS connected section.
+
+> 💡 The new name is persisted to flash memory, so it survives power cycles. To restore the default, save `HDZeroOSD`.
 
 ### When things go wrong
 
@@ -230,12 +241,12 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 
 #### Steps
 
-1. App Settings sheet → **Pairing** section.
+1. App Settings sheet → **Device** → **Goggle pairing**.
 2. Set the segmented control to **Bind Phrase**.
 3. Type the same bind phrase that was flashed onto the ELRS Backpack into the text field.
 4. Tap **Apply UID**.
 5. Wait for the status banner to step through `Switching pairing…` → `Verifying…` → `Pairing works` 🎉
-6. **Smoke test:** at the bottom of the Settings sheet, in the **Debug** section, tap **Send Test OSD**. If the current time appears on the Goggle, the bind worked.
+6. **Smoke test:** Settings → **Device** → **OSD layout** → tap **Send Test OSD**. If the current time appears on the Goggle, the bind worked.
 
 ---
 
@@ -248,12 +259,12 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 #### Steps
 
 1. Power on the Goggle and confirm it's actually bound to the radio. **Video showing up by itself isn't proof** — that's the VTX side. The real check is: change the VTX channel from EdgeTX's ExpressLRS Lua script and see whether the Goggle picks up the change.
-2. App Settings sheet → **TX UID Capture** section.
+2. App Settings sheet → **Device** → **Goggle pairing**. Scroll down to the **TX UID Capture** section.
 3. Tap **Start TX UID Capture**. The M5StickS3 starts listening for ESP-NOW broadcasts.
 4. **Open the ExpressLRS Lua script on EdgeTX and run the Bind menu** from there.
 5. The M5StickS3 receives the bind broadcast, extracts the UID, and shows it on screen.
 6. Tap **Apply** → `Switching pairing…` → `Verifying…` → `Pairing works`.
-7. **Smoke test:** Debug → **Send Test OSD**. If the current time appears on the Goggle, you're good.
+7. **Smoke test:** Settings → **Device** → **OSD layout** → **Send Test OSD**. If the current time appears on the Goggle, you're good.
 
 ---
 
@@ -264,11 +275,11 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 **Steps in theory:**
 
 1. On the Goggle, open **Menu → ELRS**. The `Bind` row shows `UID: xxx,xxx,xxx,xxx,xxx,xxx` — six numbers.
-2. App Settings sheet → **Pairing** section.
+2. App Settings sheet → **Device** → **Goggle pairing**.
 3. Set the segmented control to **Manual UID**.
 4. **Type all six numbers, comma-separated, into the single input field.**
 5. Tap **Apply UID** → `Switching pairing…` → `Verifying…` → `Pairing works`.
-6. **Smoke test:** Debug → **Send Test OSD**. Time should appear on the Goggle.
+6. **Smoke test:** Settings → **Device** → **OSD layout** → **Send Test OSD**. Time should appear on the Goggle.
 
 ---
 
@@ -284,12 +295,12 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
    1. Turn **Backpack On** in the Goggle menu
    2. Go to **ELRS → Bind**
    3. The Goggle is now waiting for a bind broadcast.
-2. App Settings sheet → **Pairing** section.
+2. App Settings sheet → **Device** → **Goggle pairing**.
 3. Set the segmented control to **New Pairing**.
 4. Tap **Pair with new goggle**. The M5StickS3 broadcasts a bind packet.
 5. The Goggle accepts and the binding is complete.
 6. The status banner should step through `Verifying…` → `Pairing works`.
-7. **Smoke test:** Debug → **Send Test OSD**. Time should appear on the Goggle.
+7. **Smoke test:** Settings → **Device** → **OSD layout** → **Send Test OSD**. Time should appear on the Goggle.
 
 ---
 
@@ -297,7 +308,7 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 
 Once the bind reports success, always run the smoke test.
 
-1. At the bottom of the Settings sheet, in the **Debug** section.
+1. Settings → **Device** → **OSD layout**.
 2. Tap **Send Test OSD**.
 3. The bottom of the Goggle frame shows three lines: **`TEST OSD` + the current date + the time** (every tap updates the time, so you can visually confirm packets are landing).
 
@@ -308,7 +319,7 @@ Once the bind reports success, always run the smoke test.
                                                      
    ```
 
-   The text **does not disappear on its own.** To clear it, tap **Clear OSD** in the same Debug section.
+   The text **does not disappear on its own.** To clear it, tap **Clear OSD** on the same screen.
 
 If the text appears, the entire path (iPhone → M5StickS3 → Goggle) is working.
 
@@ -316,7 +327,7 @@ If the text appears, the entire path (iPhone → M5StickS3 → Goggle) is workin
 
 If something fails part-way through a bind (the Goggle doesn't ack verification, etc.), HDZap **automatically reverts to the previous UID**, and the banner reads "Goggle didn't accept the new pairing. Restored the previous one."
 
-You can also tap **Restore previous goggle** in the Settings sheet at any time to roll back manually.
+You can also tap **Restore previous goggle** on the Goggle pairing screen at any time to roll back manually.
 
 ### When things go wrong
 
@@ -336,7 +347,7 @@ With the bind working, you can run a race.
 ### Race setup
 
 1. Tap the gear icon at the top right → open the Settings sheet.
-2. Adjust the race duration (default 90 s) and the target lap count in the **Race** section.
+2. Adjust the race duration (default 90 s) and the target lap count in the inline **Race** section at the top.
 3. Close the Settings sheet.
 
 ### Running
@@ -426,39 +437,57 @@ The card includes:
 
 ## 9. Settings reference
 
-A walk-through of each section in the Settings sheet.
+The Settings sheet is organised as a status-first list with drilldown sub-screens — the same pattern as iOS's own Settings.app. The root has the inline **Race** controls at the top followed by **Device** and **App** rows that drill into the sub-screens below. Each row shows its current value on the right (Apple Settings.app pattern).
 
-### Race
+### Race (inline at the top of the root)
 
 - **Race duration**: 60–180 s (5 s steps)
 - **Target lap count**: e.g. 5L
 - **Target pace**: derived from race time and target lap count
 
-### Audio
+### Device → M5StickS3 (Connection)
+
+- **Status dot + name** at the top of the list — the same row that scrolled down to here from the root.
+- **Connected**: device name, identifier prefix, battery percentage / charging icon, **Disconnect** button.
+- **Bluetooth name** (only visible while connected): drilldown to rename the M5StickS3. UTF-8 up to 20 bytes; the unit reboots once after Save and the iPhone reconnects automatically. See [Chapter 5 → Renaming the M5StickS3](#renaming-the-m5sticks3-optional).
+- **Other devices**: discovered M5StickS3 units, each with a **Connect** button.
+- **Scan**: rescan for nearby M5StickS3 devices.
+
+### Device → Goggle pairing
+
+The mode picker switches the form between bind phrase, manual UID, and new pairing. **TX UID Capture** lives on the same screen, below the mode form. See [Chapter 6](#6-binding-to-the-hdzero-goggle) for the full workflow.
+
+- **Current UID**: live display of what's currently active on the M5StickS3.
+- **Apply UID** / **Pair with new goggle**: trigger the chosen flow; the apply alert and verification banner step you through `Switching pairing…` → `Verifying…` → `Pairing works` / auto-rollback.
+- **Restore previous goggle**: roll back to the prior UID after a failed apply.
+
+### Device → OSD layout
+
+Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push to the goggle in real time so the pilot can see the new arrangement without running a race.
+
+- **Top row** slider: where the visible OSD block sits on the 18-row goggle grid (1 = very top, default = bottom-anchored).
+- **Alignment**: left / center / right — applies to all visible rows.
+- **Show rows** toggles: independently hide **Time**, **Lap**, **Pace**, **Diff**. Hidden rows close up so the visible block stays compact.
+- **Send Test OSD**: pushes the iPhone's current date + time to the goggle once. Each tap updates the timestamp so you can confirm packets are landing.
+- **Clear OSD**: wipes the goggle overlay buffer.
+- **Reset layout**: returns the editor to the defaults (bottom-anchored, centered, all rows visible).
+
+> ℹ️ The vertical position requires firmware that supports the OSD layout characteristic. Older firmware still respects alignment and show/hide; the editor warns when the live position can't be pushed.
+
+### App → Lap announcer (Audio)
 
 - **Lap announcements**: on / off
+- **Announce best lap**: highlight a new best lap in speech
 - **Language**: Japanese, English, etc.
 - **Voice**: system default + any installed voices
 - **Rate**: speech speed
 - **Pitch**: voice pitch
 - **Test**: try the current settings out loud
+- **Reset**: restore the announcer defaults
 
-### Appearance
+### App → Appearance
 
 - **Hue slider**: changes the UI accent color across 0°–360°.
-
-### Bluetooth
-
-Connected device, Disconnect, Scan, battery percentage. See [Chapter 5](#5-pairing-the-m5sticks3-with-the-iphone-bluetooth) for full details.
-
-### Pairing / TX UID Capture
-
-Goggle binding flows. See [Chapter 6](#6-binding-to-the-hdzero-goggle) for full details.
-
-### Debug
-
-- **Send Test OSD**: sends the current time once for sanity-checking the bind.
-- **Clear OSD**: clears the Goggle's OSD overlay.
 
 ---
 
