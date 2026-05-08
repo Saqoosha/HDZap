@@ -14,6 +14,7 @@
 		29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67948DF123DC370E6DBE5590 /* Assets.xcassets */; };
 		3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */; };
 		3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63119602A4C7217E6D0C00A1 /* OKLCH.swift */; };
+		34305017E1FD46A91F2686E9 /* DeviceRenameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */; };
 		374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */; };
 		523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */; };
 		6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DB96B10D57102797F555BE /* BluetoothManager.swift */; };
@@ -39,6 +40,7 @@
 		12757F8C010AFDC40357896D /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
 		13438604B6DB026C9FDAC24F /* ConnectionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSettingsView.swift; sourceTree = "<group>"; };
 		1D691E6FC4DA267F798640A3 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRenameView.swift; sourceTree = "<group>"; };
 		26FFFF75A4A27EB06B6DA147 /* BatteryStatusRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryStatusRow.swift; sourceTree = "<group>"; };
 		2E0D671093AF13888B5701D3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2E4A2435CB82ED37EA712928 /* LapTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapTimer.swift; sourceTree = "<group>"; };
@@ -118,6 +120,7 @@
 				90AB489293AF90A66653F7E8 /* AudioSettingsView.swift */,
 				26FFFF75A4A27EB06B6DA147 /* BatteryStatusRow.swift */,
 				13438604B6DB026C9FDAC24F /* ConnectionSettingsView.swift */,
+				1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */,
 				7B161428CF02B06F13538AF4 /* OSDLayoutSettingsView.swift */,
 				49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */,
 				5EBC7D297DD8CBEF7C617161 /* SettingsView.swift */,
@@ -229,6 +232,7 @@
 				6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */,
 				EA2F8003A1A5258DBA937A5F /* ConnectionSettingsView.swift in Sources */,
 				8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */,
+				34305017E1FD46A91F2686E9 /* DeviceRenameView.swift in Sources */,
 				085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */,
 				7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */,
 				C2009A175D17BE0542FBCE43 /* HistoryView.swift in Sources */,

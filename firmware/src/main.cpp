@@ -318,7 +318,11 @@ void setup() {
     osd.begin(g_uid);
     osdTextDisplay.begin(&osd);
 
-    ble_init("HDZeroOSD");
+    char deviceName[nvs_store::kDeviceNameMaxLen + 1] = {};
+    nvs_store::loadDeviceName(deviceName, sizeof(deviceName));
+    Serial.printf("BLE name: %s\n", deviceName);
+    ble_init(deviceName);
+    stickDisplay.setDeviceName(deviceName);
     Serial.println("BLE initialized, advertising...");
 
     stickDisplay.showStatus(g_uid, false, espnow_ready, g_uid_is_default);
@@ -750,6 +754,43 @@ void loop() {
         millis() - g_last_activity_ms >= IDLE_TIMEOUT_MS) {
         Serial.println("LCD sleep (idle)");
         stickDisplay.sleepPanel();
+    }
+
+    // --- Device-name rename from BLE -------------------------------------
+    // iOS write → persist → reboot. BLEDevice::init(name) is one-shot, so
+    // there's no clean live path: tearing the BLE stack down at runtime
+    // would invalidate every BLECharacteristic* + callback object the
+    // server has handed out. A 2-3 s reboot window is cheap and bonded
+    // iOS auto-reconnects without user action.
+    //
+    // Like the sleep-config consumer below, this block must precede the
+    // deep-sleep gate — a rename write landing at the idle threshold
+    // would otherwise be wiped by `esp_deep_sleep_start()` before the
+    // NVS persist runs, and the user's tap would silently no-op until
+    // the next button press wakes the device.
+    if (g_device_name_changed) {
+        char pending[nvs_store::kDeviceNameMaxLen + 1] = {};
+        portENTER_CRITICAL(&g_ble_mux);
+        memcpy(pending, (const void*)g_device_name_pending, sizeof(pending));
+        g_device_name_changed = false;
+        portEXIT_CRITICAL(&g_ble_mux);
+        if (nvs_store::saveDeviceName(pending)) {
+            Serial.printf("Device name: saved '%s' — restarting in 200 ms\n", pending);
+            // Brief pause so the BLE write's ATT response (write-with-
+            // response from iOS) actually leaves the radio before the
+            // restart drops the link; without this iOS's write would
+            // surface as a transient error in the rename UI. Stalling
+            // the loop for 200 ms is acceptable here because the next
+            // line is `ESP.restart()` — every other loop responsibility
+            // (battery monitor, OSD retry, LCD sleep) is about to be
+            // re-entered from `setup()` anyway. The CLAUDE.md rule
+            // against `delay()` between ESP-NOW packets does not apply:
+            // no ESP-NOW traffic is in flight at this point in the loop.
+            delay(200);
+            ESP.restart();
+        } else {
+            Serial.printf("Device name: NVS save failed for '%s' — keeping current\n", pending);
+        }
     }
 
     // --- Deep-sleep config update from BLE -------------------------------

@@ -32,10 +32,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Both checkouts need fetch-depth: 0 (full history + tags) so the
+      # firmware build's `git describe --tags --dirty --always` resolves
+      # to a real version on tagged release commits instead of just the
+      # short SHA.
+
       # main side: PR head if PR targets main, otherwise the main branch tip.
-      # fetch-depth: 0 (full history + tags) is required so the firmware
-      # build's `git describe --tags --dirty --always` resolves to a real
-      # version on tagged release commits instead of just the short SHA.
       - name: Checkout main side
         uses: actions/checkout@v6
         with:
@@ -49,7 +51,7 @@ jobs:
         with:
           ref: ${{ (github.event_name == 'pull_request' && github.base_ref == 'develop') && github.head_ref || 'develop' }}
           path: src/develop
-          fetch-depth: 0
+          fetch-depth: 0  # see comment above the main-side checkout
 
       - name: Set up Python
         uses: actions/setup-python@v6

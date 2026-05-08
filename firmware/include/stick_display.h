@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include "nvs_store.h"  // kDeviceNameMaxLen — m_deviceName buffer width
 
 /// M5StickS3 LCD: editorial-lite redesign.
 ///
@@ -58,6 +59,20 @@ public:
         drawUidBand();
         drawLapBand();
         drawStrip();
+    }
+
+    /// Set the BLE-advertised device name shown in the UID band's
+    /// caption row (top-left). Idempotent. Caller passes the same
+    /// string used in `BLEDevice::init`, so a future rename only
+    /// surfaces here after the post-rename reboot — which is fine,
+    /// the LCD repaint runs in `setup()` before the user can read it.
+    /// Empty string clears the slot (falls back to "UID" caption).
+    void setDeviceName(const char* name) {
+        if (!name) name = "";
+        if (strncmp(m_deviceName, name, sizeof(m_deviceName)) == 0) return;
+        strncpy(m_deviceName, name, sizeof(m_deviceName) - 1);
+        m_deviceName[sizeof(m_deviceName) - 1] = 0;
+        drawUidBand();
     }
 
     void showLap(uint8_t num, uint32_t ms) {
@@ -228,6 +243,15 @@ private:
     // every showStatus call.
     bool m_uidIsDefault = false;
 
+    // BLE-advertised device name shown in the UID band caption row.
+    // Width is symbolically tied to nvs_store::kDeviceNameMaxLen (+1
+    // for null) so a future cap change can't silently truncate this
+    // mirror buffer. Caption row truncates with an ellipsis if the
+    // available width is smaller than the rendered string —
+    // primarily an issue when UNBOUND is also showing, which eats
+    // ~50 px on top of the right-side battery + BLE widgets.
+    char m_deviceName[nvs_store::kDeviceNameMaxLen + 1] = {};
+
     bool m_haveLap = false;
     uint8_t m_lapNum = 0;
     uint32_t m_lapMs = 0;
@@ -286,23 +310,61 @@ private:
     void drawUidBand() {
         M5.Display.fillRect(0, kUidBandY, m_w, kUidBandH, TFT_BLACK);
 
+        // Caption row: device name (or "UID" fallback) on the left, UNBOUND
+        // tag right after, battery + BLE widgets on the right. The right
+        // edge of the caption text must stay clear of the battery widget
+        // — drawBatteryWidget anchors to the BLE pill, so the worst-case
+        // left edge is ~m_w - 100 (BLE OFF + battery widget). Reserve a
+        // safety margin and elide the caption with an ellipsis if it
+        // wouldn't fit otherwise.
+        M5.Display.setFont(&fonts::Font0);
         M5.Display.setTextSize(1);
         M5.Display.setTextColor(m_bindActive ? m_colWarn : m_colSub, TFT_BLACK);
+        constexpr int kCaptionPxPerChar = 6;
+        // Right-side reserve covers the worst-case battery widget + BLE
+        // pill placement so the caption (incl. UNBOUND tag) cannot reach
+        // pixels owned by the widget. Worst case is BLE OFF: BLE label
+        // 42 px + 14 px gap = 56 px on the far right, and the battery
+        // widget (kIconTotalW=14 + kGap=4 + kTextW=24 = 42 px) anchored
+        // 8 px left of the BLE dot, so battery xLeft = m_w - 14 - 42 -
+        // 8 - 42 = 134. With the previous 100-px reserve, a 14-char
+        // name + UNBOUND extended to x=138 — 4 px into the battery
+        // widget. 110 leaves the caption ending at x≤130 with a
+        // safety margin.
+        constexpr int kCaptionRightReserve = 110;
+        const char* caption = (m_deviceName[0] != 0) ? m_deviceName : "UID";
+        constexpr int kUnboundPad = 6;             // px gap before UNBOUND tag
+        const int unboundW = (m_uidIsDefault && !m_bindActive)
+                                 ? (int)strlen("UNBOUND") * kCaptionPxPerChar + kUnboundPad
+                                 : 0;
+        const int captionAvailPx = m_w - 6 - unboundW - kCaptionRightReserve;
+        // Mirror m_deviceName's storage so the worst case (20-byte name +
+        // null) fits exactly. The "UID" fallback is also well within this.
+        char captionBuf[sizeof(m_deviceName)] = {};
+        strncpy(captionBuf, caption, sizeof(captionBuf) - 1);
+        const int maxCaptionChars = captionAvailPx / kCaptionPxPerChar;
+        if (maxCaptionChars > 0 && (int)strlen(captionBuf) > maxCaptionChars) {
+            // Replace the last visible character with an ellipsis so the
+            // truncation is unambiguous instead of looking like a different
+            // (shorter) name. Truncation lands at exactly maxCaptionChars
+            // total: (maxCaptionChars - 1) real chars + '~', so the user
+            // sees one more byte of the original name than truncating
+            // before the overwrite would yield.
+            captionBuf[maxCaptionChars] = 0;
+            captionBuf[maxCaptionChars - 1] = '~';
+        } else if (maxCaptionChars <= 0) {
+            captionBuf[0] = 0;
+        }
         M5.Display.setCursor(6, 6);
-        M5.Display.print("UID");
-        // UNBOUND tag: tucked right after the "UID" caption in the UID
-        // band's top row, in warn-yellow so it reads as "needs attention"
+        M5.Display.print(captionBuf);
+        // UNBOUND tag: in warn-yellow so it reads as "needs attention"
         // without escalating to error-red. Suppressed during a bind
         // takeover (m_bindActive) so the band is visually clean — that
         // takeover is itself the "binding now" affordance.
         if (m_uidIsDefault && !m_bindActive) {
-            // x-offset = "UID" caption start (6 px) + width of "UID "
-            // (Font0 is 6 px/char, so 4 chars × 6 px = 24 px). Computed
-            // so a future caption rename can't silently desync it.
-            constexpr int kUidCaptionPxPerChar = 6;
-            constexpr int kUidCaptionPad = (int)sizeof("UID ") - 1; // strlen("UID ")
+            const int captionPx = (int)strlen(captionBuf) * kCaptionPxPerChar;
             M5.Display.setTextColor(m_colWarn, TFT_BLACK);
-            M5.Display.setCursor(6 + kUidCaptionPad * kUidCaptionPxPerChar, 6);
+            M5.Display.setCursor(6 + captionPx + kUnboundPad, 6);
             M5.Display.print("UNBOUND");
             M5.Display.setTextColor(m_colSub, TFT_BLACK);
         }

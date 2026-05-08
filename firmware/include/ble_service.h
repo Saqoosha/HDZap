@@ -14,19 +14,23 @@
 #include "tx_sniff.h"
 #include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
-// Service UUID bumped from ...d48d → ...d48e in lockstep with iOS to
-// defeat CoreBluetooth's per-peripheral GATT cache after the new
-// CHR_FW_VERSION (...d489) characteristic was added — adding a
-// characteristic, like changing a characteristic's properties (the
-// reason for the previous d48c → d48d bump), is a GATT shape change
-// from iOS's perspective and the cached old shape persists across
-// reconnects until the service UUID changes.
+// Service UUID bumped to ...d490 in lockstep with iOS to defeat
+// CoreBluetooth's per-peripheral GATT cache. The bump is necessary every
+// time the GATT shape changes — this commit adds CHR_FW_VERSION (...d48f)
+// on top of the prior CHR_DEVICE_NAME (...d489) addition that already
+// moved the service from d48d → d48e. iOS treats both adding a
+// characteristic AND changing a characteristic's properties as shape
+// changes, so the bump rule covers any GATT delta.
 //
 // Adding a characteristic without bumping the service UUID is safe ONLY
-// if no existing iOS build attempts to read or write it. Since this
-// change ships an iOS build that reads CHR_FW_VERSION on connect, the
-// service UUID must move at the same time.
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48e"
+// if no existing iOS build attempts to read or write it. This change
+// ships an iOS build that reads CHR_FW_VERSION on connect, so the
+// service UUID has to move at the same time.
+//
+// History: d48c → d48d (CHR_OSD_LAYOUT property bitmap gained WRITE_NR),
+//          d48d → d48e (CHR_DEVICE_NAME added),
+//          d48e → d490  (CHR_FW_VERSION added; d48f used by the new char).
+#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d490"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
@@ -34,15 +38,18 @@
 #define CHR_TX_SNIFF_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d486"
 #define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
 #define CHR_BATTERY_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d488"
-#define CHR_FW_VERSION_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d489"
+#define CHR_DEVICE_NAME_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
 #define CHR_OSD_LAYOUT_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48b"
+#define CHR_FW_VERSION_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48f"
 
 // Resolved by the PlatformIO pre-script `scripts/inject_version.py` from
 // `git describe --tags --dirty --always`. Falls back to "unknown" when
-// no git history is available (e.g. source tarball build); iOS treats
-// "unknown" as "skip the major-version compare" so dev builds don't
-// produce a spurious mismatch warning every connect.
+// no git history is available (source tarball build, missing git binary).
+// iOS treats anything without a `<digit>+.` head — `unknown`, a bare
+// short-sha, etc. — as "skip the major-version compare", so dev builds
+// don't produce a spurious mismatch warning every connect; only a
+// `vX.Y...` style version triggers the check.
 #ifndef FIRMWARE_VERSION
 #define FIRMWARE_VERSION "unknown"
 #endif
@@ -62,6 +69,16 @@
 //   g_uid                                     (6 bytes; main loop writes
 //       under the mux in applyStagedUid, BLE task reads under the mux in
 //       ble_update_status so the notify frame never carries a torn pair)
+//   g_sleep_minutes_pending + g_sleep_minutes_changed
+//       (deep-sleep timeout config; single byte staged with the flag
+//       so a second iOS write between the loop's flag-check and value-
+//       read can't be silently dropped)
+//   g_device_name_pending + g_device_name_changed
+//       (BLE rename staging; variable-length string that can't fit in
+//       any atomic op, so the buffer + flag pair lives under the mux.
+//       Consumer in main.cpp reboots after persisting, so a second
+//       rename arriving inside the 200 ms ATT-ack window is acceptable
+//       to drop — the user has not yet seen the first rename's effect)
 //
 // Bare-volatile single-flag — idempotent commands, rapid double-write
 // collapses into one edge (which is fine, the action just means
@@ -116,6 +133,15 @@ inline volatile uint8_t g_last_test_result = 0;
 // on the rising edge of g_sleep_minutes_changed.
 inline volatile bool g_sleep_minutes_changed = false;
 inline volatile uint8_t g_sleep_minutes_pending = 0;
+
+// Device-name rename request. iOS writes the new advertised BLE name as
+// UTF-8 bytes to CHR_DEVICE_NAME; the callback stages the bytes under
+// `g_ble_mux` and sets `g_device_name_changed`. Main loop persists to
+// NVS and reboots — `BLEDevice::init(name)` is one-shot, so a clean
+// restart is cheaper and safer than tearing the BLE stack down at
+// runtime. Bonded iOS auto-reconnects after the ~3 s reboot window.
+inline volatile bool g_device_name_changed = false;
+inline char g_device_name_pending[nvs_store::kDeviceNameMaxLen + 1] = {};
 
 // OSD layout config — global Y offset for the 4-row OSD text block.
 // 1 signed byte = rows to shift up from the bottom (0 = bottom anchored,
@@ -286,6 +312,23 @@ class SleepConfigCallback : public BLECharacteristicCallbacks {
     }
 };
 
+class DeviceNameCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() == 0 || val.length() > nvs_store::kDeviceNameMaxLen) {
+            Serial.printf("DeviceName: invalid length %u (max %u)\n",
+                          (unsigned)val.length(),
+                          (unsigned)nvs_store::kDeviceNameMaxLen);
+            return;
+        }
+        portENTER_CRITICAL(&g_ble_mux);
+        memcpy(g_device_name_pending, val.data(), val.length());
+        g_device_name_pending[val.length()] = 0;
+        g_device_name_changed = true;
+        portEXIT_CRITICAL(&g_ble_mux);
+    }
+};
+
 class OSDLayoutCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
@@ -387,7 +430,13 @@ inline void _ble_gap_diag_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_p
     }
 }
 
-inline void ble_init(const char *device_name = "HDZeroOSD") {
+// `device_name` is required (no default) because the only correct
+// source is `nvs_store::loadDeviceName`, which always returns the
+// resolved name including its first-boot fallback. A literal default
+// here would silently mask a setup() refactor that drops the load
+// step and start the device advertising as "HDZeroOSD" regardless of
+// the user's saved rename.
+inline void ble_init(const char *device_name) {
     BLEDevice::init(device_name);
     BLEDevice::setCustomGapHandler(_ble_gap_diag_handler);
 
@@ -460,13 +509,30 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_battery_chr->addDescriptor(new BLE2902());
 
+    BLECharacteristic *pDeviceName = pService->createCharacteristic(
+        CHR_DEVICE_NAME_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+    pDeviceName->setCallbacks(new DeviceNameCallback());
+    {
+        // Seed the read value with the actual current name so iOS can
+        // populate the rename UI without a write-then-read round trip.
+        // The string passed to ble_init is the resolved current name
+        // (default or NVS-loaded), so reuse it here.
+        pDeviceName->setValue((uint8_t *)device_name, strlen(device_name));
+    }
+
     // Firmware version string for iOS-side compatibility check. READ-only
     // (compile-time constant for the running build), no callback, no
     // notify — iOS reads once after characteristic discovery and parses
-    // the major-version component.
+    // the major-version component. Match the existing fail-loud pattern
+    // (see g_battery_chr null check below) so a future numHandles
+    // regression surfaces in serial instead of crashing on the first
+    // setValue.
     BLECharacteristic *pFwVersion = pService->createCharacteristic(
         CHR_FW_VERSION_UUID, BLECharacteristic::PROPERTY_READ);
-    {
+    if (!pFwVersion) {
+        Serial.println("ble_init: CHR_FW_VERSION createCharacteristic failed (numHandles overflow?)");
+    } else {
         const char *v = FIRMWARE_VERSION;
         pFwVersion->setValue((uint8_t *)v, strlen(v));
     }
