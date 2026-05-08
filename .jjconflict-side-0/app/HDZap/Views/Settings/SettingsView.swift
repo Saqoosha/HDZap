@@ -11,8 +11,10 @@ struct SettingsView: View {
     @Environment(OSDLayoutSettings.self) private var layout
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage("targetLapCount") private var targetLapCount = RaceMetrics.defaultTargetLapCount
-    @AppStorage("raceSessionLimit") private var raceSessionLimit: Int = 90
+    @AppStorage(RaceMetrics.targetLapCountStorageKey) private var targetLapCount
+        = RaceMetrics.defaultTargetLapCount
+    @AppStorage(RaceMetrics.raceSessionLimitStorageKey) private var raceSessionLimit: Int
+        = RaceMetrics.defaultSessionLimit
     @AppStorage(EditorialTheme.accentHueStorageKey) private var accentHue: Double
         = EditorialTheme.defaultAccentHue
     @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled
@@ -128,7 +130,13 @@ struct SettingsView: View {
     // MARK: - Race (inline — most-changed)
 
     private var raceSection: some View {
-        Section {
+        // Hoisted out of the Text(...) so the formula is greppable and
+        // easy to tweak without parsing a deeply-nested call chain.
+        let pace = RaceMetrics.seconds(
+            RaceMetrics.targetLapSeconds(for: targetLapCount,
+                                         sessionLimit: TimeInterval(raceSessionLimit)),
+            decimals: 2)
+        return Section {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Race time")
@@ -142,8 +150,8 @@ struct SettingsView: View {
                         get: { Double(raceSessionLimit) },
                         set: { raceSessionLimit = Int($0.rounded()) }
                     ),
-                    in: 60...180,
-                    step: 5
+                    in: Double(RaceMetrics.minSessionLimit)...Double(RaceMetrics.maxSessionLimit),
+                    step: Double(RaceMetrics.sessionLimitStep)
                 )
             }
 
@@ -161,7 +169,7 @@ struct SettingsView: View {
             HStack {
                 Text("Target pace")
                 Spacer()
-                Text("\(RaceMetrics.seconds(RaceMetrics.targetLapSeconds(for: targetLapCount, sessionLimit: TimeInterval(raceSessionLimit)), decimals: 2))s")
+                Text("\(pace)s")
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }

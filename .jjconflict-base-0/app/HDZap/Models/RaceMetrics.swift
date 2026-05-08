@@ -10,6 +10,20 @@ struct RaceMetrics: Equatable {
     static let defaultTargetLapCount = 7
     static let minTargetLapCount = 2
     static let maxTargetLapCount = 99
+    /// Race window in seconds. Bounds matched to typical FPV race
+    /// formats: 60 s = a single fast hot-lap heat, 180 s = a long
+    /// endurance round. Step 5 s keeps the slider readable without
+    /// forcing a stepper for every increment.
+    static let defaultSessionLimit = 90
+    static let minSessionLimit = 60
+    static let maxSessionLimit = 180
+    static let sessionLimitStep = 5
+    /// `@AppStorage` keys. Centralized so HDZapApp's
+    /// `register(defaults:)` block and the settings views all point at
+    /// the same string — a typo on one side would silently fork the
+    /// saved value into a parallel key.
+    static let targetLapCountStorageKey = "targetLapCount"
+    static let raceSessionLimitStorageKey = "raceSessionLimit"
     static let osdRowMaxBytes = 50  // OSD grid width (OSD_COLS)
 
     let targetLapCount: Int

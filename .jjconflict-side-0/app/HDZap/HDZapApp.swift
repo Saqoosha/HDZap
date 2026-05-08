@@ -10,9 +10,9 @@ struct HDZapApp: App {
 
     init() {
         UserDefaults.standard.register(defaults: [
-            "raceSessionLimit": 90,
+            RaceMetrics.raceSessionLimitStorageKey: RaceMetrics.defaultSessionLimit,
             EditorialTheme.accentHueStorageKey: EditorialTheme.defaultAccentHue,
-            "targetLapCount": RaceMetrics.defaultTargetLapCount,
+            RaceMetrics.targetLapCountStorageKey: RaceMetrics.defaultTargetLapCount,
             LapAnnouncerDefaults.enabledKey: LapAnnouncerDefaults.defaultEnabled,
             LapAnnouncerDefaults.languageKey: LapAnnouncerDefaults.defaultLanguageRaw,
             LapAnnouncerDefaults.announceBestKey: LapAnnouncerDefaults.defaultAnnounceBest,
