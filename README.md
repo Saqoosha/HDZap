@@ -71,7 +71,7 @@ Hotfixes still go through `develop` → `main` PRs. Direct push to `main` is blo
 
 ## BLE Protocol
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. The UUID is bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics without a phone reboot.
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48d`. The UUID is bumped on every GATT-shape change — including characteristic property-bitmap changes — so iOS CoreBluetooth's per-peripheral cache reliably re-discovers the new shape without a phone reboot.
 
 | Characteristic | UUID suffix | Direction | Format |
 |---|---|---|---|
