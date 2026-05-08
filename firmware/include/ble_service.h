@@ -14,24 +14,20 @@
 #include "tx_sniff.h"
 #include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
-// Service UUID bumped from ...d479 → ...d489 to defeat iOS CoreBluetooth's
-// per-peripheral GATT cache. Without bonding, iOS will not re-discover a
-// peripheral's services when characteristics are added — the original
-// service signature stays cached in bluetoothd, and discoverServices()
-// returns the stale tree forever. A fresh service UUID has no cache, so
-// iOS falls through to a real GATT discovery and picks up every newly-
-// added characteristic. iOS app's CBUUID must move in lockstep.
-// Adding a characteristic without bumping the service UUID is safe ONLY
-// if no existing iOS build attempts to read or write it — iOS will not
-// see the new char via its cached GATT tree until the service UUID
-// changes. Bump the service UUID in the SAME change that ships an iOS
-// build that uses CHR_SLEEP_CONFIG_UUID (e.g. d48b → BluetoothManager
-// service constant flipped to match).
+// Service UUID bumped from ...d48c → ...d48d to defeat iOS CoreBluetooth's
+// per-peripheral GATT cache after CHR_OSD_LAYOUT gained PROPERTY_WRITE_NR.
+// Properties are part of the cached GATT shape, and iOS silently drops
+// `writeWithoutResponse` calls against a characteristic whose cached
+// property bitmap doesn't advertise the WRITE_NR bit. Without a service
+// UUID change, the d48c discovery from a prior connect would persist and
+// the slider's layout writes would land in iOS's queue but never reach
+// the firmware.
 //
-// Current state: CHR_SLEEP_CONFIG (`…d48a`) was added without a bump.
-// The existing iOS app doesn't read or write it, so the cache miss is
-// harmless — peripheral seeds the timeout from NVS (default 5 min).
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d489"
+// Adding a characteristic without bumping the service UUID is safe ONLY
+// if no existing iOS build attempts to read or write it. The same rule
+// applies to changing a characteristic's *properties* — iOS treats it
+// as a shape change.
+#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48d"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
@@ -40,6 +36,7 @@
 #define CHR_OSD_TEXT_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d487"
 #define CHR_BATTERY_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d488"
 #define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
+#define CHR_OSD_LAYOUT_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48b"
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -110,6 +107,18 @@ inline volatile uint8_t g_last_test_result = 0;
 // on the rising edge of g_sleep_minutes_changed.
 inline volatile bool g_sleep_minutes_changed = false;
 inline volatile uint8_t g_sleep_minutes_pending = 0;
+
+// OSD layout config — global Y offset for the 4-row OSD text block.
+// 1 signed byte = rows to shift up from the bottom (0 = bottom anchored,
+// negative = move up). iOS writes the offset; main loop applies it via
+// `osdTextDisplay.setBaseRow()` and clears the goggle overlay so old
+// text at the prior position doesn't remain visible. Not persisted to
+// NVS — iOS owns the setting and replays it on connect.
+// Per-row alignment / show-hide are handled entirely on the iOS side
+// via the existing OSD text payload (preformatted strings + 50-space
+// rows for hidden ones), so they don't appear here.
+inline volatile bool g_osd_layout_changed = false;
+inline volatile int8_t g_osd_layout_y_offset_pending = 0;
 
 inline void ble_update_status() {
     if (!g_status_chr) return;
@@ -264,6 +273,25 @@ class SleepConfigCallback : public BLECharacteristicCallbacks {
         portENTER_CRITICAL(&g_ble_mux);
         g_sleep_minutes_pending = mins;
         g_sleep_minutes_changed = true;
+        portEXIT_CRITICAL(&g_ble_mux);
+    }
+};
+
+class OSDLayoutCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() < 1) {
+            Serial.println("OSDLayout: empty write");
+            return;
+        }
+        // Single signed byte: rows to shift the 4-row block up from the
+        // bottom of the grid (0 = bottom-anchored default, negative =
+        // move up). Range-check + clamp lives in main.cpp where the
+        // OSDTextDisplay row-count constant is in scope.
+        int8_t y = (int8_t)val[0];
+        portENTER_CRITICAL(&g_ble_mux);
+        g_osd_layout_y_offset_pending = y;
+        g_osd_layout_changed = true;
         portEXIT_CRITICAL(&g_ble_mux);
     }
 };
@@ -432,6 +460,24 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         // read sees the actual current setting, not 0.
         uint8_t cur = nvs_store::loadSleepMinutes();
         pSleep->setValue(&cur, 1);
+    }
+
+    // PROPERTY_WRITE_NR enables iOS to use writeWithoutResponse, which
+    // skips the ATT ack round-trip on slider drags (the layout char
+    // gets pushed every debounced editor frame, so the ~30 ms saving
+    // per write is the difference between feeling immediate and
+    // feeling laggy).
+    BLECharacteristic *pOSDLayout = pService->createCharacteristic(
+        CHR_OSD_LAYOUT_UUID,
+        BLECharacteristic::PROPERTY_READ
+            | BLECharacteristic::PROPERTY_WRITE
+            | BLECharacteristic::PROPERTY_WRITE_NR);
+    pOSDLayout->setCallbacks(new OSDLayoutCallback());
+    {
+        // Seed the read value with the current y_offset (always 0 at boot
+        // — not persisted to NVS, iOS replays its setting on connect).
+        int8_t cur = 0;
+        pOSDLayout->setValue((uint8_t *)&cur, 1);
     }
 
     pService->start();

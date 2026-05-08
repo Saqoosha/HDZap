@@ -6,6 +6,7 @@ struct HDZapApp: App {
     @State private var lapTimer = LapTimer()
     @State private var lapAnnouncer = LapAnnouncer()
     @State private var raceHistory = RaceHistoryStore()
+    @State private var osdLayout = OSDLayoutSettings()
 
     init() {
         UserDefaults.standard.register(defaults: [
@@ -31,6 +32,7 @@ struct HDZapApp: App {
                 .environment(lapTimer)
                 .environment(lapAnnouncer)
                 .environment(raceHistory)
+                .environment(osdLayout)
         }
     }
 }

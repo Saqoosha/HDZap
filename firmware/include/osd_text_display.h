@@ -4,27 +4,54 @@
 #include <cstring>
 #include "osd.h"
 
-/// Renders the bottom 4 rows of the goggle OSD with iOS-supplied,
-/// preformatted strings. iOS owns the layout and centering math;
-/// firmware just writes whichever rows iOS marked dirty. The MSP
+/// Renders 4 contiguous rows of the goggle OSD with iOS-supplied,
+/// preformatted strings. iOS owns the layout (centering, alignment,
+/// per-row visibility); firmware just writes whichever rows iOS
+/// marked dirty at whatever base row iOS configured. The MSP
 /// DisplayPort overlay buffer retains row content between writes,
 /// so a single dirty row only costs writeString + draw (2 ESP-NOW
 /// packets) — the TIME LEFT row can tick every second without
 /// rerendering the lap/avg/diff rows below it.
 ///
-/// iOS pads each row to a fixed width chosen for its row so a
-/// shorter update cleanly overwrites a longer prior value at the
-/// same centered position. There is no firmware-side clear-row
-/// step; that responsibility lives in iOS via the padding.
+/// Base row defaults to OSD_ROWS - ROW_COUNT (bottom of the grid)
+/// and can be moved up via setBaseRow() so the user can position
+/// the OSD block away from the goggle's bottom edge. Caller (main.cpp)
+/// is responsible for clearing the goggle overlay after a base-row
+/// change, since old text at the prior base would otherwise remain
+/// visible alongside the new rows at the new base.
+///
+/// iOS pads each row to a fixed width so a shorter update cleanly
+/// overwrites a longer prior value at the same position. There is
+/// no firmware-side clear-row step; that responsibility lives in
+/// iOS via the padding.
 class OSDTextDisplay {
 public:
     static constexpr uint8_t ROW_COUNT = 4;
     static constexpr uint8_t ROW_TEXT_MAX = 50;  // OSD_COLS — full grid width
+    static constexpr uint8_t DEFAULT_BASE_ROW = OSD_ROWS - ROW_COUNT;
+    static constexpr uint8_t MAX_BASE_ROW = OSD_ROWS - ROW_COUNT;
 
     void begin(OSD *osd) {
         m_osd = osd;
         clear();
     }
+
+    /// Move the 4-row block to a new top row. Caller (main.cpp) is
+    /// expected to issue an OSD clear after this so leftover text at
+    /// the prior base row doesn't sit alongside the new render. We
+    /// don't clear here ourselves because firing an ESP-NOW packet
+    /// from a setter mixes I/O into a state mutation; the main loop
+    /// owns the radio so it owns the clear.
+    /// All four row dirty bits are OR-merged so the next render
+    /// repaints the block at the new position.
+    void setBaseRow(uint8_t baseRow) {
+        if (baseRow > MAX_BASE_ROW) baseRow = MAX_BASE_ROW;
+        if (baseRow == m_baseRow) return;
+        m_baseRow = baseRow;
+        m_dirty |= (uint8_t)((1u << ROW_COUNT) - 1u);
+    }
+
+    uint8_t baseRow() const { return m_baseRow; }
 
     /// Stage rows + dirty bitmap from the BLE staging buffer. Bits
     /// OR-merge into the pending mask so dirty rows from earlier
@@ -94,7 +121,7 @@ public:
         bool ok = true;
         for (uint8_t i = 0; i < ROW_COUNT; i++) {
             if (mask & (uint8_t)(1 << i)) {
-                ok = writeCentered(OSD_ROWS - ROW_COUNT + i, m_rows[i]) && ok;
+                ok = writeCentered(m_baseRow + i, m_rows[i]) && ok;
             }
         }
         ok = m_osd->draw() && ok;
@@ -111,6 +138,7 @@ private:
     OSD *m_osd = nullptr;
     char m_rows[ROW_COUNT][ROW_TEXT_MAX + 1] = {};
     uint8_t m_dirty = 0;
+    uint8_t m_baseRow = DEFAULT_BASE_ROW;
 
     bool writeCentered(uint8_t row, const char *line) {
         size_t len = strlen(line);

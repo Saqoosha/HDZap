@@ -255,7 +255,7 @@ Three paths leave the connected state:
 
 ### BLE GATT
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics without a phone reboot.
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48d`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics — *or property-bitmap changes* — without a phone reboot. Most recent bump (`…d48c → …d48d`) accompanied CHR_OSD_LAYOUT gaining `PROPERTY_WRITE_NR` so iOS's slider can use `writeWithoutResponse`.
 
 | Characteristic | UUID | Properties | Payload |
 |---|---|---|---|
@@ -266,6 +266,8 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. Bumped on every GATT-shape
 | TX Sniff | `f47ac10b-...-0e02b2c3d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6B]` on capture |
 | OSD Text | `f47ac10b-...-0e02b2c3d487` | Write | `[row:u8][ascii:1-19B]`; rows `0..3` stage one bottom-anchored 4-row text frame, dirty bits OR-merged on each write |
 | Battery | `f47ac10b-...-0e02b2c3d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced; bits 4-7 reserved → iOS surfaces unknown bits via `lastError`)]` |
+| Sleep Config | `f47ac10b-...-0e02b2c3d48a` | Read+Write | `[minutes:u8]` deep-sleep timeout in minutes (firmware-seeded from NVS at boot) |
+| OSD Layout | `f47ac10b-...-0e02b2c3d48b` | Write | `[y_offset:i8]` rows to shift the 4-row buffer up from `DEFAULT_BASE_ROW=14` (range `[-14,0]`); iOS owns alignment / show-hide via the OSD Text path |
 
 ### MSPv2 Packet Format
 

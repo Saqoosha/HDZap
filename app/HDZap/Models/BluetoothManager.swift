@@ -10,10 +10,12 @@ enum OSDCommand: UInt8 {
     case testOSD = 0x03
 }
 
-// Service UUID bumped from ...d479 → ...d489 in lockstep with firmware,
+// Service UUID bumped from ...d48c → ...d48d in lockstep with firmware,
 // to defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
 // added characteristics are otherwise invisible until the iPhone is rebooted).
-private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
+// This bump ships with the new osdLayoutUUID + the previously-deferred
+// CHR_SLEEP_CONFIG (...d48a).
+private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48d")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
 // CHR_LAP_TIME_UUID (...d483) was retired when the firmware switched to the
@@ -24,6 +26,7 @@ private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
 private let osdTextUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d487")
 private let batteryUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d488")
+private let osdLayoutUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48b")
 
 @MainActor
 @Observable
@@ -320,6 +323,13 @@ class BluetoothManager: NSObject {
     /// content. Caller pre-pads `text` to a stable width per row so
     /// the centered position is invariant across updates (otherwise
     /// shorter text leaves the prior longer text's tail visible).
+    /// `writeWithoutResponse` (matches `sendOSDRows`) so a 1 Hz TIME
+    /// LEFT tick that lands right after a `sendMetricRows` burst still
+    /// fits inside the firmware's 40 ms render-staging window — a
+    /// `.withResponse` write here would add a ~30 ms ATT round-trip and
+    /// push the TIME LEFT row past the window onto a separate render
+    /// cycle, which the operator sees as the lap row settling first
+    /// and TIME LEFT settling a beat later.
     @discardableResult
     func sendOSDRow(row: Int, text: String) -> Bool {
         guard (0..<4).contains(row) else {
@@ -328,7 +338,7 @@ class BluetoothManager: NSObject {
         }
         var data = Data([UInt8(row)])
         data.append(Self.osdASCIIData(for: text))
-        return write(data: data, to: osdTextUUID)
+        return writeWithoutResponse(data: data, to: osdTextUUID)
     }
 
     /// Send a batch of OSD rows without waiting for per-row BLE
@@ -354,6 +364,50 @@ class BluetoothManager: NSObject {
     func sendOSDControl(command: OSDCommand) -> Bool {
         write(data: Data([command.rawValue]), to: osdControlUUID)
     }
+
+    /// Push the OSD layout Y offset to the firmware. Single signed byte:
+    /// rows to shift the 4-row block up from the bottom of the grid
+    /// (0 = bottom-anchored default, negative = move up). Per-row
+    /// alignment / show-hide are applied entirely on the iOS side via
+    /// the existing OSD text path, so they don't ride this characteristic.
+    ///
+    /// `urgent`:
+    /// - `false` (default, used by the editor's slider debounce):
+    ///   write-without-response, same as `sendOSDRows`, so a drag's
+    ///   layout writes don't each pay the ~30 ms ATT ack round-trip.
+    ///   If a write does drop, the next debounced push or
+    ///   state-transition flush re-sends the value.
+    /// - `true` (state transitions: Ready ↔ Running ↔ Result, reconnect
+    ///   replay): write-with-response. Pays the ATT ack cost so a busy
+    ///   BLE outbound queue can't silently drop the offset right when
+    ///   the goggle is about to render at the wrong base row, which
+    ///   would also throw off the partial-update slot routing in the
+    ///   following sendTimeLeftRow / sendMetricRows ticks.
+    ///
+    /// Optional on the firmware side (older builds without the
+    /// characteristic just return false here without surfacing an error,
+    /// since the layout setting is a UX-only feature, not a correctness
+    /// requirement for laps).
+    @discardableResult
+    func sendOSDLayout(yOffset: Int, urgent: Bool = false) -> Bool {
+        let clamped = max(-128, min(127, yOffset))
+        let byte = UInt8(bitPattern: Int8(clamped))
+        guard characteristics[osdLayoutUUID] != nil else {
+            // Older firmware without CHR_OSD_LAYOUT: silently no-op so a
+            // mixed app/firmware version doesn't spam the error log every
+            // time the user touches a slider.
+            return false
+        }
+        if urgent {
+            return write(data: Data([byte]), to: osdLayoutUUID)
+        }
+        return writeWithoutResponse(data: Data([byte]), to: osdLayoutUUID)
+    }
+
+    /// True once the OSD layout characteristic has been discovered.
+    /// Lets the layout-settings view show a hint when paired against
+    /// older firmware that doesn't carry the new char.
+    var supportsOSDLayout: Bool { characteristics[osdLayoutUUID] != nil }
 
     @discardableResult
     func startTXSniff() -> Bool {
@@ -381,6 +435,15 @@ class BluetoothManager: NSObject {
     /// Write without waiting for ATT-layer acknowledgement. Used for bulk
     /// OSD rows where speed matters more than per-write confirmation —
     /// 4 rows fire back-to-back instead of serialising 30+ ms each.
+    /// CoreBluetooth queues writes past `canSendWriteWithoutResponse`
+    /// rather than dropping them in practice, and a 5-write burst
+    /// (1 layout char + 4 rows) sits well inside the queue depth on
+    /// every supported iOS version we ship to. A prior attempt to gate
+    /// on `canSendWriteWithoutResponse` and fall back to write-with-
+    /// response added a 30 ms ATT round-trip to every saturated write,
+    /// turning the slider drag into a visibly laggy path. Atomicity-
+    /// critical writes (state-transition layout char) opt into write-
+    /// with-response via the `urgent` flag on `sendOSDLayout` instead.
     @discardableResult
     private func writeWithoutResponse(data: Data, to uuid: CBUUID) -> Bool {
         return write(data: data, to: uuid, type: .withoutResponse)
@@ -528,7 +591,8 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID, batteryUUID
+            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID,
+            txSniffUUID, osdTextUUID, batteryUUID, osdLayoutUUID,
         ], for: service)
     }
 
@@ -754,6 +818,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         case txSniffUUID: return "TX sniff"
         case osdTextUUID: return "OSD text"
         case batteryUUID: return "Battery"
+        case osdLayoutUUID: return "OSD layout"
         default: return uuid.uuidString
         }
     }

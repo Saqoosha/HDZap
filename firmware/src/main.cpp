@@ -76,11 +76,13 @@ static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
 static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 /// Staging window before the first render dispatch. New dirty rows
 /// that arrive within this window are batched into a single cycle
-/// instead of each triggering a separate 200 ms verify pass. 80 ms
-/// covers 4 back-to-back BLE writes (worst-case ~30 ms connection
-/// interval each) with margin, so Ready and Results displays (4 rows
-/// each) appear atomically.
-static constexpr uint32_t RENDER_STAGING_MS       = 80;
+/// instead of each triggering a separate 200 ms verify pass. iOS now
+/// fires the OSD-text writes back-to-back as `writeWithoutResponse`
+/// (one or two connection events for all 4 rows) and pre-pends the
+/// layout char in the same burst, so 40 ms is enough to coalesce a
+/// full Ready / Result frame while halving the perceived render lag
+/// versus the previous 80 ms window.
+static constexpr uint32_t RENDER_STAGING_MS       = 40;
 
 // --- Power saving (issue #5, phase 3 deep sleep) -------------------------
 // After g_sleep_timeout_ms of no operator activity (same definition as
@@ -415,6 +417,55 @@ void loop() {
         bool ok = send_bind_packet(g_uid);
         Serial.printf("Bind packet %s\n", ok ? "sent" : "FAILED");
         stickDisplay.showBindResult(ok);
+    }
+
+    // --- OSD layout (Y offset) update from BLE --------------------------
+    // Apply BEFORE the OSD-text dirty drain so a coincident layout-change
+    // + content-update settles in one render cycle: setBaseRow re-marks
+    // every row dirty so the IDLE catch-up trigger below picks them up.
+    // Wipe the goggle overlay buffer before the next render, otherwise
+    // text from the prior base row stays visible alongside the new rows.
+    if (g_osd_layout_changed) {
+        int8_t y;
+        portENTER_CRITICAL(&g_ble_mux);
+        y = g_osd_layout_y_offset_pending;
+        g_osd_layout_changed = false;
+        portEXIT_CRITICAL(&g_ble_mux);
+        // Clamp y_offset to [-(MAX_BASE_ROW), 0]: 0 = bottom-anchored
+        // default, -MAX_BASE_ROW puts the block at the top of the grid.
+        // Any positive value (which would push the block off the bottom)
+        // collapses to 0; out-of-range negatives clamp to -MAX_BASE_ROW.
+        int newBase = (int)OSDTextDisplay::DEFAULT_BASE_ROW + (int)y;
+        if (newBase < 0) newBase = 0;
+        if (newBase > (int)OSDTextDisplay::MAX_BASE_ROW) {
+            newBase = OSDTextDisplay::MAX_BASE_ROW;
+        }
+        uint8_t prevBase = osdTextDisplay.baseRow();
+        // Cancel any in-flight render BEFORE re-marking rows dirty so a
+        // pending verify success doesn't clear the freshly-set dirty
+        // bits via `clearDirtyBits(g_render_dispatched_mask)` — the
+        // dispatched mask was for the prior (now stale) base row, and
+        // clearing it would also drop the bits setBaseRow just turned
+        // on, leaving the next render cycle with nothing to draw.
+        // Symptom without this guard: a slider tick that lands inside
+        // the 200 ms verify window of a prior text update silently
+        // loses its layout change — the OSD stays at prevBase until
+        // the next BLE write retriggers requestRender().
+        if (g_render_state != RenderState::IDLE) {
+            cancelRender();
+        }
+        osdTextDisplay.setBaseRow((uint8_t)newBase);
+        if (espnow_ready && (uint8_t)newBase != prevBase) {
+            // Best-effort: if the clear packet drops, the next render
+            // overwrites the new rows but the old ones at prevBase will
+            // linger until the operator hits Clear OSD. Logging that
+            // case so a "ghost text" report is diagnosable.
+            if (!osd.clear()) {
+                Serial.println("OSD layout: clear after base-row change failed");
+            }
+        }
+        Serial.printf("OSD layout: y_offset=%d base_row=%u\n",
+                      (int)y, (unsigned)newBase);
     }
 
     {
