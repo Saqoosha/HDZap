@@ -363,17 +363,26 @@ class BluetoothManager: NSObject {
     /// (0 = bottom-anchored default, negative = move up). Per-row
     /// alignment / show-hide are applied entirely on the iOS side via
     /// the existing OSD text path, so they don't ride this characteristic.
-    /// Fire-and-forget: write-without-response, same as `sendOSDRows`,
-    /// so a slider drag's layout writes don't each pay the ~30 ms ATT
-    /// ack round-trip. Single-byte payload always fits one connection
-    /// event; if a write does drop, the next debounced push (or the
-    /// next state-transition flush) re-sends the value.
+    ///
+    /// `urgent`:
+    /// - `false` (default, used by the editor's slider debounce):
+    ///   write-without-response, same as `sendOSDRows`, so a drag's
+    ///   layout writes don't each pay the ~30 ms ATT ack round-trip.
+    ///   If a write does drop, the next debounced push or
+    ///   state-transition flush re-sends the value.
+    /// - `true` (state transitions: Ready ↔ Running ↔ Result, reconnect
+    ///   replay): write-with-response. Pays the ATT ack cost so a busy
+    ///   BLE outbound queue can't silently drop the offset right when
+    ///   the goggle is about to render at the wrong base row, which
+    ///   would also throw off the partial-update slot routing in the
+    ///   following sendTimeLeftRow / sendMetricRows ticks.
+    ///
     /// Optional on the firmware side (older builds without the
     /// characteristic just return false here without surfacing an error,
     /// since the layout setting is a UX-only feature, not a correctness
     /// requirement for laps).
     @discardableResult
-    func sendOSDLayout(yOffset: Int) -> Bool {
+    func sendOSDLayout(yOffset: Int, urgent: Bool = false) -> Bool {
         let clamped = max(-128, min(127, yOffset))
         let byte = UInt8(bitPattern: Int8(clamped))
         guard characteristics[osdLayoutUUID] != nil else {
@@ -381,6 +390,9 @@ class BluetoothManager: NSObject {
             // mixed app/firmware version doesn't spam the error log every
             // time the user touches a slider.
             return false
+        }
+        if urgent {
+            return write(data: Data([byte]), to: osdLayoutUUID)
         }
         return writeWithoutResponse(data: Data([byte]), to: osdLayoutUUID)
     }
@@ -416,8 +428,17 @@ class BluetoothManager: NSObject {
     /// Write without waiting for ATT-layer acknowledgement. Used for bulk
     /// OSD rows where speed matters more than per-write confirmation —
     /// 4 rows fire back-to-back instead of serialising 30+ ms each.
+    /// Falls back to write-with-response when CoreBluetooth's outbound
+    /// queue is saturated (`canSendWriteWithoutResponse == false`):
+    /// writeWithoutResponse data is silently dropped past the queue,
+    /// which would scramble a Ready / Result frame's tail rows. The
+    /// fallback pays one ATT round-trip but guarantees delivery.
     @discardableResult
     private func writeWithoutResponse(data: Data, to uuid: CBUUID) -> Bool {
+        if let peripheral = connectedPeripheral,
+           !peripheral.canSendWriteWithoutResponse {
+            return write(data: data, to: uuid, type: .withResponse)
+        }
         return write(data: data, to: uuid, type: .withoutResponse)
     }
 

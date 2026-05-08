@@ -219,18 +219,24 @@ struct TimerView: View {
         // wake, or BLE reconnect would otherwise revert to whatever the
         // goggle's overlay buffer last held while iOS still thinks the
         // user's preferred layout is in effect.
+        // Skipped while the layout editor is on screen — the editor's
+        // own debounced push will repaint with the dummy preview the
+        // pilot is editing against, and racing it from here would
+        // briefly flash the live race frame onto the goggle just before
+        // the editor reasserts its preview.
         .onChange(of: bluetooth.isReady) { _, ready in
-            guard ready else { return }
-            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+            guard ready, !osdLayout.previewEditorActive else { return }
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset,
+                                        urgent: true)
             flushCurrentRaceFrame()
         }
         // Resync the layout char whenever the user's stored layout
         // changes from outside the editor (currently only `resetToDefaults`
         // can hit this path while the editor is closed). While the editor
-        // is active, gate these handlers so they don't compete with the
-        // editor's own debounced push on every slider tick — each
-        // sendOSDLayout is a write-with-response and pushing 5–10 of them
-        // per second of slider drag wastes BLE airtime. `rows` is watched
+        // is active, gate these handlers so they don't double-write the
+        // layout char on every slider tick — the editor already debounces
+        // its own push onto the same characteristic, so any extra resync
+        // from here is purely redundant traffic. `rows` is watched
         // alongside `firstVisibleRow` because changing visibility shifts
         // `firmwareYOffset` (visible-block height determines the buffer's
         // top row).
@@ -953,7 +959,13 @@ struct TimerView: View {
     /// right grid rows.
     private func pushOSDBuffer(_ layout: OSDLayoutConfig,
                                semanticRaws: [String]) {
-        _ = bluetooth.sendOSDLayout(yOffset: layout.firmwareYOffset)
+        // `urgent: true` → write-with-response so a busy BLE outbound
+        // queue can't silently drop the offset right when the goggle
+        // is about to render at the wrong base row. State transitions
+        // (Ready / Result / race-start / settings-dismiss flush) fire
+        // infrequently so the ~30 ms ATT ack cost is acceptable in
+        // exchange for atomicity vs. the trailing OSD-text writes.
+        _ = bluetooth.sendOSDLayout(yOffset: layout.firmwareYOffset, urgent: true)
         let buffer = layout.renderBuffer(semanticRaws: semanticRaws)
         let updates = (0..<OSDLayoutConfig.rowCount).map {
             (row: $0, text: buffer[$0])

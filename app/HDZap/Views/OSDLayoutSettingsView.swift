@@ -279,6 +279,17 @@ struct OSDLayoutSettingsView: View {
     }
 
     private func pushIfChanged(_ snapshot: OSDLayoutConfig, force: Bool) async {
+        // Editor pop sets `previewEditorActive = false` *and* cancels the
+        // debounce task, but `Task.isCancelled` is only checked once
+        // after the sleep — if the task is already in `pushIfChanged`
+        // when cancel fires (small race window between waking and the
+        // first BLE write), the dummy preview rows would land on the
+        // goggle *after* TimerView's pop-flush has already painted the
+        // live race frame. Re-checking the editor flag here closes the
+        // window: the editor is the only legitimate caller, so once
+        // it's been declared inactive there's nothing this task should
+        // be writing.
+        guard layout.previewEditorActive else { return }
         guard bluetooth.isReady else { return }
         let yChanged = lastPushed?.firmwareYOffset != snapshot.firmwareYOffset
         let alignChanged = lastPushed?.alignment != snapshot.alignment
@@ -293,13 +304,14 @@ struct OSDLayoutSettingsView: View {
         // and skips), leaving the goggle stuck on stale content.
         var allOK = true
         if force || yChanged {
-            // Firmware silently no-ops the layout write on older builds
-            // that lack the characteristic — `sendOSDLayout` returns
-            // false in that case (and writes its own diagnostic). Don't
-            // treat that as a hard failure for `lastPushed` tracking,
-            // since alignment + visibility still apply via the OSD text
-            // path; flag only when supportsOSDLayout claims the char
-            // exists yet the write itself failed.
+            // Older firmware that lacks CHR_OSD_LAYOUT silently no-ops
+            // the write (sendOSDLayout returns false without surfacing
+            // an error so a mixed app/firmware version doesn't spam
+            // lastError on every slider tick). Don't treat that as a
+            // hard failure for `lastPushed` tracking, since alignment +
+            // visibility still apply via the OSD text path; flag only
+            // when `supportsOSDLayout` claims the char exists yet the
+            // write itself failed.
             let layoutOK = bluetooth.sendOSDLayout(yOffset: snapshot.firmwareYOffset)
             if bluetooth.supportsOSDLayout && !layoutOK { allOK = false }
         }

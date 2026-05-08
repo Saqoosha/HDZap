@@ -441,6 +441,19 @@ void loop() {
             newBase = OSDTextDisplay::MAX_BASE_ROW;
         }
         uint8_t prevBase = osdTextDisplay.baseRow();
+        // Cancel any in-flight render BEFORE re-marking rows dirty so a
+        // pending verify success doesn't clear the freshly-set dirty
+        // bits via `clearDirtyBits(g_render_dispatched_mask)` — the
+        // dispatched mask was for the prior (now stale) base row, and
+        // clearing it would also drop the bits setBaseRow just turned
+        // on, leaving the next render cycle with nothing to draw.
+        // Symptom without this guard: a slider tick that lands inside
+        // the 200 ms verify window of a prior text update silently
+        // loses its layout change — the OSD stays at prevBase until
+        // the next BLE write retriggers requestRender().
+        if (g_render_state != RenderState::IDLE) {
+            cancelRender();
+        }
         osdTextDisplay.setBaseRow((uint8_t)newBase);
         if (espnow_ready && (uint8_t)newBase != prevBase) {
             // Best-effort: if the clear packet drops, the next render
