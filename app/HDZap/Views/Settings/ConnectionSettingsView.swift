@@ -87,7 +87,7 @@ struct ConnectionSettingsView: View {
     @ViewBuilder
     private var versionRow: some View {
         if let fw = bluetooth.firmwareVersion {
-            let app = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
+            let app = BluetoothManager.appVersionString() ?? "?"
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Version")

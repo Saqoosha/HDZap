@@ -652,27 +652,29 @@ class BluetoothManager: NSObject {
     ///
     /// Accepts the optional leading `v` prefix the release flow uses
     /// (`v1.0.0`, `v1.0.0-12-gabc1234`, `v1.0.0-12-gabc1234-dirty`).
+    /// Splitting on the first `.` rejects bare integers / short SHAs
+    /// that happen to start with digits — `git describe` always emits
+    /// either `<sha>` (no dot, not a real version) or `vX.Y.Z[...]`.
     static func firmwareMajor(from version: String) -> Int? {
         var s = Substring(version)
         if s.first == "v" || s.first == "V" { s = s.dropFirst() }
-        let head = s.prefix(while: { $0.isNumber })
-        guard !head.isEmpty, let n = Int(head) else { return nil }
-        // Reject a bare integer with no dot — `git describe` always emits
-        // either `<sha>` (no dot, not a real version) or `vX.Y.Z[...]` (dot
-        // after the major). The dot check filters out a stray short SHA
-        // that happens to start with digits.
-        let rest = s.dropFirst(head.count)
-        guard rest.first == "." else { return nil }
+        let parts = s.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, let n = Int(parts[0]) else { return nil }
         return n
     }
 
-    /// Major component of the app's `CFBundleShortVersionString`
-    /// (== MARKETING_VERSION, set in `app/project.yml`).
-    /// `nil` if the bundle returned a malformed version string.
+    /// App's `CFBundleShortVersionString` (== MARKETING_VERSION, set in
+    /// `app/project.yml`). `nil` if the bundle returned a malformed
+    /// version string. Centralised so the firmware-compat check and the
+    /// `ConnectionSettingsView` version row read it the same way.
+    static func appVersionString() -> String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    /// Major component of `appVersionString()`. `nil` when the bundle
+    /// version is missing or unparseable.
     static func appMajor() -> Int? {
-        guard let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
-            return nil
-        }
+        guard let v = appVersionString() else { return nil }
         return firmwareMajor(from: v)
     }
 
@@ -693,7 +695,7 @@ class BluetoothManager: NSObject {
             // even if they aren't on the Connection settings screen.
             // recordError's consecutive-duplicate collapse keeps repeated
             // reconnects to the same firmware from spamming the queue.
-            let appV = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
+            let appV = Self.appVersionString() ?? "?"
             lastError = "Firmware \(fwVersion) is from a different major version than this app (v\(appV)). Update one of them — features may not match."
         }
     }
@@ -1027,8 +1029,7 @@ extension BluetoothManager: CBPeripheralDelegate {
             guard let data = characteristic.value else { return }
             guard !data.isEmpty,
                   let v = String(data: data, encoding: .utf8) else {
-                firmwareVersion = nil
-                firmwareIncompatible = false
+                resetFirmwareVersion()
                 lastError = "Firmware version frame malformed (\(data.count)B, non-UTF-8 or empty). Firmware/app version mismatch?"
                 return
             }
