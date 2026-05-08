@@ -126,3 +126,9 @@ The store SHALL expose `delete(id: UUID)` (single record) and `deleteAll()` (ent
 The race-history capability SHALL provide a shareable visual summary (race date, total time, lap count, best lap, lap-by-lap chart) renderable to a `UIImage` for the iOS share sheet. The card MUST use the record's persisted `accentHue` so each race is visually distinct in shared images.
 
 実装はビュー層 (`RaceShareCard`) が担当するが、shareable な出力点は spec として担保する。
+
+#### Scenario: Render share card for a race
+- Given a `RaceRecord` with 5 laps, total time 60.0 s, and `accentHue = 270.0`
+- When the user taps Share on the race detail view
+- Then a `UIImage` is produced containing the race date, total time, lap count, best-lap time, and per-lap chart
+- And the image's accent color is derived from `accentHue = 270.0`
