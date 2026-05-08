@@ -1,0 +1,136 @@
+schema: spec-driven
+
+# Project context — shown to AI when creating artifacts.
+context: |
+  ## Product
+
+  HDZap is an FPV drone-racing lap timer that bridges three devices:
+
+      iPhone (manual lap timer + race UI)
+                │
+                │  BLE GATT
+                ▼
+      M5StickS3 (ESP32-S3 bridge)
+                │
+                │  ESP-NOW (2.4 GHz, custom MSP/DisplayPort frames)
+                ▼
+      HDZero goggle (with ELRS backpack)
+
+  The race operator taps LAP on the iPhone; ~tens of milliseconds later
+  the lap time is overlaid on the pilot's FPV goggle OSD.
+
+  ## Repository layout
+
+      firmware/         PlatformIO project (Arduino-ESP32). Single src/main.cpp +
+                        header-only modules in include/.
+      app/              iOS SwiftUI project (xcodegen). iOS 18+. Bluetooth
+                        requires a physical device.
+      docs/             architecture.md, manual/ (en+ja, served on Pages),
+                        flash/ (browser firmware flasher).
+      .github/workflows/  CI: builds firmware for both branches, composes
+                          single Pages site, deploys.
+      scripts/release.sh  develop → main release helper (TestFlight + tag + PR).
+      openspec/         This directory. Source-of-truth specs.
+
+  ## Tech stack
+
+  - Firmware: C++ (Arduino-ESP32), M5Unified, MSP/DisplayPort, ESP-NOW,
+    NVS, SPIFFS, MD5Builder. Header-only modules; logic owned by main.cpp.
+  - iOS: Swift 6, SwiftUI, `@MainActor` + `@Observable` (NOT ObservableObject),
+    `@Environment` for DI, CryptoKit, AVFoundation, CoreBluetooth.
+  - Build: PlatformIO (firmware), xcodegen + Xcode 16+ (iOS), GitHub Pages
+    composed in CI.
+  - Hardware: M5StickS3 ONLY (ESP32-S3 + 1.14" LCD + AXP2101 PMIC + 2 buttons).
+
+  ## Branching and deployment
+
+  - `develop` (default) → `/dev/`, `/dev/flash/`, `/dev/ja/` on the Pages site.
+  - `main` (PR-only, branch-protected) → `/`, `/flash/`, `/ja/` on the Pages site.
+  - One Pages site per repo. CI on every push checks out *both* branches,
+    builds firmware for each, composes a unified `_site/` (main at root,
+    develop mirrored under `/dev/`), and deploys.
+  - Releases promote develop → main via a release PR driven by
+    `scripts/release.sh`. Direct push to main is rejected by branch protection.
+  - `manifest.json` is stamped per-side as `<branch>-<short sha>` so the
+    live page identifies which build it is.
+
+  ## Hard constraints (load-bearing)
+
+  - **NEVER use `delay()` between ESP-NOW packets.** Breaks delivery.
+    `delayMicroseconds(5000)` between consecutive bind broadcasts is OK
+    (busy-wait, no FreeRTOS yield).
+  - **OSD render budget: <=10 ESP-NOW packets per cycle** (1 clear + up to
+    8 writes + 1 draw).
+  - **Unicast MAC invariant: `uid[0] & 0x01 == 0` at every assignment site.**
+    IEEE 802 multicast bit; ESP-NOW peers MUST be unicast.
+  - **`BLEServer::createService()` requires explicit `numHandles` (currently 32).**
+    Default 15 silently truncates overflow characteristics.
+  - **OSD grid is 50 cols x 18 rows.** Lowercase ASCII auto-uppercases in
+    `osd.h::writeString` -- bytes 0x60-0x7F on the HDZero glyph set are FPV
+    icons (battery, GPS, arrows), NOT ASCII lowercase.
+  - **The goggle does not emit an application-level ack.** The deepest
+    feedback available is the ESP-NOW MAC-layer send-status callback.
+
+  ## Service UUID and BLE shape
+
+  - Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48d` (last byte = `d`).
+  - Characteristics use the same prefix with the last byte varying:
+    `...d481` UID config, `...d482` bind, `...d484` OSD control, `...d485` status,
+    `...d486` TX sniff, `...d487` OSD text, `...d488` battery, `...d48a` sleep config,
+    `...d48b` OSD layout.
+  - **iOS CoreBluetooth caches GATT shape per peripheral.** Bumping the
+    service UUID is the supported way to invalidate that cache after
+    adding/changing characteristics or properties; without bumping, an
+    iOS client that has connected before will silently use the stale shape.
+
+  ## Bind phrase / UID derivation
+
+  UID = first 6 bytes of `MD5("-DMY_BINDING_PHRASE=\"<phrase>\"")` with
+  bit 0 of byte 0 cleared. Identical formula on iOS (`Insecure.MD5`)
+  and firmware (`MD5Builder`); the bind phrase byte cap (63) MUST match
+  on both sides.
+
+  ## NVS persistence
+
+  Namespace `"hdzero"`, keys:
+  - `"uid"` (6 bytes) + `"init"` (sentinel) -- torn-save protection via
+    [remove sentinel -> write uid -> write sentinel] order; load is fail-soft
+    (returns uid even when sentinel is missing, with a warning).
+  - `"slpmin"` (1 byte) -- deep-sleep timeout in minutes; 0 = disabled;
+    no sentinel (single byte = single NVS entry, untearable).
+
+  ## Conventions
+
+  - Firmware: BLE callbacks stage paired state under `g_ble_mux` (UID
+    staging, OSD-text per-row staging). Idempotent single-flag commands
+    use bare `volatile`. Heavy work (NVS save, ESP-NOW reinit) runs in the
+    main loop, not in callbacks.
+  - iOS: `CBCentralManager` delegate queue MUST be main (`queue: nil`).
+    `BluetoothManager` is `@MainActor`; `recordError` runtime-asserts main-
+    actor isolation.
+  - Render-state machine in main.cpp: `IDLE -> PENDING -> WAITING_ACK -> IDLE`,
+    with retry on MAC-layer delivery failure. Verifies via the
+    `g_espnow_sent_fail` counter delta across a 200 ms window.
+
+  ## Spec authoring rules
+
+  - English Requirement titles, with a Japanese subtitle separated by `/`.
+    Example: `### Requirement: UID is 6 bytes / UID は 6 バイト`
+  - SHALL/MUST/SHOULD statements in English (machine-friendly + grep-friendly).
+  - Supplementary explanation in Japanese paragraphs after the SHALL block.
+  - Scenarios in English (Given/When/Then) -- these are intended to be the
+    seed for future automated tests.
+
+# Per-artifact rules
+rules:
+  spec:
+    - Use English Requirement titles with Japanese subtitle "Title / 日本語"
+    - SHALL/MUST/SHOULD statements MUST be in English
+    - Supplementary explanation paragraphs SHOULD be in Japanese
+    - Scenarios use Given/When/Then in English
+    - Purpose section is the goal only -- no implementation description
+    - When updating any spec, also update CLAUDE.md and docs/architecture.md
+      sections that describe the same area, in the same change.
+  proposal:
+    - When a change modifies a spec, list the CLAUDE.md / docs/architecture.md
+      sections that must be touched in the same PR.
