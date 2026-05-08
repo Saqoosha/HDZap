@@ -62,6 +62,11 @@ project_dir = env.subst("$PROJECT_DIR")  # noqa: F821
 # firmware dir is fine.
 version = _git_describe(project_dir) or "unknown"
 if len(version) > MAX_LEN:
+    # `git describe` is not expected to exceed MAX_LEN in practice; if it
+    # does, surface so the truncated string in serial / iOS UI doesn't
+    # silently mis-represent the running build.
+    print(f"WARNING: inject_version: truncating version from "
+          f"{len(version)} to {MAX_LEN} chars")
     version = version[:MAX_LEN]
 
 print(f"firmware version: {version}")
