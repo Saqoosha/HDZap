@@ -1,5 +1,6 @@
 # PlatformIO
 firmware/.pio/
+firmware/out/
 firmware/.pioenvs/
 firmware/.piolibdeps/
 firmware/.clang_complete
