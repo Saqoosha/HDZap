@@ -289,13 +289,13 @@ struct OSDLayoutSettingsView: View {
     private func rowRangeLabel(layout: OSDLayoutSettings) -> String {
         let snap = layout.snapshot
         guard let bottom1 = snap.visibleBottomRow1Indexed else {
-            return "All rows hidden — nothing displayed on the goggle."
+            return String(localized: "All rows hidden — nothing displayed on the goggle.")
         }
         let top1 = snap.firstVisibleRow + 1
         if top1 == bottom1 {
-            return "Goggle row \(top1) of \(OSDLayoutConfig.osdGridRows)"
+            return String(localized: "Goggle row \(top1) of \(OSDLayoutConfig.osdGridRows)")
         }
-        return "Goggle rows \(top1)–\(bottom1) of \(OSDLayoutConfig.osdGridRows)"
+        return String(localized: "Goggle rows \(top1)–\(bottom1) of \(OSDLayoutConfig.osdGridRows)")
     }
 
     // MARK: - Push to goggle
