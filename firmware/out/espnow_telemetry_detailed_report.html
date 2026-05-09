@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HDZap Detailed ESP-NOW / CRSF Telemetry Analysis</title>
+<style>
+:root { --bg:#f7f9fc; --paper:#ffffff; --ink:#172033; --muted:#667085; --line:#d9e2ef; --blue:#2563eb; --green:#0f9f6e; --orange:#b45309; --red:#c2410c; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; line-height:1.45; }
+main { max-width:1180px; margin:0 auto; padding:34px 22px 64px; }
+h1 { margin:0 0 6px; font-size:34px; letter-spacing:-.02em; }
+h2 { margin-top:34px; padding-top:22px; border-top:1px solid var(--line); }
+h3 { margin:0 0 12px; }
+p { color:var(--muted); }
+code { background:#eef4ff; color:#123a7a; border:1px solid #d8e6ff; border-radius:6px; padding:1px 5px; }
+pre { overflow:auto; background:#0f172a; color:#e6edf7; border-radius:14px; padding:14px; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(175px,1fr)); gap:14px; margin:22px 0; }
+.card,.panel { background:var(--paper); border:1px solid var(--line); border-radius:18px; padding:16px; box-shadow:0 8px 26px rgba(15,23,42,.06); }
+.metric { font-size:29px; font-weight:800; color:var(--blue); }
+.label { color:#344054; font-weight:700; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media (max-width:860px) { .grid2 { grid-template-columns:1fr; } }
+table { width:100%; border-collapse:separate; border-spacing:0; background:var(--paper); border:1px solid var(--line); border-radius:14px; overflow:hidden; font-size:14px; }
+th,td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+th { background:#eef4ff; color:#19335f; }
+tr:last-child td { border-bottom:0; }
+.missing td { color:#98a2b3; }
+.badge { display:inline-block; border-radius:999px; padding:3px 8px; background:#e7f8ef; color:#087443; font-weight:700; }
+.warn { background:#fff7ed; color:var(--orange); }
+.barrow { display:grid; grid-template-columns:160px 1fr 52px; gap:10px; align-items:center; margin:8px 0; }
+.barrow div { height:13px; background:#eef2f7; border-radius:999px; overflow:hidden; }
+.barrow i { display:block; height:100%; background:linear-gradient(90deg,#60a5fa,#2563eb); border-radius:999px; }
+.small { font-size:13px; color:var(--muted); }
+</style></head><body><main>
+<h1>HDZap Detailed ESP-NOW / CRSF Telemetry Analysis</h1>
+<p>Source capture: <code>/Users/hiko/Documents/repos/Personal/HDZap/firmware/out/espnow_serial_capture.csv</code>. Report output: <code>/Users/hiko/Documents/repos/Personal/HDZap/firmware/out/espnow_telemetry_detailed_report.html</code>.</p>
+<div class="cards"><div class="card"><div class="metric">164</div><div class="label">ESP-NOW packets</div><p>OUI 7f:18:fe:34 confirmed</p></div><div class="card"><div class="metric">18</div><div class="label">Decoded telemetry values</div><p>10 link + 4 battery + 3 attitude + 1 flight mode</p></div><div class="card"><div class="metric">18.3 V</div><div class="label">Battery voltage</div><p>range 16.8 V to 18.7 V</p></div><div class="card"><div class="metric">AIR*</div><div class="label">Flight mode</div><p>from CRSF 0x21</p></div><div class="card"><div class="metric">-48.86 dBm</div><div class="label">Capture RSSI</div><p>min -58, max -43</p></div><div class="card"><div class="metric">0</div><div class="label">Queue drops</div><p>final dropQ</p></div></div>
+
+<h2>Executive Summary</h2>
+<p><span class="badge">Confirmed</span> The serial capture contains raw ESP-NOW telemetry frames with Espressif OUI <code>7f:18:fe:34</code>. All decoded telemetry frames are carried by ExpressLRS <code>MSP_ELRS_BACKPACK_CRSF_TLM</code> (<code>0x0011</code>) except three Betaflight MSP <code>0x0059</code> VTX-config fragments.</p>
+<p><span class="badge">18 telemetry values decoded</span> This capture includes exactly the main 18 EdgeTX-visible CRSF values you expected: 10 link stats, 4 battery stats, 3 attitude axes, and 1 flight mode string.</p>
+<p><span class="badge warn">Battery note</span> Battery voltage is present. It ranges from <b>16.8 V</b> to <b>18.7 V</b>. The first battery remaining sample is 0%, then subsequent samples are 44% down to 36%, so the initial remaining-percent byte may be a startup/invalid value.</p>
+
+<h2>Protocol References Used</h2>
+
+<ul>
+<li><b>ExpressLRS</b>: <code>MSP_ELRS_BACKPACK_CRSF_TLM = 0x11</code> from <code>src/lib/MSP/msptypes.h</code>.</li>
+<li><b>EdgeTX</b>: CRSF IDs and sensor mapping from <code>radio/src/telemetry/crossfire.h/cpp</code>: Battery <code>0x08</code>, Link Statistics <code>0x14</code>, Attitude <code>0x1E</code>, Flight Mode <code>0x21</code>.</li>
+<li>Numeric decode follows EdgeTX byte offsets and big-endian signed/unsigned conversion. Battery voltage/current use precision 1, attitude is reported here as radians using EdgeTX's <code>raw / 10000</code> display scale.</li>
+</ul>
+
+
+<h2>Decoded Telemetry Values</h2>
+<table><thead><tr><th>Field</th><th>Unit</th><th>Samples</th><th>First</th><th>Last</th><th>Range / Values</th><th>Average</th></tr></thead><tbody><tr><td>RX RSSI 1</td><td>dB</td><td>135</td><td>-59 dB</td><td>-58 dB</td><td>-68 dB – -55 dB</td><td>-60.281 dB</td></tr><tr><td>RX RSSI 2</td><td>dB</td><td>135</td><td>0 dB</td><td>0 dB</td><td>0 dB – 0 dB</td><td>0 dB</td></tr><tr><td>RX Link Quality</td><td>%</td><td>135</td><td>100 %</td><td>100 %</td><td>100 % – 100 %</td><td>100 %</td></tr><tr><td>RX SNR</td><td>dB</td><td>135</td><td>9 dB</td><td>9 dB</td><td>9 dB – 9 dB</td><td>9 dB</td></tr><tr><td>Active Antenna</td><td>raw</td><td>135</td><td>0 raw</td><td>0 raw</td><td>0 raw – 0 raw</td><td>0 raw</td></tr><tr><td>RF Mode</td><td>raw</td><td>135</td><td>9 raw</td><td>9 raw</td><td>9 raw – 9 raw</td><td>9 raw</td></tr><tr><td>TX Power</td><td>mW</td><td>135</td><td>100 mW</td><td>100 mW</td><td>100 mW – 100 mW</td><td>100 mW</td></tr><tr><td>TX RSSI</td><td>dB</td><td>135</td><td>-96 dB</td><td>-70 dB</td><td>-96 dB – -54 dB</td><td>-67.296 dB</td></tr><tr><td>TX Link Quality</td><td>%</td><td>135</td><td>0 %</td><td>88 %</td><td>0 % – 100 %</td><td>93.511 %</td></tr><tr><td>TX SNR</td><td>dB</td><td>135</td><td>4 dB</td><td>9 dB</td><td>-2 dB – 9 dB</td><td>8.281 dB</td></tr><tr><td>Battery Voltage</td><td>V</td><td>8</td><td>16.8 V</td><td>18.3 V</td><td>16.8 V – 18.7 V</td><td>18.275 V</td></tr><tr><td>Battery Current</td><td>A</td><td>8</td><td>0 A</td><td>0.7 A</td><td>0 A – 0.8 A</td><td>0.65 A</td></tr><tr><td>Consumed Capacity</td><td>mAh</td><td>8</td><td>0 mAh</td><td>6 mAh</td><td>0 mAh – 6 mAh</td><td>3.25 mAh</td></tr><tr><td>Battery Remaining</td><td>%</td><td>8</td><td>0 %</td><td>36 %</td><td>0 % – 44 %</td><td>34.375 %</td></tr><tr><td>Pitch</td><td>rad</td><td>8</td><td>-0.201 rad</td><td>-0.14 rad</td><td>-0.22 rad – -0.105 rad</td><td>-0.168 rad</td></tr><tr><td>Roll</td><td>rad</td><td>8</td><td>-0.309 rad</td><td>-0.396 rad</td><td>-0.401 rad – -0.309 rad</td><td>-0.373 rad</td></tr><tr><td>Yaw</td><td>rad</td><td>8</td><td>-0.023 rad</td><td>0.227 rad</td><td>-0.091 rad – 0.344 rad</td><td>0.115 rad</td></tr><tr><td>Flight Mode</td><td>text</td><td>7</td><td colspan="4">AIR* (7)</td></tr></tbody></table>
+
+<h2>Frame Type Distribution</h2>
+<div class="grid2">
+<section class="panel"><h3>Decoded frame classes</h3><div class="barrow"><span>Link Statistics</span><div><i style="width:100.0%"></i></div><b>135</b></div><div class="barrow"><span>Battery</span><div><i style="width:5.9%"></i></div><b>8</b></div><div class="barrow"><span>Attitude</span><div><i style="width:5.9%"></i></div><b>8</b></div><div class="barrow"><span>Flight Mode</span><div><i style="width:5.2%"></i></div><b>7</b></div><div class="barrow"><span>MSP_SET_VTX_CONFIG (0x0059)</span><div><i style="width:2.2%"></i></div><b>3</b></div><div class="barrow"><span>CRSF MSP Response / passthrough (0x7B)</span><div><i style="width:1.5%"></i></div><b>2</b></div><div class="barrow"><span>CRSF passthrough / unknown (0x7D)</span><div><i style="width:0.7%"></i></div><b>1</b></div></section>
+<section class="panel"><h3>CRSF frame IDs</h3><div class="barrow"><span>0x14</span><div><i style="width:100.0%"></i></div><b>135</b></div><div class="barrow"><span>0x08</span><div><i style="width:5.9%"></i></div><b>8</b></div><div class="barrow"><span>0x1E</span><div><i style="width:5.9%"></i></div><b>8</b></div><div class="barrow"><span>0x21</span><div><i style="width:5.2%"></i></div><b>7</b></div><div class="barrow"><span>non-CRSF</span><div><i style="width:2.2%"></i></div><b>3</b></div><div class="barrow"><span>0x7B</span><div><i style="width:1.5%"></i></div><b>2</b></div><div class="barrow"><span>0x7D</span><div><i style="width:0.7%"></i></div><b>1</b></div></section>
+</div>
+<table style="margin-top:16px"><thead><tr><th>Decoded class</th><th>Count</th><th>Share</th></tr></thead><tbody><tr><td>Link Statistics</td><td>135</td><td>82.3%</td></tr><tr><td>Battery</td><td>8</td><td>4.9%</td></tr><tr><td>Attitude</td><td>8</td><td>4.9%</td></tr><tr><td>Flight Mode</td><td>7</td><td>4.3%</td></tr><tr><td>MSP_SET_VTX_CONFIG (0x0059)</td><td>3</td><td>1.8%</td></tr><tr><td>CRSF MSP Response / passthrough (0x7B)</td><td>2</td><td>1.2%</td></tr><tr><td>CRSF passthrough / unknown (0x7D)</td><td>1</td><td>0.6%</td></tr></tbody></table>
+
+<h2>Battery Details (CRSF 0x08)</h2>
+<p>CRSF battery frame layout: voltage (u16 BE, 0.1 V), current (u16 BE, 0.1 A), consumed capacity (u24 BE, mAh), remaining (u8, %).</p>
+<table><thead><tr><th>ms</th><th>Battery Voltage</th><th>Battery Current</th><th>Consumed Capacity</th><th>Battery Remaining</th><th>Raw CRSF frame</th></tr></thead><tbody><tr><td>31578</td><td>16.8 V</td><td>0 A</td><td>0 mAh</td><td>0 %</td><td><code>ea0a0800a800000000000055</code></td></tr><tr><td>37215</td><td>18.7 V</td><td>0.8 A</td><td>1 mAh</td><td>44 %</td><td><code>ea0a0800bb00080000012c63</code></td></tr><tr><td>40818</td><td>18.6 V</td><td>0.8 A</td><td>2 mAh</td><td>41 %</td><td><code>ea0a0800ba000800000229c1</code></td></tr><tr><td>44378</td><td>18.5 V</td><td>0.8 A</td><td>3 mAh</td><td>40 %</td><td><code>ea0a0800b900080000032876</code></td></tr><tr><td>47962</td><td>18.5 V</td><td>0.7 A</td><td>4 mAh</td><td>39 %</td><td><code>ea0a0800b900070000042709</code></td></tr><tr><td>51546</td><td>18.4 V</td><td>0.7 A</td><td>5 mAh</td><td>38 %</td><td><code>ea0a0800b800070000052643</code></td></tr><tr><td>55130</td><td>18.4 V</td><td>0.7 A</td><td>5 mAh</td><td>37 %</td><td><code>ea0a0800b8000700000525e9</code></td></tr><tr><td>58714</td><td>18.3 V</td><td>0.7 A</td><td>6 mAh</td><td>36 %</td><td><code>ea0a0800b700070000062439</code></td></tr></tbody></table>
+
+<h2>Link Statistics Details (CRSF 0x14)</h2>
+<p>Link quality stays at 100% in this sample. TX power index decodes to milliwatts using EdgeTX's Crossfire power table.</p>
+<table><thead><tr><th>ms</th><th>RX RSSI 1</th><th>RX RSSI 2</th><th>RX Link Quality</th><th>RX SNR</th><th>Active Antenna</th><th>RF Mode</th><th>TX Power</th><th>TX RSSI</th><th>TX Link Quality</th><th>TX SNR</th><th>Raw CRSF frame</th></tr></thead><tbody><tr><td>29274</td><td>-59 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-96 dB</td><td>0 %</td><td>4 dB</td><td><code>ea0c14c5006409000903a0000456</code></td></tr><tr><td>29514</td><td>-59 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-96 dB</td><td>0 %</td><td>4 dB</td><td><code>ea0c14c5006409000903a0000456</code></td></tr><tr><td>29753</td><td>-59 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-68 dB</td><td>4 %</td><td>8 dB</td><td><code>ea0c14c5006409000903bc040821</code></td></tr><tr><td>29993</td><td>-62 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-70 dB</td><td>8 %</td><td>8 dB</td><td><code>ea0c14c2006409000903ba080831</code></td></tr><tr><td>30233</td><td>-62 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-70 dB</td><td>12 %</td><td>8 dB</td><td><code>ea0c14c2006409000903ba0c081d</code></td></tr><tr><td>30473</td><td>-65 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-69 dB</td><td>24 %</td><td>7 dB</td><td><code>ea0c14bf006409000903bb180786</code></td></tr><tr><td>30714</td><td>-65 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-67 dB</td><td>28 %</td><td>8 dB</td><td><code>ea0c14bf006409000903bd1c0877</code></td></tr><tr><td>30953</td><td>-68 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-68 dB</td><td>40 %</td><td>8 dB</td><td><code>ea0c14bc006409000903bc2808ee</code></td></tr><tr><td>31193</td><td>-68 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-85 dB</td><td>44 %</td><td>8 dB</td><td><code>ea0c14bc006409000903ab2c08f8</code></td></tr><tr><td>31433</td><td>-65 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-72 dB</td><td>72 %</td><td>8 dB</td><td><code>ea0c14bf006409000903b84808a4</code></td></tr><tr><td>31673</td><td>-65 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-67 dB</td><td>76 %</td><td>8 dB</td><td><code>ea0c14bf006409000903bd4c0878</code></td></tr><tr><td>31913</td><td>-64 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-67 dB</td><td>80 %</td><td>8 dB</td><td><code>ea0c14c0006409000903bd5008d4</code></td></tr><tr><td>32153</td><td>-64 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-67 dB</td><td>84 %</td><td>8 dB</td><td><code>ea0c14c0006409000903bd5408f8</code></td></tr><tr><td>32393</td><td>-65 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-76 dB</td><td>88 %</td><td>9 dB</td><td><code>ea0c14bf006409000903b4580954</code></td></tr><tr><td>32640</td><td>-65 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-81 dB</td><td>92 %</td><td>5 dB</td><td><code>ea0c14bf006409000903af5c0500</code></td></tr><tr><td>32873</td><td>-63 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-68 dB</td><td>96 %</td><td>9 dB</td><td><code>ea0c14c1006409000903bc600925</code></td></tr><tr><td>33113</td><td>-63 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-68 dB</td><td>100 %</td><td>9 dB</td><td><code>ea0c14c1006409000903bc640909</code></td></tr><tr><td>33357</td><td>-63 dB</td><td>0 dB</td><td>100 %</td><td>9 dB</td><td>0 raw</td><td>9 raw</td><td>100 mW</td><td>-69 dB</td><td>100 %</td><td>9 dB</td><td><code>ea0c14c1006409000903bb64092a</code></td></tr></tbody></table>
+
+<h2>Attitude Details (CRSF 0x1E)</h2>
+<p>EdgeTX maps pitch/roll/yaw to radians with precision 3. This report shows radians as <code>raw / 10000</code>.</p>
+<table><thead><tr><th>ms</th><th>Pitch</th><th>Roll</th><th>Yaw</th><th>Raw CRSF frame</th></tr></thead><tbody><tr><td>32602</td><td>-0.201 rad</td><td>-0.309 rad</td><td>-0.023 rad</td><td><code>ea081ef829f3efff1e76</code></td></tr><tr><td>38234</td><td>-0.202 rad</td><td>-0.368 rad</td><td>-0.038 rad</td><td><code>ea081ef818f19efe81bd</code></td></tr><tr><td>41818</td><td>-0.215 rad</td><td>-0.363 rad</td><td>-0.059 rad</td><td><code>ea081ef79ef1d2fdaf53</code></td></tr><tr><td>45402</td><td>-0.22 rad</td><td>-0.358 rad</td><td>-0.091 rad</td><td><code>ea081ef769f207fc7596</code></td></tr><tr><td>48986</td><td>-0.105 rad</td><td>-0.389 rad</td><td>0.344 rad</td><td><code>ea081efbe9f0cc0d6ea0</code></td></tr><tr><td>52576</td><td>-0.131 rad</td><td>-0.401 rad</td><td>0.302 rad</td><td><code>ea081efae4f0520bcb7f</code></td></tr><tr><td>56178</td><td>-0.134 rad</td><td>-0.398 rad</td><td>0.26 rad</td><td><code>ea081efac1f0750a281b</code></td></tr><tr><td>59738</td><td>-0.14 rad</td><td>-0.396 rad</td><td>0.227 rad</td><td><code>ea081efa8cf08708dc8f</code></td></tr></tbody></table>
+
+<h2>Flight Mode Details (CRSF 0x21)</h2>
+<table><thead><tr><th>ms</th><th>Flight Mode</th><th>Raw CRSF frame</th></tr></thead><tbody><tr><td>33626</td><td>AIR* text</td><td><code>ea07214149522a0070</code></td></tr><tr><td>39258</td><td>AIR* text</td><td><code>ea07214149522a0070</code></td></tr><tr><td>42842</td><td>AIR* text</td><td><code>ea07214149522a0070</code></td></tr><tr><td>50010</td><td>AIR* text</td><td><code>ea07214149522a0070</code></td></tr><tr><td>53595</td><td>AIR* text</td><td><code>ea07214149522a0070</code></td></tr><tr><td>57178</td><td>AIR* text</td><td><code>ea07214149522a0070</code></td></tr><tr><td>60762</td><td>AIR* text</td><td><code>ea07214149522a0070</code></td></tr></tbody></table>
+
+<h2>Other / Control Frames</h2>
+<p>These are not sensor-value frames, but they are useful context:</p>
+<ul>
+<li><code>MSP 0x0059</code>: 3 short payloads <code>2300</code>. In Betaflight MSP naming this is <code>MSP_SET_VTX_CONFIG</code>.</li>
+<li><code>CRSF 0x7B</code>: 2 MSP response / passthrough-like frames carrying payloads such as <code>ea c8 32 00 59</code>.</li>
+<li><code>CRSF 0x7D</code>: 1 passthrough/unknown frame.</li>
+</ul>
+
+<h2>Timing And Signal Quality</h2>
+<div class="cards">
+<div class="card"><div class="metric">32.6s</div><div class="label">Active EN window</div><p>29274–61913 ms</p></div>
+<div class="card"><div class="metric">5.02/s</div><div class="label">EN packet rate</div><p>within active window</p></div>
+<div class="card"><div class="metric">239 ms</div><div class="label">Median inter-arrival</div><p>min 16 ms, max 480 ms</p></div>
+<div class="card"><div class="metric">0</div><div class="label">Final dropQ</div><p>queue drops reported by firmware</p></div>
+</div>
+
+<h2>Raw Frame Anatomy</h2>
+<pre>802.11 Action MPDU
+  FC: d0 00 (management action)
+  ESP-NOW signature: 7f 18 fe 34
+  Vendor element: dd len 18 fe 34 04 01 ...
+  MSPv2: 24 58 3c flags funcLE sizeLE payload crc
+  ExpressLRS function: 0x0011 = MSP_ELRS_BACKPACK_CRSF_TLM
+  CRSF frame inside MSP payload: address length type payload crc</pre>
+
+<p class="small">Generated locally from the captured CSV. Lines beginning with <code>#</code> are status comments and are ignored by the decoder.</p>
+</main></body></html>
