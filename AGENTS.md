@@ -132,7 +132,7 @@ Drilldown structure after the #36 restructure (the flat 10-section list was repl
   - "**Lap announcer**" row → `AudioSettingsView`.
   - "**Appearance**" row → `AppearanceSettingsView`.
 
-Each `NavigationLink` shows the current value on the right rail (Apple Settings.app pattern): pairing UID in decimal (`96,210,…` — matches what HDZero goggles and the M5Stick LCD show), OSD layout row range, lap announcer state + language, accent color swatch.
+The pairing / OSD-layout / lap-announcer / appearance rows show their current value on the right rail (Apple Settings.app pattern): pairing UID in decimal (`96,210,…` — matches what HDZero goggles and the M5Stick LCD show), OSD layout row range, lap announcer state + language, accent color swatch. The M5StickS3 row uses a 2-line layout instead — status dot + name on top, battery / unbound subtitle below — so the connection state is glanceable without drilling in.
 
 `PairingSettingsView.runPairingFlow` is explicitly `@MainActor` so a future `Task.detached` call site fails at build time rather than crashing inside `BluetoothManager.recordError`.
 

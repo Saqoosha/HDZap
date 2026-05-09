@@ -283,7 +283,7 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. Bumped on every GATT-shape
 | Battery | `f47ac10b-...-0e02b2c3d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced; bits 4-7 reserved → iOS surfaces unknown bits via `lastError`)]` |
 | Device Name | `f47ac10b-...-0e02b2c3d489` | Read+Write | UTF-8, ≤20 B; write persists to NVS (`btname`) and `ESP.restart()`s so `BLEDevice::init(name)` re-runs with the new value. iOS bonded re-pairs after the ~3 s reboot |
 | Sleep Config | `f47ac10b-...-0e02b2c3d48a` | Read+Write | `[minutes:u8]` deep-sleep idle timeout (firmware-seeded from NVS-backed `slpmin` at boot) |
-| OSD Layout | `f47ac10b-...-0e02b2c3d48b` | Read+Write+WriteNR | `[y_offset:i8]` rows to shift the 4-row buffer up from `DEFAULT_BASE_ROW=14` (range `[-14,0]`); iOS owns alignment / show-hide via the OSD Text path. WriteNR lets the slider drag skip ATT acks; the firmware seeds the read value at boot so a fresh iOS read sees the persisted offset, not 0 |
+| OSD Layout | `f47ac10b-...-0e02b2c3d48b` | Read+Write+WriteNR | `[y_offset:i8]` rows to shift the 4-row buffer up from `DEFAULT_BASE_ROW=14` (range `[-14,0]`); iOS owns alignment / show-hide via the OSD Text path. WriteNR lets the slider drag skip ATT acks. y_offset is **not** NVS-persisted: firmware seeds the read value to 0 on boot, iOS replays its UserDefaults-backed setting on connect |
 
 ### MSPv2 Packet Format
 
