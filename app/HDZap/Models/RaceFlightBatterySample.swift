@@ -28,21 +28,38 @@ struct RaceFlightBatterySample: Codable, Equatable {
         self.remainingPercent = remainingPercent
     }
 
+    /// Decoded fields from one v1 wire frame, before race-relative
+    /// timing is attached. Single source of the byte layout — both the
+    /// race-recorder (`parseWireV1`) and `BluetoothManager`'s notify
+    /// handler decode through here so a future change to the firmware
+    /// frame format only edits one site.
+    struct Fields: Equatable {
+        let voltageDv: Int
+        let currentDa: Int
+        let consumedMah: Int
+        let remainingPercent: Int
+    }
+
     /// Firmware v1 notify: `[ver:1][flags:1][volt:2 LE][curr:2 LE][mah:3 LE][rem:1 signed]`
-    static func parseWireV1(_ data: Data, raceStartedAt: Date, now: Date = Date()) -> RaceFlightBatterySample? {
+    static func decodeFieldsV1(_ data: Data) -> Fields? {
         guard data.count >= 10, data[0] == 1 else { return nil }
-        let v = Int(Int16(bitPattern: UInt16(data[2]) | (UInt16(data[3]) << 8)))
-        let c = Int(Int16(bitPattern: UInt16(data[4]) | (UInt16(data[5]) << 8)))
-        let mah = Int(data[6]) | (Int(data[7]) << 8) | (Int(data[8]) << 16)
-        let rem = Int(Int8(bitPattern: data[9]))
-        let tRace = now.timeIntervalSince(raceStartedAt)
+        return Fields(
+            voltageDv: Int(Int16(bitPattern: UInt16(data[2]) | (UInt16(data[3]) << 8))),
+            currentDa: Int(Int16(bitPattern: UInt16(data[4]) | (UInt16(data[5]) << 8))),
+            consumedMah: Int(data[6]) | (Int(data[7]) << 8) | (Int(data[8]) << 16),
+            remainingPercent: Int(Int8(bitPattern: data[9]))
+        )
+    }
+
+    static func parseWireV1(_ data: Data, raceStartedAt: Date, now: Date = Date()) -> RaceFlightBatterySample? {
+        guard let f = decodeFieldsV1(data) else { return nil }
         return RaceFlightBatterySample(
-            tRace: tRace,
+            tRace: now.timeIntervalSince(raceStartedAt),
             receivedAt: now,
-            voltageDv: v,
-            currentDa: c,
-            consumedMah: mah,
-            remainingPercent: rem
+            voltageDv: f.voltageDv,
+            currentDa: f.currentDa,
+            consumedMah: f.consumedMah,
+            remainingPercent: f.remainingPercent
         )
     }
 }

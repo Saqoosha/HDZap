@@ -13,20 +13,15 @@
 // captures *every* incoming ESP-NOW packet into a small ring and ships
 // per-packet records to iOS for the on-device debug view.
 //
-// Why a separate module instead of a flag in tx_sniff: the tx_sniff
-// callback is a tight bind-only filter that bails on the first byte
-// mismatch, hot-path-friendly. The telemetry debug callback is the
-// opposite — it accepts everything and pays for a memcpy + ring update
-// per packet. Splitting keeps the bind path free of any per-packet
-// overhead when the debug screen isn't open.
-//
-// Mutual exclusion with tx_sniff: ESP-NOW has one global
-// recv-callback slot (see tx_sniff.h docstring). Calling
-// telemetry_sniff_start() while tx_sniff is active would silently
-// overwrite tx_sniff's handler, so main.cpp enforces an explicit
-// stop-other-first ordering before either start. The deep-sleep gate
-// also reads `g_telemetry_sniff_active` so an iOS-driven debug session
-// can't be torn down by an idle-timeout sleep.
+// Coexistence with tx_sniff and flight-battery telemetry: the unified
+// ESP-NOW recv callback (hdzap_espnow_recv_cb in espnow_recv.h) calls
+// `telemetry_sniff::capture_if_active(...)` on every packet. When
+// `g_telemetry_sniff_active` is false it is a one-byte read and a
+// return — no ring touch, no memcpy. So tx-sniff bind capture, flight
+// battery decode and telemetry debug ride the same callback and never
+// fight for the single esp_now_register_recv_cb slot. The deep-sleep
+// gate also reads `g_telemetry_sniff_active` so an iOS-driven debug
+// session can't be torn down by an idle-timeout sleep.
 
 namespace telemetry_sniff {
 
@@ -58,9 +53,11 @@ constexpr size_t RECORD_SIZE = 20;
 // so steady-state needs only ~1 slot; the rest is headroom for bursts
 // when the iOS link is busy with an OSD render cycle.
 constexpr size_t RING_CAPACITY = 32;
+static_assert(RING_CAPACITY <= 256,
+              "head/tail are uint8_t — keep RING_CAPACITY ≤ 256 or widen them");
 
-// Producer = ESP-NOW recv callback (WiFi task).
-// Consumer = main loop (telemetry_pop).
+// Producer = unified ESP-NOW recv callback (WiFi task), via
+// `capture_if_active` below. Consumer = main loop (telemetry_pop).
 // portMUX guards head/tail/dropped/total + the per-record memcpy so
 // the consumer never sees a half-written record or a torn count.
 inline portMUX_TYPE g_telemetry_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -75,21 +72,30 @@ inline volatile uint32_t g_telemetry_total   = 0;  // total packets seen since s
 inline volatile bool g_telemetry_start_requested = false;
 inline volatile bool g_telemetry_stop_requested  = false;
 
-// True while the recv callback is registered. Same role as
+// True while iOS asks for telemetry debug records. Same role as
 // tx_sniff.h::g_sniff_active — read by main.cpp's deep-sleep gate so
-// a debug session isn't dropped by an idle-timeout sleep. Bare
-// volatile (single-byte, single writer = main loop, single reader =
-// also main loop in the gate).
+// a debug session isn't dropped by an idle-timeout sleep, and by the
+// unified ESP-NOW recv callback to gate the per-packet ring write.
+// Bare volatile (single-byte, single writer = main loop, multi-reader
+// across tasks).
 inline volatile bool g_telemetry_sniff_active = false;
 
-inline void _telemetry_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int len) {
+// Called from the unified ESP-NOW recv callback (WiFi task) on every
+// packet. Cheap one-byte gate when inactive so the bind / flight-
+// battery path isn't taxed. When active, copies a 20-byte record into
+// the ring and bumps total/dropped counters under the mux.
+inline void capture_if_active(const uint8_t *mac_addr,
+                              const uint8_t *data,
+                              int len) {
+    if (!g_telemetry_sniff_active) return;
+    if (!mac_addr || !data || len <= 0) return;
     portENTER_CRITICAL(&g_telemetry_mux);
     g_telemetry_total++;
     uint8_t next_head = (uint8_t)((g_telemetry_head + 1) % RING_CAPACITY);
     if (next_head == g_telemetry_tail) {
-        // Ring full — drain rate < arrival rate. Count and bail; the
-        // iOS view shows the dropped tally so a sustained overflow is
-        // visible rather than silent.
+        // Ring full — drain rate < arrival rate. Bump the dropped
+        // counter; main loop logs the count to serial on consume so
+        // a sustained overflow is visible rather than silent.
         g_telemetry_dropped++;
         portEXIT_CRITICAL(&g_telemetry_mux);
         return;
@@ -125,18 +131,9 @@ inline void _telemetry_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int
     portEXIT_CRITICAL(&g_telemetry_mux);
 }
 
-// Returns false on IDF error (logs reason). Caller (main.cpp) MUST
-// ensure tx_sniff is stopped first — registering here while tx_sniff's
-// callback is live would silently overwrite it.
+// Flag-only — does not touch the recv-callback slot. Resets ring +
+// counters so the iOS view starts each session from a clean slate.
 inline bool telemetry_sniff_start() {
-    esp_err_t err = esp_now_register_recv_cb(_telemetry_recv_cb);
-    if (err != ESP_OK) {
-        Serial.printf("Telemetry sniff: register_recv_cb failed (%d)\n", err);
-        return false;
-    }
-    // Reset counters/ring under the mux so the iOS view starts each
-    // session from a clean slate (otherwise a stale "dropped" tally
-    // from a previous session would appear instantly on the next start).
     portENTER_CRITICAL(&g_telemetry_mux);
     g_telemetry_head    = 0;
     g_telemetry_tail    = 0;
@@ -148,11 +145,6 @@ inline bool telemetry_sniff_start() {
 }
 
 inline bool telemetry_sniff_stop() {
-    esp_err_t err = esp_now_unregister_recv_cb();
-    if (err != ESP_OK && err != ESP_ERR_ESPNOW_NOT_INIT) {
-        Serial.printf("Telemetry sniff: unregister_recv_cb failed (%d)\n", err);
-        return false;
-    }
     g_telemetry_sniff_active = false;
     return true;
 }
@@ -160,7 +152,7 @@ inline bool telemetry_sniff_stop() {
 // Pop the oldest pending record into `out` (RECORD_SIZE bytes) plus
 // snapshot the current dropped/total counts. Returns false when the
 // ring is empty. Counts are pulled under the same mux as the record
-// pop so the iOS view sees a consistent (record, counts) pair.
+// pop so the main loop sees a consistent (record, counts) pair.
 inline bool telemetry_pop(uint8_t out[RECORD_SIZE],
                           uint16_t &dropped_out,
                           uint32_t &total_out) {

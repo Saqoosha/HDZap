@@ -8,6 +8,7 @@
 
 #include "flight_battery_telemetry.h"
 #include "msp.h"
+#include "telemetry_sniff.h"
 #include "tx_sniff.h"
 
 inline constexpr int kPromiscMspCandidateMaxLen = 384;
@@ -91,6 +92,10 @@ inline void hdzap_espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data, i
     if (len > 0 && data != nullptr && hdzap_telemetry_source_matches(mac_addr)) {
         flight_battery_on_espnow_payload(data, len);
     }
+    // Telemetry debug ride-along: cheap one-byte gate inside when the
+    // iOS Backpack Telemetry Debug subview isn't open, so the bind /
+    // flight-battery hot path stays untaxed in the common case.
+    telemetry_sniff::capture_if_active(mac_addr, data, len);
 }
 
 inline void hdzap_promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {

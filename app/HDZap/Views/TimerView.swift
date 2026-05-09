@@ -289,6 +289,12 @@ struct TimerView: View {
             pushOSDBuffer(osdLayout.snapshot, semanticRaws: [
                 RaceMetrics.timeLeftRaw(remainingSec: remaining), "", "", "",
             ])
+            // Capture the current flight-battery reading at race start
+            // even when the firmware's change-gate has nothing to push:
+            // a steady voltage between flight-pack hot-plug and the
+            // race-start tap would otherwise leave the saved race with
+            // zero samples until something on the pack changes.
+            ingestFlightBatteryTelemetry()
         }
         .onChange(of: bluetooth.flightBatteryNotifyRevision) { _, _ in
             ingestFlightBatteryTelemetry()

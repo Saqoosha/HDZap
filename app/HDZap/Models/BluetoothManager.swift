@@ -1260,17 +1260,18 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         if characteristic.uuid == flightBatteryUUID {
-            guard let data = characteristic.value, data.count >= 10, data[0] == 1 else {
+            guard let data = characteristic.value,
+                  let fields = RaceFlightBatterySample.decodeFieldsV1(data) else {
                 let n = characteristic.value?.count ?? 0
                 resetFlightBatteryState()
                 lastError = "Flight battery frame unexpected size/version (\(n)B). Firmware/app version mismatch?"
                 return
             }
             lastFlightBatteryWire = data
-            flightBatteryVoltageDv = Int(Int16(bitPattern: UInt16(data[2]) | (UInt16(data[3]) << 8)))
-            flightBatteryCurrentDa = Int(Int16(bitPattern: UInt16(data[4]) | (UInt16(data[5]) << 8)))
-            flightBatteryConsumedMah = Int(data[6]) | (Int(data[7]) << 8) | (Int(data[8]) << 16)
-            flightBatteryRemainingPercent = Int(Int8(bitPattern: data[9]))
+            flightBatteryVoltageDv = fields.voltageDv
+            flightBatteryCurrentDa = fields.currentDa
+            flightBatteryConsumedMah = fields.consumedMah
+            flightBatteryRemainingPercent = fields.remainingPercent
             flightBatteryNotifyRevision &+= 1
             return
         }

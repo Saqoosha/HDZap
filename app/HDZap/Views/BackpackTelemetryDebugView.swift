@@ -204,19 +204,24 @@ struct BackpackTelemetryDebugView: View {
     /// Map well-known MSP function codes to human-readable names so the
     /// debug view doesn't read as a wall of hex. Codes match the ones
     /// defined in firmware/include/msp.h plus the common ELRS Backpack
-    /// codes used for telemetry forwarding (per the ExpressLRS Backpack
-    /// source). Unknown codes fall back to hex at the call site.
+    /// codes from the ExpressLRS Backpack source. Unknown codes fall
+    /// back to hex at the call site.
     private func mspFunctionName(_ code: UInt16) -> String? {
         switch code {
         case 0x0009: return "ELRS_BIND"
+        // CRSF telemetry frames addressed to ELRS backpacks (Betaflight
+        // TX → backpack). This is what the flight pack ships when
+        // Backpack → Telemetry → ESP-NOW is enabled in the radio LUA;
+        // matches `MSP_ELRS_BACKPACK_CRSF_TLM` in firmware/include/msp.h.
+        case 0x0011: return "ELRS_BACKPACK_CRSF_TLM"
         case 0x00B6: return "SET_OSD_ELEM"
-        // ELRS Backpack telemetry forwarding codes — these are the
-        // packets we expect to see when the TX has Backpack → Telemetry
-        // → ESP-NOW enabled in LUA. Names match the ExpressLRS
-        // Backpack repo's MSP definitions.
+        // Backpack-to-Backpack control messages (per the ExpressLRS
+        // Backpack repo's `msptypes.h`). Not produced by this firmware
+        // but visible on-air when other Backpacks chatter on the same
+        // channel.
         case 0x0301: return "BACKPACK_VERSION"
         case 0x0302: return "BACKPACK_SET_RECORDING"
-        case 0x0309: return "BACKPACK_CRSF_TLM"
+        case 0x0309: return "BACKPACK_CRSF_TLM_LEGACY"
         default: return nil
         }
     }

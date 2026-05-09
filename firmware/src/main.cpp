@@ -742,20 +742,11 @@ void loop() {
     // --- TX sniff handling -------------------------------------------
     // Start/stop driven by iOS; capture relayed to iOS via BLE notify so
     // the operator can apply the caught UID as the new goggle target.
-    //
-    // Mutual exclusion with telemetry_sniff: ESP-NOW exposes one global
-    // recv_cb slot. Starting either sniff while the other is live would
-    // silently overwrite its handler, so we stop the other first. The
-    // BLE protocol exposes start/stop as independent commands per
-    // characteristic — centralising the ordering here keeps the iOS
-    // side from having to coordinate the two channels manually.
+    // tx_sniff and telemetry_sniff coexist on the unified ESP-NOW recv
+    // callback (espnow_recv.h) — both can run concurrently without
+    // fighting for the recv-callback slot.
     if (g_sniff_start_requested) {
         g_sniff_start_requested = false;
-        if (telemetry_sniff::g_telemetry_sniff_active) {
-            if (telemetry_sniff::telemetry_sniff_stop()) {
-                Serial.println("Telemetry sniff: stopped (preempted by TX sniff)");
-            }
-        }
         if (sniff_start()) {
             Serial.println("TX sniff: started");
         }
@@ -797,14 +788,10 @@ void loop() {
     // Start/stop driven by iOS Backpack Telemetry Debug subview. Each
     // captured ESP-NOW packet is shipped to iOS as a 20-byte record
     // (telemetry_sniff::RECORD_SIZE / layout in telemetry_sniff.h).
-    // Mutually exclusive with TX sniff per the comment above.
+    // Coexists with TX sniff on the unified recv callback — no preempt
+    // needed.
     if (telemetry_sniff::g_telemetry_start_requested) {
         telemetry_sniff::g_telemetry_start_requested = false;
-        if (g_sniff_active) {
-            if (sniff_stop()) {
-                Serial.println("TX sniff: stopped (preempted by telemetry debug)");
-            }
-        }
         if (telemetry_sniff::telemetry_sniff_start()) {
             Serial.println("Telemetry sniff: started");
         }
@@ -821,14 +808,21 @@ void loop() {
     // delay(10) below this caps notify rate at ~100 packets/sec — well
     // under what BLE can sustain at our 30-50 ms negotiated connection
     // interval, but enough headroom for the ELRS telemetry rate (CRSF
-    // telemetry typically ≤ 50 Hz). Sustained overflow shows up in the
-    // dropped counter on the iOS view.
+    // telemetry typically ≤ 50 Hz). Sustained ring overflow is logged
+    // here on each transition to a higher dropped count so the operator
+    // sees evidence in serial even though iOS doesn't surface it yet.
     if (telemetry_sniff::g_telemetry_sniff_active) {
         uint8_t record[telemetry_sniff::RECORD_SIZE];
-        uint16_t dropped;
-        uint32_t total;
+        uint16_t dropped = 0;
+        uint32_t total = 0;
         if (telemetry_sniff::telemetry_pop(record, dropped, total)) {
             ble_notify_telemetry_packet(record);
+        }
+        static uint16_t last_dropped_logged = 0;
+        if (dropped != last_dropped_logged) {
+            Serial.printf("Telemetry sniff: ring overflow (dropped=%u total=%u)\n",
+                          (unsigned)dropped, (unsigned)total);
+            last_dropped_logged = dropped;
         }
     }
 
@@ -846,6 +840,46 @@ void loop() {
         FlightBatterySampleRaw fb{};
         if (flight_battery_consume_if_staged(&fb)) {
             ble_maybe_notify_flight_battery(fb);
+        }
+        // Surface flight-battery staging overwrites so a sustained
+        // burst rate isn't silent. iOS doesn't render this yet — once
+        // the main-screen / history view is wired up, replace this
+        // with a dedicated BLE notify channel.
+        static uint32_t last_fb_dropped_logged = 0;
+        uint32_t fb_dropped = g_flight_battery_dropped;
+        if (fb_dropped != last_fb_dropped_logged) {
+            Serial.printf("Flight battery: staged sample overwrite (dropped=%u)\n",
+                          (unsigned)fb_dropped);
+            last_fb_dropped_logged = fb_dropped;
+        }
+
+        // CRSF parser diagnostics. Print a reject-reason summary every
+        // 30 s when a telemetry source is configured but no battery
+        // frame has decoded since the last summary — turns "no flight
+        // telemetry" from a silent failure into a clue at the serial
+        // console (bad CRC vs wrong frame type vs none-of-the-above).
+        static uint32_t last_crsf_summary_ms = 0;
+        static uint32_t last_crsf_accepts_seen = 0;
+        constexpr uint32_t kCrsfSummaryEveryMs = 30 * 1000;
+        if (g_telemetry_source_configured &&
+            millis() - last_crsf_summary_ms >= kCrsfSummaryEveryMs) {
+            uint32_t accepts_now = g_crsf_accepts;
+            if (accepts_now == last_crsf_accepts_seen) {
+                Serial.printf(
+                    "CRSF parser: no decode in %us — rejects: short=%u no_msp=%u msp_crc=%u "
+                    "addr=%u type=%u len=%u crsf_crc=%u range=%u\n",
+                    (unsigned)(kCrsfSummaryEveryMs / 1000),
+                    (unsigned)g_crsf_rej_short_buf,
+                    (unsigned)g_crsf_rej_no_msp_marker,
+                    (unsigned)g_crsf_rej_msp_crc,
+                    (unsigned)g_crsf_rej_addr,
+                    (unsigned)g_crsf_rej_frame_type,
+                    (unsigned)g_crsf_rej_frame_len,
+                    (unsigned)g_crsf_rej_crsf_crc,
+                    (unsigned)g_crsf_rej_range);
+            }
+            last_crsf_accepts_seen = accepts_now;
+            last_crsf_summary_ms = millis();
         }
     }
 

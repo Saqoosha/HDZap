@@ -21,7 +21,17 @@ inline FlightBatterySampleRaw g_flight_battery_staged_sample{};
 inline portMUX_TYPE g_flight_battery_mux = portMUX_INITIALIZER_UNLOCKED;
 
 /// Last NOTIFY payload mirrored for change detection (avoid spamming BLE).
+/// Sentinel-init to all-0xFF on connect so the first real sample after
+/// a (re)connect always notifies — see ServerCallbacks::onConnect.
 inline FlightBatterySampleRaw g_flight_battery_last_sent{};
+
+/// Counter for samples staged before the previous one was consumed by
+/// the main loop — i.e. the slot was overwritten with no consumer in
+/// between. Best-effort visibility for the no-UI-yet case: main.cpp logs
+/// to serial when it advances. Bare volatile (single-byte counter, single
+/// producer in the recv path inside the same critical section as the
+/// staging write).
+inline volatile uint32_t g_flight_battery_dropped = 0;
 
 inline void flight_battery_on_espnow_payload(const uint8_t *data, int len) {
     CrsfFlightBatteryDecoded dec{};
@@ -29,6 +39,13 @@ inline void flight_battery_on_espnow_payload(const uint8_t *data, int len) {
     if (!got)
         return;
     portENTER_CRITICAL(&g_flight_battery_mux);
+    if (g_flight_battery_staged) {
+        // Previous sample was overwritten before the main loop drained
+        // it. Burst rates above one sample per loop tick (~10 ms) cause
+        // this; with CRSF telemetry typically ≤ 50 Hz it should stay
+        // near zero in practice.
+        g_flight_battery_dropped++;
+    }
     g_flight_battery_staged_sample.voltage_dv = dec.voltage_dv;
     g_flight_battery_staged_sample.current_da = dec.current_da;
     g_flight_battery_staged_sample.consumed_mah = dec.consumed_mah;
