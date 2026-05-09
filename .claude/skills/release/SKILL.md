@@ -1,11 +1,16 @@
 ---
 name: release
-description: Cut a new HDZap release — bump the iOS marketing/build version on the develop branch, build and upload the iOS app to TestFlight, promote develop → main via a release PR, deploy the Web Flasher firmware + end-user manual to production GitHub Pages, tag the released commit as v<X.Y.Z>, and publish a GitHub Release. Use when the user says "release", "ship it", "cut a release", "new version", "promote develop to main", "TestFlight build", "bump version", "tag a release", "v1.0.x", or otherwise asks to release HDZap.
+description: Cut a new HDZap release — bump the iOS marketing/build version on the develop branch, build and upload the iOS app to TestFlight, promote develop → main via a release PR, deploy the Web Flasher firmware + end-user manual to production GitHub Pages, tag the released commit as v<X.Y.Z>, and publish a GitHub Release. Also handles **build-only releases** (CURRENT_PROJECT_VERSION bump only, no MARKETING_VERSION change) when the operator needs to ship to existing TestFlight beta testers without triggering a fresh beta-review approval cycle. Use when the user says "release", "ship it", "cut a release", "new version", "promote develop to main", "TestFlight build", "bump version", "tag a release", "v1.0.x", "build-only release", "ship without bumping version", or otherwise asks to release HDZap.
 ---
 
 # Release HDZap
 
 Cut a new HDZap release from `develop` → `main`, ship the iOS app to TestFlight, deploy the Web Flasher + manual to production, and tag the released commit.
+
+Two variants:
+
+- **Full release** (`v<X.Y.Z>`): MARKETING_VERSION + CURRENT_PROJECT_VERSION both bump. Triggers a fresh TestFlight beta-review approval. This is the default — use for any release that ships visible iOS changes worth a version-string bump.
+- **Build-only release** (`v<X.Y.Z>+buildN`): CURRENT_PROJECT_VERSION bumps only; MARKETING_VERSION stays put. Apple skips the beta-review approval step (build numbers within the same version go through automatic / fast-track review), so the build reaches existing internal testers immediately. Use when a fix needs to ship to current testers without re-onboarding through review — see the dedicated section below.
 
 ## Branching model
 
@@ -68,7 +73,21 @@ The script:
 10. **Create a GitHub Release** with notes pointing at the PR + production URLs.
 11. **Fast-forward** local `develop` to `main` so the next cycle starts in sync.
 
-### 4. Tell the user where to find the build
+### 4. Re-run main CI after the tag push (cosmetic, but matters)
+
+The `gh pr merge` push and the tag push race against CI. The merge commit lands on `main` and triggers the Web Flasher workflow before `git push origin <tag>` finishes, so the first CI run on `main` builds firmware against a tree where `git describe --tags` still resolves to the *previous* tag (`v<prev>-N-g<sha>`) instead of the new one. The deployed firmware on <https://saqoosha.github.io/HDZap/flash/> shows the dev-style string until the next CI run.
+
+The version-check feature still works through this — `firmwareMajor()` only parses the leading integer, which is preserved across both forms — so this is purely cosmetic. But a tagged release should serve a tagged firmware string, so the script (and any manual procedure) re-runs `main`'s latest CI after pushing the tag:
+
+```bash
+RUN_ID=$(gh run list --branch main --workflow "Web Flasher" --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run rerun "$RUN_ID"
+gh run watch "$RUN_ID" --exit-status
+```
+
+The re-run picks up the new tag and rebuilds + redeploys, so the production Web Flasher serves firmware stamped with the new tag string.
+
+### 5. Tell the user where to find the build
 
 ```
 TestFlight processes the new build in 5–30 min. Once VALID, internal testers
@@ -82,6 +101,93 @@ Also share the production URLs once the main-branch CI deploy lands:
 - Manual (日本語): <https://saqoosha.github.io/HDZap/ja/>
 
 If a TestFlight "What to Test" note is wanted, ask the user before adding it via ASC API or the web UI.
+
+## Build-only release (no MARKETING_VERSION bump)
+
+Use this variant when the operator wants the develop tip to reach existing TestFlight beta testers **without** triggering a fresh beta-review approval. Apple gates beta-review on `CFBundleShortVersionString` (= `MARKETING_VERSION`); a `CFBundleVersion` (= `CURRENT_PROJECT_VERSION`) bump within the same marketing version goes through automatic / fast-track review and reaches testers immediately.
+
+`scripts/release.sh` only knows full releases (it requires `X.Y.Z` and bumps both fields), so the build-only path is currently a manual procedure. Steps mirror the script but with two differences: `MARKETING_VERSION` stays put, and the tag uses SemVer build-metadata syntax `v<X.Y.Z>+build<N>` instead of `v<X.Y.Z>`.
+
+### Procedure
+
+1. **Pre-flight** (same as the script): on develop, working tree clean, `develop == origin/develop`, target tag `v<current-marketing>+build<N+1>` does not exist.
+2. **Bump build only** in `app/project.yml`:
+
+   ```bash
+   CURRENT_BUILD=$(grep 'CURRENT_PROJECT_VERSION:' app/project.yml | sed 's/.*: *"\([0-9]*\)".*/\1/')
+   NEW_BUILD=$((CURRENT_BUILD + 1))
+   sed -i '' "s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"${NEW_BUILD}\"/" app/project.yml
+   # MARKETING_VERSION stays at its current value — do NOT touch it.
+   ```
+
+3. **Build & archive** (same as the full release):
+
+   ```bash
+   ./scripts/build.sh
+   ```
+
+4. **Upload to TestFlight** (irreversible):
+
+   ```bash
+   ./scripts/upload-testflight.sh
+   ```
+
+5. **Commit & push develop** (jj):
+
+   ```bash
+   jj describe -m "Bump build to ${NEW_BUILD} (<X.Y.Z> build ${NEW_BUILD}) for TestFlight
+
+   Build-number-only bump — MARKETING_VERSION stays at <X.Y.Z> so the
+   build can ship to existing beta testers without a fresh beta-review
+   approval cycle.
+
+   Co-Authored-By: Claude <model> <noreply@anthropic.com>"
+   jj bookmark set develop -r @
+   jj git push --bookmark develop
+   ```
+
+6. **Open + merge release PR** `develop → main` with `--merge` (matches the full-release path; preserves the cut as a merge commit).
+
+7. **Tag the merge commit** with SemVer build-metadata syntax:
+
+   ```bash
+   git fetch origin main
+   MERGE_COMMIT=$(git rev-parse origin/main)
+   git tag -a "v<X.Y.Z>+build${NEW_BUILD}" "$MERGE_COMMIT" \
+     -m "Build ${NEW_BUILD} of <X.Y.Z>"
+   git push origin "v<X.Y.Z>+build${NEW_BUILD}"
+   ```
+
+   The `+build<N>` suffix is intentional. The version-check feature on iOS only parses the **major** integer (digits before the first `.`), so `v1.0.0+build3` parses identically to `v1.0.0` (major = 1) and the compatibility check still works. Crucially, this format also avoids reusing or colliding with the existing `v<X.Y.Z>` tag.
+
+8. **Re-run main CI** (same race as full releases — see step 4 above):
+
+   ```bash
+   RUN_ID=$(gh run list --branch main --workflow "Web Flasher" --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run rerun "$RUN_ID"
+   gh run watch "$RUN_ID" --exit-status
+   ```
+
+9. **Fast-forward develop to main** so the next cycle starts in sync:
+
+   ```bash
+   jj git fetch
+   jj bookmark set develop -r main@origin
+   jj git push --bookmark develop
+   ```
+
+10. **(Skip)** GitHub Release. The `v<X.Y.Z>+build<N>` tag is internal-only — the GitHub Release UI is reserved for marketing-version cuts. If a release-notes surface is wanted for the build, edit the prior `v<X.Y.Z>` release to mention the new build.
+
+### When to use full vs. build-only
+
+| Situation | Variant | Tag |
+|---|---|---|
+| Visible iOS UX change, app feature, version-string-worthy | Full | `v<X.Y.Z>` |
+| Bug fix urgent enough to skip beta-review re-run | Build-only | `v<X.Y.Z>+build<N>` |
+| Firmware-only change (no iOS code touched) | Full *or* skip iOS upload (see Notes) | `v<X.Y.Z>` |
+| Quick re-upload to fix a TestFlight processing failure on the same build | Full (next patch) | `v<X.Y.(Z+1)>` |
+
+When in doubt, default to a full release — the build-only path is for the specific case where retaining the existing beta-review approval is operationally important.
 
 ## Notes
 
