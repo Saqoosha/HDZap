@@ -671,6 +671,16 @@ class BluetoothManager: NSObject {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
 
+    /// Single source of truth for the mismatch-warning text used by
+    /// every UI surface that flags `firmwareIncompatible`. Keeps the
+    /// Settings root About row, the ConnectionSettingsView version
+    /// row, and the recordError banner from drifting out of sync —
+    /// SwiftUI treats the literal as a localization key, so a future
+    /// edit on one site would silently break the others.
+    static let firmwareMismatchSummary = String(
+        localized: "Major version mismatch — update HDZap or reflash the M5StickS3."
+    )
+
     /// Major component of `appVersionString()`. `nil` when the bundle
     /// version is missing or unparseable.
     static func appMajor() -> Int? {

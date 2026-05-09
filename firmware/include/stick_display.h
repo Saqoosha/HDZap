@@ -61,6 +61,11 @@ public:
     /// status layout takes over.
     void showSplash(const char* version) {
         M5.Display.fillScreen(TFT_BLACK);
+        // Disable text wrap explicitly so an unexpectedly long version
+        // string clips at the screen edge instead of rolling onto a
+        // second line that overlaps the title above. Restored to the
+        // class default (true) at the end.
+        M5.Display.setTextWrap(false);
         // Title: large mono, centered horizontally.
         M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
         M5.Display.setTextSize(1);
@@ -81,8 +86,18 @@ public:
         int verY = m_h / 2 + 6;
         M5.Display.setCursor((m_w - verW) / 2, verY);
         M5.Display.print(buf);
-        // Restore the textdatum-invariant defaults the rest of the class
-        // relies on (top_left was set in begin()).
+        // Re-paint the editorial-lite hairlines that fillScreen wiped.
+        // showStatus's per-band fillRects deliberately skip the
+        // hairline rows (y=60, y=110), so without this the rest of
+        // the session would run without them until the next
+        // wakePanel(). Cheaper to restore here than to make every
+        // band painter aware of the splash path.
+        drawHairlines();
+        // Restore the class-invariant defaults the rest of the
+        // routines rely on: top_left datum (set in begin()), text
+        // wrap on, and ink color foreground.
+        M5.Display.setTextDatum(textdatum_t::top_left);
+        M5.Display.setTextWrap(true);
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
     }
 

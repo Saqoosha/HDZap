@@ -253,7 +253,7 @@ struct SettingsView: View {
                         .truncationMode(.middle)
                 }
                 if bluetooth.firmwareIncompatible {
-                    Text("Major version mismatch — update HDZap or reflash the M5StickS3.")
+                    Text(BluetoothManager.firmwareMismatchSummary)
                         .font(.caption)
                         .foregroundStyle(.red)
                 }

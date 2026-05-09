@@ -253,19 +253,36 @@ void setup() {
     bool cpuOk = setCpuFrequencyMhz(80);
 
     stickDisplay.begin();
-    // Boot splash: centered title + "FW <git-describe>" so the operator
-    // can confirm which firmware is running before any UI band paints
-    // over it. Held visible for ~1.2 s — long enough to read, short
-    // enough not to delay the BLE/ESP-NOW init the user is waiting for.
-    // The Serial.begin/USB-enumeration delay below already overlaps
-    // with this hold, so the actual added latency is closer to 700 ms.
-    stickDisplay.showSplash(FIRMWARE_VERSION);
     batteryMonitor.begin();
     Serial.begin(115200);
-    delay(500); // Wait for USB CDC serial to enumerate before first println.
+    // Wake-cause check needs to land before the splash hold so a
+    // deep-sleep wake (operator pressing BtnA/BtnB to resume mid-race)
+    // can skip the splash window entirely and bring the UI up
+    // instantly. On a cold boot we want the full splash hold so the
+    // version is readable; on a wake it's noise.
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    bool fromDeepSleep = (cause != ESP_SLEEP_WAKEUP_UNDEFINED);
+    // Boot splash: centered "HDZap" + "FW <git-describe>" so the
+    // operator can confirm which firmware is running before the
+    // UID/lap UI takes over. Skip the splash entirely on a deep-sleep
+    // wake so a button press resumes operation without a 1.2 s freeze.
+    if (!fromDeepSleep) {
+        stickDisplay.showSplash(FIRMWARE_VERSION);
+    }
+    // 500 ms wait for USB CDC enumeration before the first println.
+    // Runs concurrently with the splash hold below; the two delays
+    // overlap on cold boot so total wall-clock from showSplash to
+    // showStatus is ~max(500, 700) ms = 700 ms, not 1200.
+    delay(500);
     Serial.println("\n=== HDZero OSD Lap Timer ===");
     Serial.printf("Firmware: %s\n", FIRMWARE_VERSION);
-    delay(700); // hold the splash a bit longer so it's actually readable
+    if (!fromDeepSleep) {
+        // Cold-boot only: hold the splash long enough to read after
+        // the CDC delay above. 200 ms more on top of the 500 ms wait
+        // = 700 ms total visibility, which testing showed is the
+        // sweet spot for a glance.
+        delay(200);
+    }
     {
         unsigned actual = (unsigned)getCpuFrequencyMhz();
         if (!cpuOk || actual != 80) {
@@ -275,11 +292,10 @@ void setup() {
         }
     }
 
-    // If we just woke from deep sleep, surface why so an operator can
-    // tell a power-on-reset from a button-wake on serial. Doesn't change
-    // behavior — the rest of setup() runs identically either way because
-    // deep sleep didn't preserve any of our state.
-    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    // Surface the wake cause so an operator can tell a power-on-reset
+    // from a button-wake on serial. The cause was already read above
+    // for the splash gate; print the breadcrumb here where the rest
+    // of the boot diagnostics live.
     if (cause == ESP_SLEEP_WAKEUP_EXT1) {
         uint64_t mask = esp_sleep_get_ext1_wakeup_status();
         Serial.printf("Wake from deep sleep: ext1 GPIO mask=0x%llx (BtnA=GPIO11, BtnB=GPIO12)\n",
