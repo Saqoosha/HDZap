@@ -1,6 +1,6 @@
 # TestFlight 配信セットアップ手順
 
-`HDZap` の TestFlight 配信を team `VCFY2GFR89` (Tomohiko Koyama 個人 team) で立ち上げた手順。新しい iOS アプリを同 team で出すときの参照に。
+`HDZap` の TestFlight 配信を team `<TEAM_ID>` (<Your Name> 個人 team) で立ち上げた手順。新しい iOS アプリを同 team で出すときの参照に。
 
 ---
 
@@ -8,17 +8,17 @@
 
 | ファイル | パス | 備考 |
 |---|---|---|
-| ASC API key | `~/.blitz/AuthKey_76DV838N2N.p8` | **一度しかダウンロードできない**。失った場合は ASC で revoke → 新規作成。`~/.appstoreconnect/private_keys/AuthKey_76DV838N2N.p8` にもコピー済み（altool 用） |
+| ASC API key | `~/.blitz/AuthKey_<KEY_ID>.p8` | **一度しかダウンロードできない**。失った場合は ASC で revoke → 新規作成。`~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8` にもコピー済み（altool 用） |
 | Web セッション | `~/.blitz/asc-agent/web-session.json` | Apple ID にログイン済みの Chrome cookie。ASC への管理 API 直叩き用。期限切れる |
 | AppIcon-1024.png | `app/HDZap/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` | 1024×1024 の app icon |
 
-`AuthKey_76DV838N2N.p8` だけは **絶対に消すな**。消したら revoke してまた作るしかない。
+`AuthKey_<KEY_ID>.p8` だけは **絶対に消すな**。消したら revoke してまた作るしかない。
 
 ## 必要なクレデンシャル
 
-- **Team ID**: `VCFY2GFR89`
-- **Key ID**: `76DV838N2N`（ASC API key, name=`Saqoosha-Personal-Mac`, role=Admin, allAppsVisible=true）
-- **Issuer ID**: `69a6de6e-6653-47e3-e053-5b8c7c11a4d1`
+- **Team ID**: `<TEAM_ID>`
+- **Key ID**: `<KEY_ID>`（ASC API key, name=`<KEY_NAME>`, role=Admin, allAppsVisible=true）
+- **Issuer ID**: `<ISSUER_ID>`
 - **Bundle ID**: `sh.saqoo.HDZap`（explicit）
 - **SKU**: `HDZAP001`
 
@@ -49,7 +49,7 @@
 ```yaml
 settings:
   base:
-    DEVELOPMENT_TEAM: "VCFY2GFR89"
+    DEVELOPMENT_TEAM: "<TEAM_ID>"
     CODE_SIGN_STYLE: Automatic
 targets:
   HDZap:
@@ -110,7 +110,7 @@ Xcode → Settings → Accounts → Apple ID 追加 → team 選択 → Manage C
 確認：
 ```sh
 security find-identity -v -p codesigning
-# "Apple Distribution: Tomohiko Koyama (VCFY2GFR89)" が出てれば OK
+# "Apple Distribution: <Your Name> (<TEAM_ID>)" が出てれば OK
 ```
 
 ---
@@ -165,8 +165,8 @@ xcodebuild -exportArchive \
 
 ```sh
 mkdir -p ~/.appstoreconnect/private_keys
-cp ~/.blitz/AuthKey_76DV838N2N.p8 ~/.appstoreconnect/private_keys/
-chmod 600 ~/.appstoreconnect/private_keys/AuthKey_76DV838N2N.p8
+cp ~/.blitz/AuthKey_<KEY_ID>.p8 ~/.appstoreconnect/private_keys/
+chmod 600 ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8
 ```
 
 ---
@@ -175,8 +175,8 @@ chmod 600 ~/.appstoreconnect/private_keys/AuthKey_76DV838N2N.p8
 
 ```sh
 xcrun altool --upload-app -f build/export/HDZap.ipa --type ios \
-  --apiKey 76DV838N2N \
-  --apiIssuer 69a6de6e-6653-47e3-e053-5b8c7c11a4d1
+  --apiKey <KEY_ID> \
+  --apiIssuer <ISSUER_ID>
 ```
 
 成功すると `UPLOAD SUCCEEDED with no errors` + `Delivery UUID`。
@@ -198,17 +198,20 @@ External Testers（最大10000人）は Beta App Review が必要（初回のみ
 
 ## 次のリリース時の最小フロー
 
+`develop` で working tree クリーン、`origin/develop` と同期している状態から：
+
 ```sh
-# 一発でリリース：version bump → archive → upload → jj commit → tag → push
-./scripts/release.sh 1.0.1
+# 一発でリリース：bump → archive → upload → develop push → CI 待ち
+#   → PR develop → main → merge → tag → GitHub Release → develop fast-forward
+MODEL_NAME="Opus 4.7" ./scripts/release.sh 1.0.1
 ```
 
 スクリプトの中身：
 - `scripts/build.sh` — `xcodegen generate` + `xcodebuild archive`
 - `scripts/upload-testflight.sh` — `exportArchive` + `altool --upload-app`
-- `scripts/release.sh` — version 番号を `app/project.yml` の `MARKETING_VERSION` に書き込み、`CURRENT_PROJECT_VERSION` を +1、build → upload → jj commit → main bookmark 更新 → push → git tag
+- `scripts/release.sh` — pre-flight（`develop` 上、tree clean、`origin/develop` 同期、tag 未使用）→ `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` bump → build → TestFlight upload（**ここから先は不可逆**）→ `jj describe` + `develop` push → develop CI green 待ち → `gh pr create develop → main` → `gh pr merge --merge` → tag → `gh release create` → ローカル develop を main に fast-forward
 
-Claude Code から：`/release` で diff から自動的に version bump 種別を判断して走らせる（[`.claude/commands/release.md`](../.claude/commands/release.md)）。
+Claude Code から：`release` skill が "release" / "ship it" / "TestFlight build" 等のキーワードで自動発動して上のフローを走らせる（[`.claude/skills/release/SKILL.md`](../.claude/skills/release/SKILL.md)）。`MODEL_NAME` 環境変数は必須（commit の `Co-Authored-By` 行に走っているモデル名を載せるため）。
 
 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` は `app/project.yml` の `settings.base` で定義し、Info.plist では `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` placeholder で参照（Canopy と同じパターン）。
 

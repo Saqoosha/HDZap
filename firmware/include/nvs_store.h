@@ -15,6 +15,10 @@
 //                of a torn write is "value snaps back to kSleepDefaultMin",
 //                which is benign. A sentinel can't disambiguate a torn
 //                write from "user explicitly set 0 to disable" anyway.
+//   - "btname" : BLE GAP device name string, ≤ kDeviceNameMaxLen bytes.
+//                No sentinel — single putString is one entry. Torn write
+//                falls back to kDeviceNameDefault, which is harmless: the
+//                user just sees the default until they re-rename.
 // UID save order is [remove sentinel → write uid → write sentinel]. On load:
 //   - sentinel-present + uid-present  → normal success path
 //   - sentinel-absent  + uid-present  → torn save or legacy data; log a
@@ -113,6 +117,82 @@ inline uint8_t loadSleepMinutes() {
     uint8_t v = prefs.getUChar("slpmin", kSleepDefaultMin);
     prefs.end();
     return v;
+}
+
+// BLE GAP device name. Capped at 20 bytes to fit comfortably inside the
+// 31-byte BLE adv PDU's scan-response slot once the 128-bit service UUID
+// (18 bytes incl. AD overhead) and AD-type/length bytes are accounted
+// for; a longer name would get truncated or pushed entirely out of the
+// scan response, leaving iOS scan results showing "Unknown".
+inline constexpr size_t kDeviceNameMaxLen = 20;
+inline constexpr const char* kDeviceNameDefault = "HDZeroOSD";
+// Compile-time proof that the default itself satisfies the cap, so a
+// future kDeviceNameDefault change that exceeds kDeviceNameMaxLen fails
+// the build instead of silently truncating in saveDeviceName / the
+// caption renderer at runtime.
+static_assert(__builtin_strlen(kDeviceNameDefault) <= kDeviceNameMaxLen,
+              "kDeviceNameDefault exceeds kDeviceNameMaxLen");
+
+inline bool saveDeviceName(const char* name) {
+    if (!name) return false;
+    size_t len = strnlen(name, kDeviceNameMaxLen + 1);
+    if (len == 0 || len > kDeviceNameMaxLen) {
+        Serial.printf("nvs_store: saveDeviceName: invalid length %u\n", (unsigned)len);
+        return false;
+    }
+    Preferences prefs;
+    if (!prefs.begin("hdzero", false)) {
+        Serial.println("nvs_store: saveDeviceName: begin failed");
+        return false;
+    }
+    size_t n = prefs.putString("btname", name);
+    prefs.end();
+    if (n != len) {
+        Serial.printf("nvs_store: saveDeviceName: putString wrote %u (expected %u)\n",
+                      (unsigned)n, (unsigned)len);
+        return false;
+    }
+    return true;
+}
+
+// Always fills `out` with a null-terminated string of length ≤ cap-1.
+// Falls back to kDeviceNameDefault on missing key, NVS error, or
+// length overflow (a stored value longer than cap-1 would otherwise
+// be truncated mid-UTF-8; defaulting is the safer signal).
+//
+// Failure modes log distinctly so a user whose name silently snaps
+// back to the default has a diagnostic trail. The "first boot, no
+// btname key yet" case is correctly silent — getString returns the
+// default and v.length() will be the default's length (>0), so we
+// fall through to the normal copy path without entering either of
+// the warning branches below.
+inline void loadDeviceName(char* out, size_t cap) {
+    if (!out || cap == 0) return;
+    out[0] = 0;
+    Preferences prefs;
+    if (!prefs.begin("hdzero", true)) {
+        Serial.println("nvs_store: loadDeviceName: namespace open failed — using default");
+        strncpy(out, kDeviceNameDefault, cap - 1);
+        out[cap - 1] = 0;
+        return;
+    }
+    String v = prefs.getString("btname", String(kDeviceNameDefault));
+    prefs.end();
+    if (v.length() == 0) {
+        Serial.println("nvs_store: loadDeviceName: stored value empty — using default");
+        strncpy(out, kDeviceNameDefault, cap - 1);
+        out[cap - 1] = 0;
+        return;
+    }
+    if (v.length() >= cap) {
+        Serial.printf("nvs_store: loadDeviceName: stored value too long (%u >= %u) — using default\n",
+                      (unsigned)v.length(), (unsigned)cap);
+        strncpy(out, kDeviceNameDefault, cap - 1);
+        out[cap - 1] = 0;
+        return;
+    }
+    strncpy(out, v.c_str(), cap - 1);
+    out[cap - 1] = 0;
 }
 
 inline bool loadUid(uint8_t uid[6]) {

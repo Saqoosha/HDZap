@@ -2,18 +2,28 @@ name: Web Flasher
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "firmware/**"
       - "docs/flash/**"
+      - "docs/manual/**"
+      - ".github/workflows/flasher.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "firmware/**"
+      - "docs/flash/**"
+      - "docs/manual/**"
       - ".github/workflows/flasher.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Pages deploys serialize globally (one Pages site per repo, latest run wins).
+# PR builds use a per-PR group so they don't fight the deploy lane.
 concurrency:
-  group: pages
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.head_ref) || 'pages' }}
   cancel-in-progress: true
 
 jobs:
@@ -22,8 +32,26 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout
+      # Both checkouts need fetch-depth: 0 (full history + tags) so the
+      # firmware build's `git describe --tags --dirty --always` resolves
+      # to a real version on tagged release commits instead of just the
+      # short SHA.
+
+      # main side: PR head if PR targets main, otherwise the main branch tip.
+      - name: Checkout main side
         uses: actions/checkout@v6
+        with:
+          ref: ${{ (github.event_name == 'pull_request' && github.base_ref == 'main') && github.head_ref || 'main' }}
+          path: src/main
+          fetch-depth: 0
+
+      # develop side: PR head if PR targets develop, otherwise the develop branch tip.
+      - name: Checkout develop side
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ (github.event_name == 'pull_request' && github.base_ref == 'develop') && github.head_ref || 'develop' }}
+          path: src/develop
+          fetch-depth: 0  # see comment above the main-side checkout
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -36,72 +64,119 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/pip
-          key: pio-${{ runner.os }}-${{ hashFiles('firmware/platformio.ini') }}
+          key: pio-${{ runner.os }}-${{ hashFiles('src/main/firmware/platformio.ini', 'src/develop/firmware/platformio.ini') }}
           restore-keys: |
             pio-${{ runner.os }}-
 
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      - name: Build firmware
-        working-directory: firmware
+      - name: Build firmware (main)
+        working-directory: src/main/firmware
         run: pio run -e m5stick-s3
 
-      - name: Stage firmware bins
+      - name: Build firmware (develop)
+        working-directory: src/develop/firmware
+        run: pio run -e m5stick-s3
+
+      - name: Stage + verify firmware bins
         run: |
           set -euo pipefail
-          OUT="docs/flash/firmware"
-          BUILD="firmware/.pio/build/m5stick-s3"
-          mkdir -p "$OUT"
-          cp "$BUILD/bootloader.bin" "$OUT/bootloader.bin"
-          cp "$BUILD/partitions.bin" "$OUT/partitions.bin"
-          cp "$BUILD/firmware.bin"   "$OUT/hdzap.bin"
           BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin -print -quit)
           if [ -z "$BOOT_APP0" ]; then
             echo "boot_app0.bin not found in PlatformIO Arduino-ESP32 framework" >&2
             exit 1
           fi
-          cp "$BOOT_APP0" "$OUT/boot_app0.bin"
-          ls -la "$OUT"
 
-      - name: Stamp version into manifest
+          stage_side() {
+            local side="$1"
+            local out="src/${side}/docs/flash/firmware"
+            local build="src/${side}/firmware/.pio/build/m5stick-s3"
+            mkdir -p "$out"
+            cp "$build/bootloader.bin" "$out/bootloader.bin"
+            cp "$build/partitions.bin" "$out/partitions.bin"
+            cp "$build/firmware.bin"   "$out/hdzap.bin"
+            cp "$BOOT_APP0"            "$out/boot_app0.bin"
+
+            (cd "$out" && \
+              for f in bootloader.bin partitions.bin boot_app0.bin hdzap.bin; do
+                if [ ! -f "$f" ]; then
+                  echo "[$side] missing artefact: $f" >&2
+                  exit 1
+                fi
+                sz=$(stat -c%s "$f")
+                if [ "$sz" -lt 1024 ]; then
+                  echo "[$side] $f is suspiciously small: ${sz} bytes (expected >= 1 KiB)" >&2
+                  exit 1
+                fi
+              done
+              sha256sum *.bin > CHECKSUMS.txt
+              echo "=== ${side} CHECKSUMS ==="
+              cat CHECKSUMS.txt)
+          }
+
+          stage_side main
+          stage_side develop
+
+      - name: Stamp manifest versions
         run: |
           set -euo pipefail
-          export VERSION="${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
           python - <<'PY'
-          import json, os, pathlib
-          p = pathlib.Path("docs/flash/manifest.json")
-          m = json.loads(p.read_text())
-          m["version"] = os.environ["VERSION"]
-          p.write_text(json.dumps(m, indent=2) + "\n")
+          import json, pathlib, subprocess
+          for branch, side in [("main", "src/main"), ("develop", "src/develop")]:
+              sha = subprocess.check_output(
+                  ["git", "-C", side, "rev-parse", "--short", "HEAD"]
+              ).decode().strip()
+              p = pathlib.Path(side) / "docs/flash/manifest.json"
+              m = json.loads(p.read_text())
+              m["version"] = f"{branch}-{sha}"
+              p.write_text(json.dumps(m, indent=2) + "\n")
+              print(f"{branch}: {m['version']}")
           PY
 
-      - name: Verify firmware artefacts
-        working-directory: docs/flash/firmware
-        run: |
-          set -euo pipefail
-          for f in bootloader.bin partitions.bin boot_app0.bin hdzap.bin; do
-            if [ ! -f "$f" ]; then
-              echo "missing artefact: $f" >&2
-              exit 1
-            fi
-            sz=$(stat -c%s "$f")
-            if [ "$sz" -lt 1024 ]; then
-              echo "$f is suspiciously small: ${sz} bytes (expected >= 1 KiB)" >&2
-              exit 1
-            fi
-          done
-          sha256sum *.bin > CHECKSUMS.txt
-          cat CHECKSUMS.txt
-
-      - name: Stage Pages artefact (flash/ only — never expose docs/superpowers/, docs/REPORT.md, etc.)
+      - name: Compose Pages artefact (main at root, develop under /dev/)
         run: |
           set -euo pipefail
           rm -rf _site
-          mkdir -p _site/flash
-          cp -r docs/flash/. _site/flash/
+
+          stage_pages() {
+            local side="$1"      # src/main or src/develop
+            local dest="$2"      # _site or _site/dev
+
+            mkdir -p "$dest/flash" "$dest/ja" "$dest/images" "$dest/ja/images"
+
+            # Web Flasher
+            cp -r "$side/docs/flash/." "$dest/flash/"
+
+            # Manual: en at $dest, ja at $dest/ja, images mirrored under both
+            cp "$side/docs/manual/_pages/index.html"    "$dest/index.html"
+            cp "$side/docs/manual/_pages/ja/index.html" "$dest/ja/index.html"
+            cp "$side/docs/manual/en.md"                "$dest/index.md"
+            cp "$side/docs/manual/ja.md"                "$dest/ja/index.md"
+            cp -r "$side/docs/manual/images/." "$dest/images/"
+            cp -r "$side/docs/manual/images/." "$dest/ja/images/"
+          }
+
+          stage_pages src/main    _site
+          stage_pages src/develop _site/dev
+
+          # Favicons live at root only (browser auto-discovery scope is the host).
+          cp src/main/docs/manual/favicon.ico         _site/favicon.ico
+          cp src/main/docs/manual/favicon-16x16.png   _site/favicon-16x16.png
+          cp src/main/docs/manual/favicon-32x32.png   _site/favicon-32x32.png
+          cp src/main/docs/manual/apple-touch-icon.png _site/apple-touch-icon.png
+
+          # Disable Jekyll — manual pages render markdown client-side via marked.js.
           touch _site/.nojekyll
-          ls -la _site _site/flash
+
+          echo "=== root ==="
+          ls -la _site
+          echo "=== /flash/ ==="
+          ls -la _site/flash
+          echo "=== /dev/ ==="
+          ls -la _site/dev
+          echo "=== /dev/flash/ ==="
+          ls -la _site/dev/flash
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
@@ -110,6 +185,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       pages: write

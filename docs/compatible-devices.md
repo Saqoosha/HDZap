@@ -1,5 +1,7 @@
 # Compatible ESP32 Devices for HDZap
 
+> ⚠️ **This is a future-support catalogue, not a list of currently shipped targets.** As of v1.0.0, HDZap's firmware is built for **M5StickS3 only** (single environment in [`firmware/platformio.ini`](../firmware/platformio.ini)). The chips and devkits below are all *technically* capable of running HDZap (BLE + ESP-NOW), but porting work — pin mappings, display drivers, button handling, PMIC drivers, NVS layout — has not been done for any of them.
+
 HDZap firmware uses **BLE GATT** (iOS ↔ bridge) and **ESP-NOW** (bridge ↔ HDZero backpack).
 Any candidate chip must support **both**.
 

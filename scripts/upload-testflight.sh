@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Export an .ipa from the archive and upload it to TestFlight via altool.
 # Reads ASC API credentials from ASC_API_KEY_ID / ASC_API_ISSUER_ID env vars
-# (defaulting to the team VCFY2GFR89 key created on 2026-05-04).
+# (defaulting to the team <TEAM_ID> key created on 2026-05-04).
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="${ROOT_DIR}/app"
@@ -17,8 +17,8 @@ IPA_PATH="${EXPORT_DIR}/HDZap.ipa"
 # as public-facing IDs that pair with the .p8 private key. The .p8 itself is the
 # only real secret and never lands in the repo. Override via env vars when running
 # against a different ASC team.
-ASC_API_KEY_ID="${ASC_API_KEY_ID:-76DV838N2N}"
-ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-69a6de6e-6653-47e3-e053-5b8c7c11a4d1}"
+ASC_API_KEY_ID="${ASC_API_KEY_ID:-<KEY_ID>}"
+ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-<ISSUER_ID>}"
 
 cd "${APP_DIR}"
 

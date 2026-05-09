@@ -10,11 +10,20 @@ FPV drone racing use case: operator taps LAP on phone, lap time appears on pilot
 ```
 firmware/                 ESP32 PlatformIO project (Arduino framework)
 app/                      iOS SwiftUI app (iOS 18+, xcodegen)
-docs/                     Research reports and architecture docs (NOT served on Pages)
-docs/flash/               Browser firmware flasher served on GitHub Pages (esptool-js)
-scripts/                  Test scripts
-.github/workflows/        CI: Web Flasher build/deploy (TestFlight is currently scripts/-driven)
+docs/                     Architecture, research, TestFlight setup (allow-listed: only docs/manual/ + docs/flash/ ship to Pages)
+docs/manual/              End-user manual (en + ja); served on GitHub Pages
+docs/flash/               Browser firmware flasher (esptool-js); served on GitHub Pages
+scripts/                  build / upload-testflight / release helpers
+.github/workflows/        CI: builds firmware, composes Pages artefact, deploys (TestFlight upload is scripts/-driven via the release skill)
+.claude/skills/release/   Claude Code skill for cutting a release end-to-end (develop bump → TestFlight → PR develop→main → tag → GitHub Release)
 ```
+
+## Branching & Deployment
+
+- `develop` = default branch; CI deploys staging to <https://saqoosha.github.io/HDZap/dev/> (`/dev/flash/`, `/dev/ja/`).
+- `main` = release branch, protected (PR-only merge, no force push, no delete, admin bypass enabled). CI deploys production at the canonical paths (`/`, `/flash/`, `/ja/`).
+- Pages is one site per repo, so the workflow checks out **both** branches on every push, builds firmware for each, and composes a single `_site/` with main at the root and develop mirrored under `/dev/`. Pushing to either branch refreshes its slice without touching the other.
+- Releases promote develop → main through a release PR (script-driven). Direct push to `main` is rejected.
 
 ## Build Commands
 
@@ -31,8 +40,9 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 
 ## Web Flasher (`docs/flash/`)
 
-Browser-based firmware installer hosted on GitHub Pages at
-`https://saqoosha.github.io/HDZap/flash/`. Drives `esptool-js` directly (NOT
+Browser-based firmware installer hosted on GitHub Pages. Production at
+`https://saqoosha.github.io/HDZap/flash/`, staging at
+`https://saqoosha.github.io/HDZap/dev/flash/`. Drives `esptool-js` directly (NOT
 ESP Web Tools / `<esp-web-install-button>`) so the entire UI is custom Japanese
 copy with no English library dialogs. Target hardware: M5StickS3 only.
 
@@ -40,21 +50,30 @@ copy with no English library dialogs. Target hardware: M5StickS3 only.
   (idle / working / done / error). No external custom elements.
 - `docs/flash/flasher.js` — ES module that imports `ESPLoader` + `Transport`
   from `https://unpkg.com/esptool-js@0.5.7/bundle.js` and runs the flash flow.
-  Pinned to 0.5.7: 0.6.x has a known regression where compressed `writeFlash`
-  on ESP32-S3 fails with `status 201 (ESP_TOO_MUCH_DATA)`.
+  All firmware paths are resolved via `new URL("firmware/...", import.meta.url)`
+  so the page works at any subpath (root `/flash/` *and* `/dev/flash/`)
+  without modification. Pinned to 0.5.7: 0.6.x has a known regression where
+  compressed `writeFlash` on ESP32-S3 fails with
+  `status 201 (ESP_TOO_MUCH_DATA)`.
 - `docs/flash/manifest.json` — single field (`version`). CI overwrites the
-  value with `${GITHUB_REF_NAME}-<short SHA>` so the deployed page can show
-  which build is live; nothing else is consumed at runtime.
+  value with `<branch>-<short SHA>` (e.g. `main-743c728`, `develop-9f09570`)
+  per side so the deployed page can show which build is live and which slice
+  it belongs to; nothing else is consumed at runtime.
 - `docs/flash/m5sticks3.jpg` — product photo (M5Stack), credited in footer.
 - `docs/flash/firmware/*.bin` — produced by CI, **gitignored**; copying locally
   for testing is fine.
-- `.github/workflows/flasher.yml` — `pio run -e m5stick-s3` → stages 4 bins
-  (`bootloader.bin`, `partitions.bin`, `boot_app0.bin`, `firmware.bin → hdzap.bin`)
-  → size-checks each bin (>= 1 KiB) → writes `CHECKSUMS.txt` → stamps version
-  into `manifest.json` → copies `docs/flash/` into `_site/flash/` (NEVER the
-  whole `docs/` tree — that would expose `docs/superpowers/` and other prose
-  docs) → uploads `_site/` as the Pages artefact → deploys via
-  `actions/deploy-pages`.
+- `.github/workflows/flasher.yml` — checks out `main` and `develop` side by
+  side, runs `pio run -e m5stick-s3` for each, stages 4 bins
+  (`bootloader.bin`, `partitions.bin`, `boot_app0.bin`,
+  `firmware.bin → hdzap.bin`), size-checks each (>= 1 KiB), writes
+  `CHECKSUMS.txt`, stamps the per-branch `manifest.json`, then composes
+  `_site/` with **main at the root** (`_site/flash/`, `_site/index.html`,
+  `_site/ja/`) and **develop mirrored under `/dev/`** (`_site/dev/flash/`,
+  `_site/dev/index.html`, `_site/dev/ja/`). Allow-list approach: ONLY the
+  paths under `docs/manual/` and `docs/flash/` are copied — never the whole
+  `docs/` tree, so `docs/report.md` / `docs/architecture.md` / etc. stay
+  unpublished. PR builds compose the same artefact (with the PR head on the
+  targeted side) but the deploy job is gated to push events.
 - ESP32-S3 partition offsets used by `flasher.js` `PARTS`:
   `0x0 / 0x8000 / 0xe000 / 0x10000` (S3 starts the bootloader at 0,
   **not** 0x1000 like classic ESP32).
@@ -69,7 +88,9 @@ copy with no English library dialogs. Target hardware: M5StickS3 only.
   first; the page header will show `version: dev` because the CI version
   stamp only runs on deploy.
 - GitHub Pages must be set to Source = "GitHub Actions" in repo
-  Settings → Pages for the workflow to deploy.
+  Settings → Pages for the workflow to deploy. The `github-pages`
+  environment's deployment-branch policy explicitly allows both `main` and
+  `develop`; new branches that need to deploy must be added there.
 
 ## Key Technical Constraints
 
@@ -77,7 +98,7 @@ copy with no English library dialogs. Target hardware: M5StickS3 only.
 - ESP-NOW max 10 packets per OSD cycle (clear + 8 writes + draw)
 - OSD grid: 50x18, lowercase ASCII maps to FPV glyphs (auto-uppercase in osd.h)
 - BLE UUIDs must match between firmware (ble_service.h) and iOS (BluetoothManager.swift)
-- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489` (bumped from `…d479` when the Battery characteristic was added; iOS CoreBluetooth caches GATT per-peripheral for unbonded devices, so a new service UUID is the only reliable cache-invalidation hook short of rebooting the iPhone). **Adding a characteristic without a service bump is safe ONLY when no existing iOS build attempts to read or write it** — iOS won't see the new char until the service UUID changes. CHR_SLEEP_CONFIG (`…d48a`) was added without a bump on this basis; bump to `…d48b` (or next free) in the same change that ships an iOS build using the char.
+- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d490` (bumped from `…d48e`; iOS CoreBluetooth caches GATT per-peripheral for unbonded devices, so a new service UUID is the only reliable cache-invalidation hook short of rebooting the iPhone). **Adding a characteristic — or changing its property bitmap — without a service bump is safe ONLY when no existing iOS build attempts to read or write it** — iOS won't see the new char/property until the service UUID changes. The most recent bump (`…d48e → …d490`) shipped CHR_FW_VERSION (`…d48f`), a READ-only string seeded from `git describe --tags --dirty --always` by the PlatformIO pre-script `firmware/scripts/inject_version.py`; iOS reads it on connect and warns when its leading major-version component disagrees with the app's `CFBundleShortVersionString`. The prior bump (`…d48d → …d48e`) shipped CHR_DEVICE_NAME (`…d489`), the renameable BLE-advertised name char — iOS writes UTF-8 (≤20 B), firmware persists to NVS namespace `hdzero` key `btname` (default `HDZeroOSD`) and `ESP.restart()`s so `BLEDevice::init(name)` re-runs with the new value, and bonded iOS auto-reconnects after the ~3 s reboot. The earlier `…d48c → …d48d` bump shipped CHR_OSD_LAYOUT (`…d48b`) gaining `PROPERTY_WRITE_NR` for `writeWithoutResponse` slider drags; iOS caches each char's property bitmap and silently drops `writeWithoutResponse` on a char whose cached bitmap doesn't advertise the WRITE_NR bit, so a property change is a GATT shape change for cache-invalidation purposes.
 - `BLEServer::createService()` must be passed an explicit `numHandles` covering `1 (service decl) + 2 per characteristic + 1 per BLE2902 descriptor` — the default of 15 silently truncates overflow characteristics. The call uses 32 for headroom; recompute and bump if a future GATT addition pushes the count past ~28.
 - Bind phrase UID derivation: MD5(`-DMY_BINDING_PHRASE="<phrase>"`), first 6 bytes, bit0 cleared
 - VTX not required for backpack OSD display
@@ -93,11 +114,29 @@ copy with no English library dialogs. Target hardware: M5StickS3 only.
 - `bind.h` — ELRS bind protocol, stateless (broadcast via espnow_link)
 - `tx_sniff.h` — ESP-NOW recv callback for TX UID capture; sniff_start/stop register/unregister the global recv_cb slot; g_sniff_uid + g_sniff_captured guarded by g_sniff_mux. `g_sniff_active` (set on success of sniff_start, cleared on sniff_stop) is read by main.cpp's deep-sleep gate so a deep sleep can't silently drop the BLE-staged sniff session.
 - `osd_text_display.h` — iOS-owned 4-row goggle OSD text. Per-row dirty bitmap; `render()` writeStrings just the dirty rows + draw (no clear), and the goggle's overlay buffer keeps prior content between writes. `m_dirty` survives across retries so the state machine can re-emit the same bits; `clearDirtyBits(mask)` is the surgical drop, called from main.cpp on verify-success / give-up.
-- `nvs_store.h` — UID persistence (sentinel-protected) + deep-sleep timeout (`slpmin`, single-byte putUChar — no sentinel needed; one NVS entry can't be torn at the entry level). Namespace "hdzero".
+- `nvs_store.h` — UID persistence (sentinel-protected) + deep-sleep timeout (`slpmin`, single-byte putUChar — no sentinel needed; one NVS entry can't be torn at the entry level) + Bluetooth device name (`btname`, ≤20 B UTF-8; default `HDZeroOSD` returned when absent so a fresh flash advertises the same name as before the rename feature). Namespace "hdzero".
 - `power_log.h` — SPIFFS-backed CSV append at `/power.csv` for issue #5 phase 2/3 measurement runs. Schema = `millis,voltage_mv,percent,charging,panel_asleep,ble_connected`; main.cpp throttles to one row per 30 s and sentinel-marks out-of-range VBAT readings as -1. Schema-mismatch detection on boot wipes incompatible old logs (with CR strip so println-written headers compare equal); a stale `/power.csv.tmp` from an interrupted rotate is also cleaned up at boot. Auto-rotates at ~110 KB to keep the most recent ~80 KB inside the 128 KB SPIFFS partition; if the rotate write fails the original is preserved (no half-rotated tmp ever replaces the source). `dumpToSerial()` runs in `setup()` so plug-in-USB-after-battery-run prints the trail without a separate tool.
 - `stick_display.h` — M5StickS3 LCD status display, no business logic. Battery widget (top row of UID band, left of BLE pill) is fed by `main.cpp` via `setBattery(percent, charging)`. `sleepPanel()` / `wakePanel()` / `isPanelAsleep()` own the panel power state for issue #5 phase 1; `sleepPanel()` calls `M5.Display.sleep()` only — do NOT prepend `setBrightness(0)` or it corrupts LGFX's `_brightness` cache and `wakeup()` restores brightness=0. `wakePanel()` waits 5 ms after `wakeup()` (ST7789 SLPOUT settling) then forces a full repaint.
 - `battery_monitor.h` — AXP2101 percent + charging poll, alarm tier (None/Low/Critical with hysteresis) + silence latch. Single `tick(now, silenceRequested) → Outcome` (Throttled/StateChanged/TierChanged) replaces the prior `poll()` + `silence()` + `consumeSilencedDirty()` trio; silence-dirty edges fold into `StateChanged`, and `TierChanged` is returned *instead of* `StateChanged` on a tier transition (callers test `!= Throttled` for the BLE+LCD push and `== TierChanged` for the sticky strip message; the `TierChanged = 0b11 / StateChanged = 0b01` bit pattern encodes the subset relation structurally). Actuator-free — `main.cpp` owns LCD/BLE/speaker dispatch; the only `Serial.printf` paths are PMIC-validity edges and silence-press-but-already-silenced traces. Beep cadence is a separate destructive-read channel: `consumeBeepDue(now)` burns the slot on a `true` return; pair with `scheduleBeepRetry(now)` on a `M5.Speaker.tone()` failure so the next ~1 s retries instead of waiting out the 15-30 s cadence. `payload(uint8_t (&out)[2])` uses a reference-to-array so a single-byte buffer can't compile, and defensively masks bit 3 off when tier==None so a regression in `tick()`'s clear-on-tier-transition policy can't leak a wire-illegal byte to iOS.
 - `main.cpp` — event loop; consumes staged BLE data under `g_ble_mux`, runs heavy work (NVS, ESP-NOW reinit) outside the BLE task, and hosts the render-retry state machine (`IDLE` → `PENDING` → `WAITING_ACK`). Snapshots the dispatched dirty mask at render time so verify-success can clear *only* the bits we sent (BLE writes during WAITING_ACK survive). OSD delivery uses MAC-layer feedback from `esp_now_register_send_cb` (counters in `espnow_link.h`) — if any packet in a cycle fails to deliver, `render()` is re-dispatched up to `MAX_RENDER_RETRIES` times. The `IDLE && hasDirty → requestRender` catch-up trigger picks up bits that arrived during a verify window or while ESP-NOW was down. `cancelRender()` drops the cycle when stale state would be rendered (UID change, OSD clear, laps reset). Owns issue #5 power-saving glue: phase-1 LCD-off (30 s idle, `markActivity()` resets on button press or OSD-text dirty), phase-2-redux runtime tuning (`setCpuFrequencyMhz(80)`, BLE/WiFi TX power), phase-3 deep sleep (`g_sleep_timeout_ms` from NVS-backed `slpmin`, ext1 wake on BtnA/BtnB; gate also guards on `g_sniff_active` and pending `g_sleep_minutes_changed`), and the per-30-s power-log append (sentinel-marks VBAT readings outside [2500, 4400] mV). The sleep-config consumer block runs BEFORE the sleep gate so an iOS write at the idle threshold is never lost.
+
+## iOS Settings Layout
+
+Drilldown structure after the #36 restructure (the flat 10-section list was replaced with status-first navigation rows that fit one iPhone screen):
+
+- **Format** (inline at the root) — race time, target lap, target pace. The variable in `SettingsView.swift` is `raceSection`, but the user-visible header is `Text("Format")` — refer to the on-screen label in user-facing prose.
+- **Device** section header containing three rows:
+  - "**M5StickS3**" row → `ConnectionSettingsView` — connected device + battery + Bluetooth name rename + discovered list + Scan. The **Bluetooth name** row (`DeviceRenameView`, gated on `bluetooth.isConnected && bluetooth.supportsDeviceRename`) writes CHR_DEVICE_NAME (`…d489`) and warns about the M5 reboot.
+  - "**Goggle pairing**" row → `PairingSettingsView` (nav title: "Pairing") — bind phrase / manual UID / new pairing modes + TX UID capture + auto-rollback flow + apply alert, all on one workflow screen.
+  - "**OSD layout**" row → `OSDLayoutSettingsView` (nav title: "OSD Layout") — preview, position slider, alignment, per-row show/hide, plus **Send Test OSD** + **Clear OSD** + **Reset layout**.
+- **App** section header containing two rows:
+  - "**Lap announcer**" row → `AudioSettingsView`.
+  - "**Appearance**" row → `AppearanceSettingsView`.
+- **About** section (`aboutSection`) — surfaces the iOS app version (always) and the firmware version row (only after CHR_FW_VERSION lands; `bluetooth.firmwareVersion != nil`). When the firmware's leading major-version component disagrees with the app's `CFBundleShortVersionString`, the FW row + a `firmwareMismatchSummary` line both render in red. The same version pair also appears inside `ConnectionSettingsView`'s `versionRow` (drilldown), so the two surfaces share a single source of truth and never disagree on what's wrong.
+
+The pairing / OSD-layout / lap-announcer / appearance rows show their current value on the right rail (Apple Settings.app pattern): pairing UID in decimal (`96,210,…` — matches what HDZero goggles and the M5Stick LCD show), OSD layout row range, lap announcer state + language, accent color swatch. The M5StickS3 row uses a 2-line layout instead — status dot + name on top, battery / unbound subtitle below — so the connection state is glanceable without drilling in.
+
+`PairingSettingsView.runPairingFlow` is explicitly `@MainActor` so a future `Task.detached` call site fails at build time rather than crashing inside `BluetoothManager.recordError`.
 
 ## Conventions
 

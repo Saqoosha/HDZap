@@ -59,6 +59,16 @@
 //   g_uid                                     (6 bytes; main loop writes
 //       under the mux in applyStagedUid, BLE task reads under the mux in
 //       ble_update_status so the notify frame never carries a torn pair)
+//   g_sleep_minutes_pending + g_sleep_minutes_changed
+//       (deep-sleep timeout config; single byte staged with the flag
+//       so a second iOS write between the loop's flag-check and value-
+//       read can't be silently dropped)
+//   g_device_name_pending + g_device_name_changed
+//       (BLE rename staging; variable-length string that can't fit in
+//       any atomic op, so the buffer + flag pair lives under the mux.
+//       Consumer in main.cpp reboots after persisting, so a second
+//       rename arriving inside the 200 ms ATT-ack window is acceptable
+//       to drop — the user has not yet seen the first rename's effect)
 //
 // Bare-volatile single-flag — idempotent commands, rapid double-write
 // collapses into one edge (which is fine, the action just means
@@ -115,6 +125,27 @@ inline volatile uint8_t g_last_test_result = 0;
 // on the rising edge of g_sleep_minutes_changed.
 inline volatile bool g_sleep_minutes_changed = false;
 inline volatile uint8_t g_sleep_minutes_pending = 0;
+
+// Device-name rename request. iOS writes the new advertised BLE name as
+// UTF-8 bytes to CHR_DEVICE_NAME; the callback stages the bytes under
+// `g_ble_mux` and sets `g_device_name_changed`. Main loop persists to
+// NVS and reboots — `BLEDevice::init(name)` is one-shot, so a clean
+// restart is cheaper and safer than tearing the BLE stack down at
+// runtime. Bonded iOS auto-reconnects after the ~3 s reboot window.
+inline volatile bool g_device_name_changed = false;
+inline char g_device_name_pending[nvs_store::kDeviceNameMaxLen + 1] = {};
+
+// OSD layout config — global Y offset for the 4-row OSD text block.
+// 1 signed byte = rows to shift up from the bottom (0 = bottom anchored,
+// negative = move up). iOS writes the offset; main loop applies it via
+// `osdTextDisplay.setBaseRow()` and clears the goggle overlay so old
+// text at the prior position doesn't remain visible. Not persisted to
+// NVS — iOS owns the setting and replays it on connect.
+// Per-row alignment / show-hide are handled entirely on the iOS side
+// via the existing OSD text payload (preformatted strings + 50-space
+// rows for hidden ones), so they don't appear here.
+inline volatile bool g_osd_layout_changed = false;
+inline volatile int8_t g_osd_layout_y_offset_pending = 0;
 
 inline void ble_update_status() {
     if (!g_status_chr) return;
@@ -350,6 +381,42 @@ class SleepConfigCallback : public BLECharacteristicCallbacks {
     }
 };
 
+class DeviceNameCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() == 0 || val.length() > nvs_store::kDeviceNameMaxLen) {
+            Serial.printf("DeviceName: invalid length %u (max %u)\n",
+                          (unsigned)val.length(),
+                          (unsigned)nvs_store::kDeviceNameMaxLen);
+            return;
+        }
+        portENTER_CRITICAL(&g_ble_mux);
+        memcpy(g_device_name_pending, val.data(), val.length());
+        g_device_name_pending[val.length()] = 0;
+        g_device_name_changed = true;
+        portEXIT_CRITICAL(&g_ble_mux);
+    }
+};
+
+class OSDLayoutCallback : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChr) override {
+        std::string val = pChr->getValue();
+        if (val.length() < 1) {
+            Serial.println("OSDLayout: empty write");
+            return;
+        }
+        // Single signed byte: rows to shift the 4-row block up from the
+        // bottom of the grid (0 = bottom-anchored default, negative =
+        // move up). Range-check + clamp lives in main.cpp where the
+        // OSDTextDisplay row-count constant is in scope.
+        int8_t y = (int8_t)val[0];
+        portENTER_CRITICAL(&g_ble_mux);
+        g_osd_layout_y_offset_pending = y;
+        g_osd_layout_changed = true;
+        portEXIT_CRITICAL(&g_ble_mux);
+    }
+};
+
 class OSDControlCallback : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChr) override {
         std::string val = pChr->getValue();
@@ -432,7 +499,13 @@ inline void _ble_gap_diag_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_p
     }
 }
 
-inline void ble_init(const char *device_name = "HDZeroOSD") {
+// `device_name` is required (no default) because the only correct
+// source is `nvs_store::loadDeviceName`, which always returns the
+// resolved name including its first-boot fallback. A literal default
+// here would silently mask a setup() refactor that drops the load
+// step and start the device advertising as "HDZeroOSD" regardless of
+// the user's saved rename.
+inline void ble_init(const char *device_name) {
     BLEDevice::init(device_name);
     BLEDevice::setCustomGapHandler(_ble_gap_diag_handler);
 
@@ -510,6 +583,18 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_flight_battery_chr->addDescriptor(new BLE2902());
 
+    BLECharacteristic *pDeviceName = pService->createCharacteristic(
+        CHR_DEVICE_NAME_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+    pDeviceName->setCallbacks(new DeviceNameCallback());
+    {
+        // Seed the read value with the actual current name so iOS can
+        // populate the rename UI without a write-then-read round trip.
+        // The string passed to ble_init is the resolved current name
+        // (default or NVS-loaded), so reuse it here.
+        pDeviceName->setValue((uint8_t *)device_name, strlen(device_name));
+    }
+
     // Firmware version string for iOS-side compatibility check. READ-only
     // (compile-time constant for the running build), no callback, no
     // notify — iOS reads once after characteristic discovery and parses
@@ -535,6 +620,24 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         // read sees the actual current setting, not 0.
         uint8_t cur = nvs_store::loadSleepMinutes();
         pSleep->setValue(&cur, 1);
+    }
+
+    // PROPERTY_WRITE_NR enables iOS to use writeWithoutResponse, which
+    // skips the ATT ack round-trip on slider drags (the layout char
+    // gets pushed every debounced editor frame, so the ~30 ms saving
+    // per write is the difference between feeling immediate and
+    // feeling laggy).
+    BLECharacteristic *pOSDLayout = pService->createCharacteristic(
+        CHR_OSD_LAYOUT_UUID,
+        BLECharacteristic::PROPERTY_READ
+            | BLECharacteristic::PROPERTY_WRITE
+            | BLECharacteristic::PROPERTY_WRITE_NR);
+    pOSDLayout->setCallbacks(new OSDLayoutCallback());
+    {
+        // Seed the read value with the current y_offset (always 0 at boot
+        // — not persisted to NVS, iOS replays its setting on connect).
+        int8_t cur = 0;
+        pOSDLayout->setValue((uint8_t *)&cur, 1);
     }
 
     g_telemetry_chr = pService->createCharacteristic(

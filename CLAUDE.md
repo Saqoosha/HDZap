@@ -10,11 +10,21 @@ FPV drone racing use case: operator taps LAP on phone, lap time appears on pilot
 ```
 firmware/                 ESP32 PlatformIO project (Arduino framework)
 app/                      iOS SwiftUI app (iOS 18+, xcodegen)
-docs/                     Research reports and architecture docs (NOT served on Pages)
-docs/flash/               Browser firmware flasher served on GitHub Pages (esptool-js, M5StickS3)
-scripts/                  Test scripts
-.github/workflows/        CI: Web Flasher build/deploy (TestFlight is currently scripts/-driven)
+docs/                     Architecture, research, TestFlight setup (only docs/manual/ + docs/flash/ ship to Pages)
+docs/manual/              End-user manual (en + ja); served on GitHub Pages
+docs/flash/               Browser firmware flasher (esptool-js, M5StickS3); served on GitHub Pages
+scripts/                  build / upload-testflight / release helpers
+.github/workflows/        CI: builds firmware for both branches, composes Pages artefact, deploys
+.claude/skills/release/   Release skill (auto-triggers on "release" / "ship it" / etc.)
 ```
+
+## Branching & Deployment
+
+- `develop` (default) → CI deploys staging at `/dev/`, `/dev/flash/`, `/dev/ja/`.
+- `main` (PR-only, branch-protected) → CI deploys production at `/`, `/flash/`, `/ja/`.
+- Pages is one site per repo, so the workflow checks out **both** branches on every push, builds firmware for each, and composes a single `_site/` (main at root, develop mirrored under `/dev/`). Pushing to either branch refreshes its slice without disturbing the other.
+- Releases promote develop → main via a release PR driven by [`scripts/release.sh`](scripts/release.sh) / the [`release`](.claude/skills/release/SKILL.md) skill. Direct push to `main` is rejected by branch protection.
+- `manifest.json` is stamped per side as `<branch>-<short sha>` so the live page identifies which build it is.
 
 ## Build Commands
 
@@ -35,7 +45,7 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - ESP-NOW max 10 packets per OSD cycle (clear + 8 writes + draw)
 - OSD grid: 50x18, lowercase ASCII maps to FPV glyphs (auto-uppercase in osd.h)
 - BLE UUIDs must match between firmware (ble_service.h) and iOS (BluetoothManager.swift)
-- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489` (bumped from `…d479` to defeat iOS CoreBluetooth's per-peripheral GATT cache when Battery was added). Adding a characteristic without a service bump is safe ONLY when no existing iOS build attempts to read or write it; bump in the same change that ships an iOS build using the new char (current case: CHR_SLEEP_CONFIG `…d48a` is in firmware but not yet in iOS, no bump owed).
+- Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d490` (bumped from `…d48e` to ship CHR_FW_VERSION `…d48f`, a READ-only string seeded from `git describe --tags --dirty --always` via the PlatformIO pre-script `firmware/scripts/inject_version.py`; iOS reads it on connect and warns when the leading major-version component disagrees with the app's `CFBundleShortVersionString`. The prior `…d48d → …d48e` bump shipped CHR_DEVICE_NAME `…d489`, the renameable BLE-advertised name char; iOS writes the new UTF-8 name, firmware persists to NVS namespace `hdzero` key `btname` (default `HDZeroOSD`) and `ESP.restart()`s so `BLEDevice::init(name)` re-runs with the new value, and bonded iOS auto-reconnects after the ~3 s reboot. The earlier `…d48c → …d48d` bump shipped CHR_OSD_LAYOUT `…d48b` with `PROPERTY_WRITE_NR` for `writeWithoutResponse` slider drags; iOS caches each char's property bitmap and silently drops `writeWithoutResponse` on a char whose cached bitmap doesn't advertise the WRITE_NR bit, so a property change is a GATT shape change for cache-invalidation purposes.) Adding a characteristic — or changing its properties — without a service bump is safe ONLY when no existing iOS build attempts to read or write it; bump in the same change that ships an iOS build using the new char/property.
 - `BLEServer::createService()` requires explicit `numHandles` (currently 32) — default 15 silently truncates overflow characteristics, last visible symptom was iOS only seeing 5 of 8 chars
 - Bind phrase UID derivation: MD5(`-DMY_BINDING_PHRASE="<phrase>"`), first 6 bytes, bit0 cleared
 - VTX not required for backpack OSD display
