@@ -46,7 +46,61 @@ public:
         m_colOrange = M5.Display.color565(0xFF, 0x9F, 0x4A);
         m_colErr    = M5.Display.color565(0xFF, 0x64, 0x64);
         m_colCyan   = M5.Display.color565(0x6B, 0xE1, 0xFF);
-        drawHairlines();
+        // Hairlines are owned by showStatus (and wakePanel). Painting
+        // them here would flash them on the black canvas during the
+        // gap between begin() and the first showSplash/showStatus call
+        // (batteryMonitor.begin + Serial.begin + wake-cause check is
+        // ~tens of ms — enough to be visibly perceived as a glitch
+        // before the splash takes over).
+    }
+
+    /// Boot-time splash: centered "HDZap" + "FW <version>" on a black
+    /// canvas, held by the caller's `delay()` before `showStatus`
+    /// repaints over it. No state retained — the next band-level paint
+    /// (drawUidBand / drawLapBand / drawStrip) wipes the whole screen
+    /// in tiles, so nothing here outlives the next status update.
+    /// Called once from `setup()` so the operator sees which firmware
+    /// is running before the UID/lap UI takes over. The title is the
+    /// product brand ("HDZap"), not the BLE-advertised device name —
+    /// the latter is shown in the UID band caption once the normal
+    /// status layout takes over.
+    void showSplash(const char* version) {
+        M5.Display.fillScreen(TFT_BLACK);
+        // Disable text wrap explicitly so an unexpectedly long version
+        // string clips at the screen edge instead of rolling onto a
+        // second line that overlaps the title above. Restored to the
+        // class default (true) at the end.
+        M5.Display.setTextWrap(false);
+        // Title: large mono, centered horizontally.
+        M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
+        M5.Display.setTextSize(1);
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+        const char* title = "HDZap";
+        int titleW = M5.Display.textWidth(title);
+        int titleY = m_h / 2 - M5.Display.fontHeight() - 2;
+        if (titleY < 0) titleY = 0;
+        M5.Display.setCursor((m_w - titleW) / 2, titleY);
+        M5.Display.print(title);
+        // Version: small mono accent, "FW <version>" — match the iOS
+        // Settings row so the two surfaces use the same wording.
+        M5.Display.setFont(&fonts::Font0);
+        M5.Display.setTextColor(m_colAccent, TFT_BLACK);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "FW %s", (version && *version) ? version : "unknown");
+        int verW = M5.Display.textWidth(buf);
+        int verY = m_h / 2 + 6;
+        M5.Display.setCursor((m_w - verW) / 2, verY);
+        M5.Display.print(buf);
+        // Splash leaves the canvas as-is — no hairlines, no band frames.
+        // showStatus paints those (and clears the gap rows where the
+        // splash text bleeds outside the band rectangles), so the next
+        // status update wipes the splash entirely. Restore the class-
+        // invariant defaults the rest of the routines rely on:
+        // top_left datum (set in begin()), text wrap on, and ink color
+        // foreground.
+        M5.Display.setTextDatum(textdatum_t::top_left);
+        M5.Display.setTextWrap(true);
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
     }
 
     void showStatus(const uint8_t uid[6], bool bleConnected, bool radioReady,
@@ -56,6 +110,18 @@ public:
         m_radioReady = radioReady;
         m_uidIsDefault = uidIsDefault;
         clearTakeover();
+        // Self-contained repaint: clear the gap rows between bands
+        // (kHair1Y..kLapBandY = [60..64), kHair2Y..kStripY = [110..113))
+        // and re-paint the hairlines. Earlier callers (boot splash, a
+        // full-screen takeover) can leave anything in those rows — the
+        // band fillRects below cover [0..60), [64..110), [113..135),
+        // so without the explicit gap clears those 5 stray rows would
+        // hold ghost pixels. Cheap (two thin fillRects + drawHairlines'
+        // two 1-px lines) and runs only on real status events, not
+        // every frame.
+        M5.Display.fillRect(0, kHair1Y, m_w, kLapBandY - kHair1Y, TFT_BLACK);
+        M5.Display.fillRect(0, kHair2Y, m_w, kStripY - kHair2Y, TFT_BLACK);
+        drawHairlines();
         drawUidBand();
         drawLapBand();
         drawStrip();

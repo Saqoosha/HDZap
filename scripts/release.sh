@@ -16,8 +16,17 @@ set -euo pipefail
 #      (jj auto-creates a new empty change at @ after the push — do NOT run jj new)
 #   6. Wait for the develop CI run to go green (firmware build + staging Pages deploy)
 #   7. Open a release PR develop → main and merge it (--merge, preserves the cut)
-#   8. Fast-forward local develop to main so the next cycle starts in sync
-#   9. Tag the released commit on main as v<version>, push tag, create GitHub Release
+#   8. Tag the merge commit on main as v<version>, push tag
+#   9. Re-run main's Web Flasher CI so the deployed firmware on /flash/
+#      picks up the new tag (the merge → CI start → tag push race means the
+#      first run built before the tag was visible to git describe)
+#  10. Create a GitHub Release for v<version>
+#  11. Fast-forward local develop to main so the next cycle starts in sync
+#
+# For build-only releases (CURRENT_PROJECT_VERSION bump only, MARKETING_VERSION
+# unchanged) — used when shipping to existing TestFlight beta testers without
+# a fresh beta-review approval — see `.claude/skills/release/SKILL.md` for the
+# manual procedure. This script does not handle that variant.
 #
 # Recovery on failure: if any step before TestFlight upload fails, the script
 # restores project.yml from git so the working tree stays clean. After a
@@ -199,6 +208,29 @@ git fetch origin main
 RELEASE_COMMIT=$(git rev-parse origin/main)
 git tag -a "$TAG" "$RELEASE_COMMIT" -m "Release ${VERSION} (build ${NEW_BUILD})"
 git push origin "$TAG"
+
+# The merge that landed the release commit on main triggered the Web Flasher
+# workflow before this tag push could finish, so the first CI run on main
+# built firmware against a tree where `git describe --tags` resolved to the
+# *previous* tag (`v<prev>-N-g<sha>`) instead of `$TAG`. Re-run that CI now
+# so the production /flash/ deploy serves firmware stamped with the new tag.
+# The version-check feature still works without this — `firmwareMajor()`
+# only parses the leading integer — but the dev-style version string on
+# /flash/ is cosmetically wrong for a tagged release.
+echo "=== Re-running main CI so /flash/ firmware reflects ${TAG} ==="
+MAIN_RUN_ID=$(gh run list --branch main --workflow "Web Flasher" --limit 1 \
+  --json databaseId --jq '.[0].databaseId')
+if [[ -n "$MAIN_RUN_ID" ]]; then
+  gh run rerun "$MAIN_RUN_ID"
+  if ! gh run watch "$MAIN_RUN_ID" --exit-status; then
+    echo "Warn: main CI re-run failed. Production /flash/ keeps the prior firmware." >&2
+    echo "      Investigate via: gh run view $MAIN_RUN_ID" >&2
+    # Don't exit — the tag, GitHub Release, and develop fast-forward steps
+    # below are still useful even if the cosmetic re-run failed.
+  fi
+else
+  echo "Warn: no main Web Flasher run found to re-trigger; skipping." >&2
+fi
 
 echo "=== Creating GitHub Release ==="
 gh release create "$TAG" \
