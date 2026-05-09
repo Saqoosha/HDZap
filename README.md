@@ -71,7 +71,7 @@ Hotfixes still go through `develop` → `main` PRs. Direct push to `main` is blo
 
 ## BLE Protocol
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. The UUID is bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics without a phone reboot.
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. The UUID is bumped on every GATT-shape change — including characteristic property-bitmap changes — so iOS CoreBluetooth's per-peripheral cache reliably re-discovers the new shape without a phone reboot.
 
 | Characteristic | UUID suffix | Direction | Format |
 |---|---|---|---|
@@ -82,6 +82,7 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d489`. The UUID is bumped on ever
 | TX Sniff | `...d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6]` |
 | OSD Text | `...d487` | Write | `[row:u8][ascii:1-19B]`; rows 0..3 stage one bottom-anchored 4-row text frame |
 | Battery | `...d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced; bits 4-7 reserved)]` |
+| Device Name | `...d489` | Read+Write | UTF-8, ≤20 bytes; write triggers NVS persist + reboot so the new name lands in `BLEDevice::init` |
 
 UID Config modes: `0x01` bind phrase, `0x02` raw 6-byte UID, `0x03` new pairing (ESP32 MAC).
 OSD commands: `0x01` clear, `0x02` reset laps, `0x03` test OSD.
@@ -182,3 +183,7 @@ python3 -m http.server 8765 --directory docs --bind 127.0.0.1
 - [docs/testflight-setup.md](docs/testflight-setup.md) — TestFlight team setup and release credentials.
 - [AGENTS.md](AGENTS.md) — knowledge base for AI coding agents (architecture invariants, gotchas, conventions).
 - [CLAUDE.md](CLAUDE.md) — Claude Code specific notes (firmware constraints, BLE invariants, hardware notes).
+
+## License
+
+[MIT](LICENSE) © Saqoosha

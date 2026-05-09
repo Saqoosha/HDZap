@@ -9,8 +9,8 @@ import os
 private let log = Logger(subsystem: "sh.saqoo.HDZap", category: "LapAnnouncer")
 
 /// UserDefaults keys + defaults shared between LapAnnouncer (the consumer)
-/// and SettingsView (the editor). Centralized so a typo in one site can't
-/// silently disconnect the two — both reach for the same constants.
+/// and AudioSettingsView (the editor). Centralized so a typo in one site
+/// can't silently disconnect the two — both reach for the same constants.
 enum LapAnnouncerDefaults {
     static let enabledKey = "lapTTSEnabled"
     static let languageKey = "lapTTSLanguage"
@@ -20,12 +20,23 @@ enum LapAnnouncerDefaults {
     static let announceBestKey = "lapTTSAnnounceBest"
 
     /// Mirrors `AVSpeechUtteranceDefaultSpeechRate` (iOS 18 = 0.5). Hardcoded
-    /// so SettingsView and HDZapApp can register and bind the default
+    /// so AudioSettingsView and HDZapApp can register and bind the default
     /// without transitively importing AVFoundation; debug-asserted at
     /// `LapAnnouncer.init` so the next SDK that retunes the constant trips
     /// a precondition rather than silently drifting.
     static let defaultRate: Float = 0.5
     static let defaultPitch: Float = 1.0
+    /// Master toggle default — off, so the app stays silent until the
+    /// operator explicitly opts in to TTS announcements.
+    static let defaultEnabled = false
+    /// "best lap" callout default — on. Cheap, useful, and only fires
+    /// at the moments that warrant a callout.
+    static let defaultAnnounceBest = true
+    /// Empty string == "use the system default voice for the selected
+    /// language" inside `LapAnnouncer.currentVoice()`. Keeps every
+    /// `@AppStorage` site, the Reset button, and HDZapApp's register
+    /// block reaching for the same symbol — no typo or drift surface.
+    static let defaultVoiceIdentifier = ""
     /// Empirical bounds verified on iOS 18 with the system fallback voices
     /// (Samantha en-US, Kyoko Enhanced ja-JP): below 0.30 the voice trails
     /// into incomprehensible mush; above 0.65 the engine chops sub-second
@@ -98,10 +109,11 @@ enum LapAnnouncerLanguage: String, CaseIterable, Identifiable {
 /// AVAudioSession; activation is deferred until the first announcement so
 /// the audio session isn't disturbed for users who never enable TTS.
 ///
-/// SettingsView is the writer for voice / rate / pitch / language; this
-/// class is the reader. Both reach for the same `LapAnnouncerDefaults.*`
-/// keys, and every setting is read fresh inside `speak()` so Settings
-/// edits apply on the next lap with no explicit wiring.
+/// AudioSettingsView is the writer for voice / rate / pitch / language;
+/// this class is the reader. Both reach for the same
+/// `LapAnnouncerDefaults.*` keys, and every setting is read fresh inside
+/// `speak()` so Settings edits apply on the next lap with no explicit
+/// wiring.
 @MainActor
 @Observable
 final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
@@ -141,7 +153,8 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func announceLap(_ lap: Lap, isBest: Bool) {
-        let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool ?? true
+        let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool
+            ?? LapAnnouncerDefaults.defaultAnnounceBest
         speak(phrase(for: lap, isBest: isBest && announceBest))
     }
 
@@ -298,7 +311,8 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
 
     private func currentVoice() -> AVSpeechSynthesisVoice? {
         let language = currentLanguage()
-        let id = UserDefaults.standard.string(forKey: LapAnnouncerDefaults.voiceIdentifierKey) ?? ""
+        let id = UserDefaults.standard.string(forKey: LapAnnouncerDefaults.voiceIdentifierKey)
+            ?? LapAnnouncerDefaults.defaultVoiceIdentifier
 
         // Honor the saved voice only if it matches the current announcement
         // language. Without this check, switching language would happily
@@ -309,18 +323,20 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 if voice.language.hasPrefix(language.voiceLanguagePrefix) {
                     return voice
                 }
-                // Voice exists but is the wrong language. SettingsView's
-                // `onChange(of: ttsLanguageRaw)` clears `voiceIdentifier`
-                // when the user switches in-app, but a Shortcuts / MDM /
-                // iCloud-sync write or an iOS region change can leave a
-                // mismatched id. Log so the silent quality drop is
-                // observable in `log stream`.
+                // Voice exists but is the wrong language.
+                // AudioSettingsView's `onChange(of: ttsLanguageRaw)`
+                // clears `voiceIdentifier` when the user switches
+                // in-app, but a Shortcuts / MDM / iCloud-sync write or
+                // an iOS region change can leave a mismatched id. Log
+                // so the silent quality drop is observable in `log
+                // stream`.
                 log.info("Saved voice '\(id, privacy: .public)' is \(voice.language, privacy: .public); announcement language is \(language.fallbackVoiceLanguage, privacy: .public). Using system default for the announcement language.")
             } else {
                 // Saved identifier no longer resolves: voice was uninstalled
                 // or the device was restored to a phone that doesn't have
-                // it. SettingsView's `voiceMissing` banner covers the UX,
-                // but log so the issue shows up in `log stream` output too.
+                // it. AudioSettingsView's `voiceMissing` banner covers
+                // the UX, but log so the issue shows up in `log stream`
+                // output too.
                 log.info("Saved voice '\(id, privacy: .public)' no longer installed; using system default for \(language.fallbackVoiceLanguage, privacy: .public).")
             }
         }
@@ -439,7 +455,7 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     }
 }
 
-/// Catalogs the installed speech voices so SettingsView can render a Picker.
+/// Catalogs the installed speech voices so AudioSettingsView can render a Picker.
 /// Filtered to the selected announcement language because asking a voice to
 /// read text in the wrong language ("Lap 5, 12.34" through a `ja-JP` voice,
 /// or vice versa) produces unintelligible output.
@@ -532,7 +548,7 @@ enum LapAnnouncerVoiceCatalog {
     /// `nonisolated(unsafe)` because the catalog isn't `@MainActor`. In
     /// practice the function is invoked from `LapAnnouncer.init`'s
     /// background `Task.detached` once per launch and from the main-actor
-    /// SettingsView body when Audio settings render — never concurrently —
+    /// AudioSettingsView body when its body renders — never concurrently —
     /// so the unsynchronized read/write doesn't actually race. Marking it
     /// explicitly silences the Swift 6 warning and documents the intent.
     nonisolated(unsafe) private static var lastDumpedVoiceIds: Set<String> = []

@@ -10,10 +10,14 @@ enum OSDCommand: UInt8 {
     case testOSD = 0x03
 }
 
-// Service UUID bumped from ...d479 → ...d489 in lockstep with firmware,
-// to defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
-// added characteristics are otherwise invisible until the iPhone is rebooted).
-private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
+// Service UUID bumped to ...d490 in lockstep with firmware to defeat iOS
+// CoreBluetooth's per-peripheral GATT cache (without bonding, added
+// characteristics are otherwise invisible until the iPhone is rebooted).
+// This bump ships with the new firmwareVersionUUID (...d48f); the prior
+// d48d → d48e move shipped with deviceNameUUID (...d489) and is already
+// on develop. Both characteristics are GATT shape changes from iOS's
+// perspective, so each delta gets its own service UUID move.
+private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d490")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
 // CHR_LAP_TIME_UUID (...d483) was retired when the firmware switched to the
@@ -24,6 +28,15 @@ private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
 private let osdTextUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d487")
 private let batteryUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d488")
+private let deviceNameUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
+private let osdLayoutUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48b")
+private let firmwareVersionUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48f")
+
+/// BLE adv scan-response leaves room for ~20 bytes of UTF-8 device name
+/// after the 128-bit service UUID. Match the firmware constant in
+/// `nvs_store::kDeviceNameMaxLen` — diverging here would let iOS write
+/// a longer string that the firmware silently rejects.
+let bleDeviceNameMaxBytes = 20
 
 @MainActor
 @Observable
@@ -43,26 +56,85 @@ class BluetoothManager: NSObject {
     }
 
     private(set) var discoveredDevices: [CBPeripheral] = []
+    /// Local name captured from advertisement / scan response, keyed by
+    /// peripheral identifier. Solves the "Unknown" first-pairing flicker:
+    /// while iOS has no cached GAP 0x2A00 device name for this peripheral,
+    /// `peripheral.name` is nil during scan because the firmware's BLE
+    /// library auto-spills the local name into the scan response (the
+    /// 128-bit service UUID consumes most of the 31-byte primary adv
+    /// slot — see `firmware/include/ble_service.h::ble_init`; if that
+    /// ever switches to a 16-bit UUID this iOS-side mitigation can be
+    /// dropped). The scan response *is* delivered in `advertisementData`,
+    /// so we capture it here and let the UI prefer this over
+    /// `peripheral.name`. Load-bearing whenever iOS lacks a cached GAP
+    /// name — typically the first pairing per app install, but also
+    /// after a Bluetooth cache reset, OS BT toggle, or "Forget This
+    /// Device".
+    private(set) var advertisedNames: [UUID: String] = [:]
     private(set) var connectedDeviceName: String?
+    /// Current advertised BLE name as reported by the firmware's
+    /// CHR_DEVICE_NAME read. Populated by the post-connect read kicked
+    /// off in `didDiscoverCharacteristicsFor`. Distinct from
+    /// `connectedDeviceName` (which is the cached `peripheral.name` /
+    /// scan-response local name CoreBluetooth surfaces during scan):
+    /// this one is the *firmware's* current truth, including a freshly
+    /// applied rename that hasn't yet propagated to the iOS scan cache.
+    /// Drives the rename UI's initial text-field value.
+    private(set) var currentDeviceName: String?
     /// Identifier of the currently-connected peripheral, if any.
     /// Lets the UI deduplicate the discovered-devices list against the
     /// active connection without exposing the full `CBPeripheral`.
     var connectedIdentifier: UUID? { connectedPeripheral?.identifier }
     private(set) var currentUID: [UInt8]?
+    /// Last UID seen from a live status frame, persisted to UserDefaults
+    /// so the Settings root can show it across app launches before a BLE
+    /// reconnect lands. Distinct from `currentUID` (which is `nil` while
+    /// disconnected) so callers needing live truth — pairing flow,
+    /// rollback baseline, current-UID-section gating — keep those
+    /// semantics. Best-effort cache; UserDefaults write failures (disk
+    /// full, sandbox revocation) surface as a regression to "—" on the
+    /// next launch but never block the in-memory copy.
+    ///
+    /// Clearing policy:
+    /// - User-tapped `disconnect()` clears the stash explicitly so a
+    ///   stash from the prior M5Stick doesn't display after the user
+    ///   swaps devices.
+    /// - A short / malformed status frame (firmware/app version skew)
+    ///   also clears it — the stash would otherwise contradict the
+    ///   error banner that announces the schema mismatch.
+    /// - Involuntary disconnects (range / sleep / OS BT toggle) do
+    ///   *not* clear the stash. The whole point of persistence is to
+    ///   survive those drops so the operator sees the remembered UID
+    ///   on next launch before BLE reconnects.
+    private(set) var lastKnownUID: [UInt8]?
+    private static let lastKnownUIDKey = "lastKnownUID"
     /// Latest Test OSD outcome from the firmware status notify.
     /// Encodes the `g_last_test_result` byte:
     ///   .none      = no test result yet (or the firmware byte was 0)
     ///   .ok        = ESP-NOW MAC layer ack'd every test packet
     ///   .lost      = at least one test packet was not delivered
     ///
-    /// Bumped each time a fresh status frame arrives, regardless of whether
-    /// the value changed. Drives the auto-test+rollback workflow in
-    /// `SettingsView` — that view tracks a sequence number from
+    /// Bumped each time a fresh status frame *carrying a real test
+    /// result* arrives. Drives the auto-test+rollback workflow in
+    /// `PairingSettingsView` — that view tracks a sequence number from
     /// `testResultRevision` so it can ignore stale frames that arrived
     /// before its own pairing attempt.
+    ///
+    /// Disconnect frames (byte 0 == 0) are deliberately skipped: the
+    /// firmware reuses `g_last_test_result` rather than clearing it on
+    /// disconnect, so a disconnect-during-verify would otherwise replay
+    /// a stale `.ok` and falsely report success on the next attempt.
     enum TestResult: UInt8 { case none = 0, ok = 1, lost = 2 }
     private(set) var lastTestResult: TestResult = .none
     private(set) var testResultRevision: UInt32 = 0
+    /// Reset by `PairingSettingsView` immediately before sending its
+    /// verify probe so the loop can wait on `lastTestResult != .none`
+    /// (i.e. "an actual test result has landed") rather than just on
+    /// the revision counter — which can advance from any status frame
+    /// the firmware fires for an unrelated reason.
+    func clearTestResult() {
+        lastTestResult = .none
+    }
     /// UID we displaced on the most recent Apply attempt. Survives the
     /// Settings sheet being dismissed (which is why it lives here, not
     /// on the view) so the user can return to the sheet later and still
@@ -125,6 +197,30 @@ class BluetoothManager: NSObject {
     private(set) var isCharging = false
     private(set) var batteryAlarm: BatteryAlarm = .none
 
+    /// Firmware version string read once on connect from CHR_FW_VERSION.
+    /// Format mirrors `git describe --tags --dirty --always`:
+    ///   - tagged release commit:  `v1.0.0`
+    ///   - post-tag dev commit:    `v1.0.0-12-gabc1234` (`-dirty` suffix
+    ///                             when the tree had uncommitted changes)
+    ///   - untagged dev commit:    `<short-sha>` or `<short-sha>-dirty`
+    ///   - no-history fallback:    literal "unknown"
+    /// `nil` until the firmware-version characteristic has been read.
+    /// Cleared on disconnect / teardown so a stale version can't linger
+    /// past the link drop and lie about the next M5Stick the user pairs.
+    private(set) var firmwareVersion: String?
+    /// Set on connect when `firmwareMajor(from:)` parses a real major
+    /// integer from `firmwareVersion` AND it disagrees with the app's
+    /// `CFBundleShortVersionString` major. Drives the
+    /// `ConnectionSettingsView` warning row.
+    ///
+    /// Intentionally NOT triggered by an unparseable firmware version —
+    /// dev builds, untagged commits (`<short-sha>`), and the no-history
+    /// "unknown" fallback all skip the compare so dev/CI connects don't
+    /// fire false positives. The `app/firmware both shipped from the
+    /// same release tag` guarantee is what makes the major-version
+    /// compare meaningful in the first place.
+    private(set) var firmwareIncompatible = false
+
     /// True while the app has asked the firmware to listen for TX bind packets.
     /// Toggled locally on start/stop — firmware has no state echo.
     /// Intentionally preserved across auto-reconnects: the firmware recv
@@ -180,6 +276,29 @@ class BluetoothManager: NSObject {
     override init() {
         super.init()
         centralManager = CBCentralManager(delegate: self, queue: nil)
+        // Restore the last UID we saw on a previous run so the Settings
+        // root's "Goggle pairing" row can render the remembered value
+        // immediately on launch, before a BLE reconnect populates the
+        // live `currentUID`. Length-checked because Data of any other
+        // size means a corrupted preference (older app version, manual
+        // edit) and we'd rather show "—" than a malformed UID. This is
+        // a display-only stash, so the unicast-MAC bit-0 invariant
+        // (`uid[0] & 0x01 == 0`) isn't enforced here — if this ever
+        // feeds a write path, normalize it first.
+        //
+        // Self-heal: a non-Data type or wrong-length Data would
+        // otherwise re-fail on every launch with no recovery short of
+        // deleting the app, so wipe the bad value and log it once.
+        if let any = UserDefaults.standard.object(forKey: Self.lastKnownUIDKey) {
+            if let saved = any as? Data, saved.count == 6 {
+                lastKnownUID = Array(saved)
+            } else {
+                let kind = (any as? Data).map { "wrong length (\($0.count)B)" }
+                    ?? "wrong type (\(type(of: any)))"
+                print("BLE lastKnownUID restore: discarding persisted value — \(kind).")
+                UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
+            }
+        }
     }
 
     /// Dismiss the currently-displayed error. Other queued errors stay
@@ -237,8 +356,22 @@ class BluetoothManager: NSObject {
             return
         }
         discoveredDevices = []
+        // Drop names from a prior scan so a peripheral that was renamed
+        // out-of-band (rare, but possible if the firmware was reflashed
+        // with a different `ble_init` name) can't keep its stale label.
+        advertisedNames = [:]
         isScanning = true
-        centralManager.scanForPeripherals(withServices: [serviceUUID])
+        // `allowDuplicates: true` so we keep getting `didDiscover`
+        // callbacks for the same peripheral — without it iOS only fires
+        // the first one, and on first pairing that first event can land
+        // before the scan response has been merged in (the local name
+        // lives in the scan response, not the primary adv packet).
+        // Allowing duplicates means the next event after the scan
+        // response arrives will include the name and we update the map.
+        centralManager.scanForPeripherals(
+            withServices: [serviceUUID],
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
+        )
     }
 
     func stopScan() {
@@ -262,10 +395,27 @@ class BluetoothManager: NSObject {
         // different M5Stick / goggle pair, and silently surfacing the prior
         // pair's UID as "Restore" would write the wrong value to the new one.
         previousUID = nil
+        // Same reasoning: clear the persisted summary stash so the
+        // Settings root doesn't keep parading the prior pair's UID
+        // after the user has explicitly walked away from this device.
+        lastKnownUID = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
         capturedTXUID = nil
         isTXSniffActive = false
         resetBatteryState()
+        resetFirmwareVersion()
         centralManager.cancelPeripheralConnection(peripheral)
+    }
+
+    /// Best-known display name for a discovered peripheral. Prefers the
+    /// scan-response local name we captured during `didDiscover`, then
+    /// the OS-cached GAP name on `CBPeripheral`, then nil. The UI layer
+    /// owns the "Unknown" fallback so that decision stays in one place.
+    func displayName(for peripheral: CBPeripheral) -> String? {
+        if let name = advertisedNames[peripheral.identifier], !name.isEmpty {
+            return name
+        }
+        return peripheral.name
     }
 
     /// Bind phrases share a 63-byte cap with the firmware so the MD5 input
@@ -320,6 +470,13 @@ class BluetoothManager: NSObject {
     /// content. Caller pre-pads `text` to a stable width per row so
     /// the centered position is invariant across updates (otherwise
     /// shorter text leaves the prior longer text's tail visible).
+    /// `writeWithoutResponse` (matches `sendOSDRows`) so a 1 Hz TIME
+    /// LEFT tick that lands right after a `sendMetricRows` burst still
+    /// fits inside the firmware's 40 ms render-staging window — a
+    /// `.withResponse` write here would add a ~30 ms ATT round-trip and
+    /// push the TIME LEFT row past the window onto a separate render
+    /// cycle, which the operator sees as the lap row settling first
+    /// and TIME LEFT settling a beat later.
     @discardableResult
     func sendOSDRow(row: Int, text: String) -> Bool {
         guard (0..<4).contains(row) else {
@@ -328,7 +485,7 @@ class BluetoothManager: NSObject {
         }
         var data = Data([UInt8(row)])
         data.append(Self.osdASCIIData(for: text))
-        return write(data: data, to: osdTextUUID)
+        return writeWithoutResponse(data: data, to: osdTextUUID)
     }
 
     /// Send a batch of OSD rows without waiting for per-row BLE
@@ -354,6 +511,74 @@ class BluetoothManager: NSObject {
     func sendOSDControl(command: OSDCommand) -> Bool {
         write(data: Data([command.rawValue]), to: osdControlUUID)
     }
+
+    /// Push the OSD layout Y offset to the firmware. Single signed byte:
+    /// rows to shift the 4-row block up from the bottom of the grid
+    /// (0 = bottom-anchored default, negative = move up). Per-row
+    /// alignment / show-hide are applied entirely on the iOS side via
+    /// the existing OSD text path, so they don't ride this characteristic.
+    ///
+    /// `urgent`:
+    /// - `false` (default, used by the editor's slider debounce):
+    ///   write-without-response, same as `sendOSDRows`, so a drag's
+    ///   layout writes don't each pay the ~30 ms ATT ack round-trip.
+    ///   If a write does drop, the next debounced push or
+    ///   state-transition flush re-sends the value.
+    /// - `true` (state transitions: Ready ↔ Running ↔ Result, reconnect
+    ///   replay): write-with-response. Pays the ATT ack cost so a busy
+    ///   BLE outbound queue can't silently drop the offset right when
+    ///   the goggle is about to render at the wrong base row, which
+    ///   would also throw off the partial-update slot routing in the
+    ///   following sendTimeLeftRow / sendMetricRows ticks.
+    ///
+    /// Optional on the firmware side (older builds without the
+    /// characteristic just return false here without surfacing an error,
+    /// since the layout setting is a UX-only feature, not a correctness
+    /// requirement for laps).
+    @discardableResult
+    func sendOSDLayout(yOffset: Int, urgent: Bool = false) -> Bool {
+        let clamped = max(-128, min(127, yOffset))
+        let byte = UInt8(bitPattern: Int8(clamped))
+        guard characteristics[osdLayoutUUID] != nil else {
+            // Older firmware without CHR_OSD_LAYOUT: silently no-op so a
+            // mixed app/firmware version doesn't spam the error log every
+            // time the user touches a slider.
+            return false
+        }
+        if urgent {
+            return write(data: Data([byte]), to: osdLayoutUUID)
+        }
+        return writeWithoutResponse(data: Data([byte]), to: osdLayoutUUID)
+    }
+
+    /// True once the OSD layout characteristic has been discovered.
+    /// Lets the layout-settings view show a hint when paired against
+    /// older firmware that doesn't carry the new char.
+    var supportsOSDLayout: Bool { characteristics[osdLayoutUUID] != nil }
+
+    /// Rename the M5StickS3's advertised BLE name. Firmware persists to
+    /// NVS and reboots — the connection drops for ~3 s and bonded iOS
+    /// reconnects automatically with the new name in scan results.
+    /// Trims leading/trailing whitespace and silently rejects empty /
+    /// oversized inputs (returning `false`) — the rename view's `canSave`
+    /// gate is the user-visible enforcement and shows byte-count
+    /// feedback inline, so a duplicate `lastError` write here would only
+    /// route the same UX through the global error banner.
+    @discardableResult
+    func sendDeviceName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bytes = Data(trimmed.utf8)
+        guard !bytes.isEmpty, bytes.count <= bleDeviceNameMaxBytes else {
+            return false
+        }
+        return write(data: bytes, to: deviceNameUUID)
+    }
+
+    /// True once the device-name characteristic has been discovered.
+    /// Lets the rename UI hide itself when paired with older firmware
+    /// that doesn't carry the new char, instead of surfacing a generic
+    /// "characteristic not ready" error on tap.
+    var supportsDeviceRename: Bool { characteristics[deviceNameUUID] != nil }
 
     @discardableResult
     func startTXSniff() -> Bool {
@@ -381,6 +606,15 @@ class BluetoothManager: NSObject {
     /// Write without waiting for ATT-layer acknowledgement. Used for bulk
     /// OSD rows where speed matters more than per-write confirmation —
     /// 4 rows fire back-to-back instead of serialising 30+ ms each.
+    /// CoreBluetooth queues writes past `canSendWriteWithoutResponse`
+    /// rather than dropping them in practice, and a 5-write burst
+    /// (1 layout char + 4 rows) sits well inside the queue depth on
+    /// every supported iOS version we ship to. A prior attempt to gate
+    /// on `canSendWriteWithoutResponse` and fall back to write-with-
+    /// response added a 30 ms ATT round-trip to every saturated write,
+    /// turning the slider drag into a visibly laggy path. Atomicity-
+    /// critical writes (state-transition layout char) opt into write-
+    /// with-response via the `urgent` flag on `sendOSDLayout` instead.
     @discardableResult
     private func writeWithoutResponse(data: Data, to uuid: CBUUID) -> Bool {
         return write(data: data, to: uuid, type: .withoutResponse)
@@ -404,6 +638,76 @@ class BluetoothManager: NSObject {
         batteryPercent = nil
         isCharging = false
         batteryAlarm = .none
+    }
+
+    private func resetFirmwareVersion() {
+        firmwareVersion = nil
+        firmwareIncompatible = false
+    }
+
+    /// Parse the leading `<major>` integer from a `git describe`-style
+    /// version string. Returns `nil` for unparseable inputs (dev builds
+    /// without a tag, "unknown", empty), which the caller treats as
+    /// "skip the compatibility check".
+    ///
+    /// Accepts the optional leading `v` prefix the release flow uses
+    /// (`v1.0.0`, `v1.0.0-12-gabc1234`, `v1.0.0-12-gabc1234-dirty`).
+    /// Splitting on the first `.` rejects bare integers / short SHAs
+    /// that happen to start with digits — `git describe` always emits
+    /// either `<sha>` (no dot, not a real version) or `vX.Y.Z[...]`.
+    static func firmwareMajor(from version: String) -> Int? {
+        var s = Substring(version)
+        if s.first == "v" || s.first == "V" { s = s.dropFirst() }
+        let parts = s.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, let n = Int(parts[0]) else { return nil }
+        return n
+    }
+
+    /// App's `CFBundleShortVersionString` (== MARKETING_VERSION, set in
+    /// `app/project.yml`). `nil` if the bundle returned a malformed
+    /// version string. Centralised so the firmware-compat check and the
+    /// `ConnectionSettingsView` version row read it the same way.
+    static func appVersionString() -> String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    /// Single source of truth for the mismatch-warning text used by
+    /// every UI surface that flags `firmwareIncompatible`. Keeps the
+    /// Settings root About row, the ConnectionSettingsView version
+    /// row, and the recordError banner from drifting out of sync —
+    /// SwiftUI treats the literal as a localization key, so a future
+    /// edit on one site would silently break the others.
+    static let firmwareMismatchSummary = String(
+        localized: "Major version mismatch — update HDZap or reflash the M5StickS3."
+    )
+
+    /// Major component of `appVersionString()`. `nil` when the bundle
+    /// version is missing or unparseable.
+    static func appMajor() -> Int? {
+        guard let v = appVersionString() else { return nil }
+        return firmwareMajor(from: v)
+    }
+
+    private func evaluateFirmwareCompatibility() {
+        guard let fwVersion = firmwareVersion,
+              let fwMajor = Self.firmwareMajor(from: fwVersion),
+              let appMajor = Self.appMajor() else {
+            // Either side unparseable — don't fire a false-positive
+            // warning on dev builds. UI still shows the raw fwVersion
+            // string for diagnostics.
+            firmwareIncompatible = false
+            return
+        }
+        let mismatch = fwMajor != appMajor
+        firmwareIncompatible = mismatch
+        if mismatch {
+            // Surface in the error log too so the user sees the warning
+            // even if they aren't on the Connection settings screen.
+            // recordError's consecutive-duplicate collapse keeps repeated
+            // reconnects to the same firmware from spamming the queue.
+            let appV = Self.appVersionString() ?? "?"
+            lastError = "Firmware \(fwVersion) is from a different major version than this app (v\(appV)). Update one of them — features may not match."
+        }
     }
 
     private static func osdASCIIData(for line: String) -> Data {
@@ -456,6 +760,15 @@ extension BluetoothManager: CBCentralManagerDelegate {
         if !discoveredDevices.contains(where: { $0.identifier == peripheral.identifier }) {
             discoveredDevices.append(peripheral)
         }
+        // Local name lives in the firmware's scan response — capture it
+        // so the discovered-devices row can show "HDZeroOSD" instead of
+        // "Unknown" before the first connect. Only update on a real
+        // change so the @Observable storage doesn't churn the UI on
+        // every duplicate scan tick.
+        if let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String,
+           advertisedNames[peripheral.identifier] != name {
+            advertisedNames[peripheral.identifier] = name
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -465,10 +778,13 @@ extension BluetoothManager: CBCentralManagerDelegate {
         // after an unexpected drop) got us here.
         suppressAutoReconnect = false
         userTappedDisconnect = false
-        // peripheral.name can be nil before the remote name is resolved; fall
-        // back to a short identifier prefix so the UI shows *something* rather
-        // than implying there's no active connection.
-        connectedDeviceName = peripheral.name
+        // `displayName(for:)` returns the captured scan-response local
+        // name when present, otherwise the OS-cached GAP name, otherwise
+        // nil. The trailing `??` adds a short identifier prefix so the
+        // UI shows *something* rather than implying there's no active
+        // connection — `peripheral.name` can still be nil at didConnect
+        // on a first pairing, before iOS has resolved the GAP name.
+        connectedDeviceName = displayName(for: peripheral)
             ?? "Device \(peripheral.identifier.uuidString.prefix(8))"
         peripheral.delegate = self
         peripheral.discoverServices([serviceUUID])
@@ -494,11 +810,20 @@ extension BluetoothManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         isConnected = false
         connectedDeviceName = nil
+        // Drop the firmware-reported name on disconnect; the next reconnect
+        // re-reads CHR_DEVICE_NAME and surfaces the current truth, which
+        // matters across the rename-triggered reboot when the post-restart
+        // peripheral may advertise a new name.
+        currentDeviceName = nil
         characteristics = [:]
         // Drop battery state on every disconnect — a "47%" lingering after
         // the link is gone is misleading whether the next state is
         // suppressed (user tap) or auto-reconnect.
         resetBatteryState()
+        // Same reasoning for firmware version: the next reconnect will
+        // re-read it, and a stale string would otherwise contradict the
+        // disconnected state shown in the UI.
+        resetFirmwareVersion()
         if suppressAutoReconnect {
             suppressAutoReconnect = false
             userTappedDisconnect = false
@@ -528,7 +853,9 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID, osdTextUUID, batteryUUID
+            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID,
+            txSniffUUID, osdTextUUID, batteryUUID, deviceNameUUID, osdLayoutUUID,
+            firmwareVersionUUID,
         ], for: service)
     }
 
@@ -558,6 +885,21 @@ extension BluetoothManager: CBPeripheralDelegate {
             // independent of CCCD timing — `didUpdateValueFor` handles
             // both paths the same way.
             if char.uuid == batteryUUID {
+                peripheral.readValue(for: char)
+            }
+            // Pull the current advertised name once on connect so the
+            // rename UI can preselect it without a separate "fetch"
+            // step. The firmware seeds this char's read value with its
+            // boot-time name (`pDeviceName->setValue` in ble_init), so
+            // the read serves directly from the cached attribute value
+            // without a firmware-side onRead callback round-trip.
+            if char.uuid == deviceNameUUID {
+                peripheral.readValue(for: char)
+            }
+            // Firmware version is a constant for the running build (no
+            // notify), so a single read is sufficient. The compatibility
+            // warning fires from `didUpdateValueFor` once the value lands.
+            if char.uuid == firmwareVersionUUID {
                 peripheral.readValue(for: char)
             }
         }
@@ -594,6 +936,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         centralManager.cancelPeripheralConnection(peripheral)
         isConnected = false
         connectedDeviceName = nil
+        currentDeviceName = nil
         // Same reasoning as `disconnect()`: the next session will likely
         // be a different M5Stick / goggle, and a stale rollback UID would
         // be applied to the wrong device.
@@ -601,6 +944,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         capturedTXUID = nil
         isTXSniffActive = false
         resetBatteryState()
+        resetFirmwareVersion()
         connectedPeripheral = nil
         characteristics = [:]
         suppressAutoReconnect = true
@@ -651,6 +995,56 @@ extension BluetoothManager: CBPeripheralDelegate {
         if characteristic.uuid == txSniffUUID {
             guard let data = characteristic.value, data.count == 6 else { return }
             capturedTXUID = Array(data)
+            return
+        }
+        if characteristic.uuid == deviceNameUUID {
+            // Firmware seeds this with the current advertised name as
+            // raw UTF-8 (no length prefix, no terminator). Decode and
+            // surface so the rename UI can preselect the current value.
+            // An undecodable payload almost certainly means a firmware/
+            // app version mismatch (future protocol additions, e.g.
+            // length-prefixed frames, that this build doesn't
+            // understand) — surface it so silent staleness in the
+            // rename UI is debuggable rather than presenting "—" with
+            // no clue why.
+            guard let data = characteristic.value else { return }
+            guard let name = String(data: data, encoding: .utf8),
+                  !name.isEmpty else {
+                lastError = "Device name read returned undecodable bytes (\(data.count)B). Firmware/app version mismatch?"
+                return
+            }
+            currentDeviceName = name
+            // Promote the firmware-authoritative name to the
+            // Connected section, scan-response cache, and persisted
+            // bonded-device cache. After a rename → reboot →
+            // auto-reconnect, iOS's cached GAP name and our captured
+            // scan-response name are both still the *old* string —
+            // the bonded peripheral didn't re-advertise yet from
+            // iOS's perspective. Without this, the "Connected" header
+            // would keep showing the old name until the user manually
+            // re-scans.
+            connectedDeviceName = name
+            if peripheral.identifier == connectedPeripheral?.identifier {
+                advertisedNames[peripheral.identifier] = name
+            }
+            return
+        }
+        if characteristic.uuid == firmwareVersionUUID {
+            // UTF-8 string from `git describe`, see firmwareVersion docstring.
+            // `data == nil` is "no value yet" (not a wire violation, don't
+            // fire). Empty / non-UTF-8 IS a wire violation — surface
+            // `lastError` so the user sees the same kind of "firmware/app
+            // version mismatch?" hint other characteristics fire on
+            // malformed payloads (battery, status).
+            guard let data = characteristic.value else { return }
+            guard !data.isEmpty,
+                  let v = String(data: data, encoding: .utf8) else {
+                resetFirmwareVersion()
+                lastError = "Firmware version frame malformed (\(data.count)B, non-UTF-8 or empty). Firmware/app version mismatch?"
+                return
+            }
+            firmwareVersion = v
+            evaluateFirmwareCompatibility()
             return
         }
         if characteristic.uuid == batteryUUID {
@@ -709,9 +1103,13 @@ extension BluetoothManager: CBPeripheralDelegate {
             // Short frame points at firmware/app version skew — surface as
             // actionable error and invalidate the derived fields so the UI
             // doesn't keep showing a UID that no longer reflects the
-            // firmware.
+            // firmware. Drop the persisted summary stash too: the
+            // Settings root would otherwise keep rendering the prior
+            // UID while the error banner contradicts it.
             let n = characteristic.value?.count ?? 0
             currentUID = nil
+            lastKnownUID = nil
+            UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
             lastError = "Status frame unexpected size (\(n)B, expected ≥8). Firmware/app version mismatch?"
             return
         }
@@ -725,7 +1123,37 @@ extension BluetoothManager: CBPeripheralDelegate {
         // the pairing-flow auto-rollback (e.g. lap_count == 2 reads
         // as .lost and rolls back a successful pairing). Discriminate
         // on length instead.
-        currentUID = Array(data[1...6])
+        let uid = Array(data[1...6])
+        currentUID = uid
+        // Disconnect frame: firmware sends one final status update with
+        // byte 0 = 0 just before tearing down the BLE link, but it
+        // doesn't clear `g_last_test_result` first. Trusting the test
+        // result byte here would replay a stale `.ok` (or `.lost`) and
+        // poison the next pairing attempt's verify probe. We'll get a
+        // CB didDisconnect callback shortly anyway.
+        //
+        // Sit *above* the `lastKnownUID` persist below so the goodbye
+        // frame can't poison the persisted summary stash either —
+        // matches the documented "byte 0 == 0 means don't trust this
+        // frame" invariant for every derived field, not just
+        // `lastTestResult`.
+        guard data[0] != 0 else { return }
+        // All-zeros sanity: a real paired UID is never 00:00:00:00:00:00
+        // (firmware refuses to apply it in `applyStagedUid`). Treat as
+        // transient garbage from the firmware's BSS-zero state pre-NVS-
+        // load rather than ground truth — without this guard a too-
+        // early status frame would persist zeros into UserDefaults and
+        // the Settings root would render "0,0,0,0,0,0" forever.
+        let isAllZero = !uid.contains { $0 != 0 }
+        // Persist on UID change (cheap UserDefaults write; the
+        // byte-equality guard skips the no-op steady-state writes). The
+        // Settings root reads the stash on next launch before BLE
+        // reconnects so the "Goggle pairing" row can show the
+        // remembered value immediately.
+        if !isAllZero, lastKnownUID != uid {
+            lastKnownUID = uid
+            UserDefaults.standard.set(Data(uid), forKey: Self.lastKnownUIDKey)
+        }
         let testResultByte: UInt8 = data.count >= 9 ? data[8] : data[7]
         lastTestResult = TestResult(rawValue: testResultByte) ?? .none
         // Bump even when the encoded value matches — observers want to
@@ -754,6 +1182,9 @@ extension BluetoothManager: CBPeripheralDelegate {
         case txSniffUUID: return "TX sniff"
         case osdTextUUID: return "OSD text"
         case batteryUUID: return "Battery"
+        case deviceNameUUID: return "Device name"
+        case firmwareVersionUUID: return "Firmware version"
+        case osdLayoutUUID: return "OSD layout"
         default: return uuid.uuidString
         }
     }

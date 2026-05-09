@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include "nvs_store.h"  // kDeviceNameMaxLen — m_deviceName buffer width
 
 /// M5StickS3 LCD: editorial-lite redesign.
 ///
@@ -45,17 +46,99 @@ public:
         m_colOrange = M5.Display.color565(0xFF, 0x9F, 0x4A);
         m_colErr    = M5.Display.color565(0xFF, 0x64, 0x64);
         m_colCyan   = M5.Display.color565(0x6B, 0xE1, 0xFF);
-        drawHairlines();
+        // Hairlines are owned by showStatus (and wakePanel). Painting
+        // them here would flash them on the black canvas during the
+        // gap between begin() and the first showSplash/showStatus call
+        // (batteryMonitor.begin + Serial.begin + wake-cause check is
+        // ~tens of ms — enough to be visibly perceived as a glitch
+        // before the splash takes over).
     }
 
-    void showStatus(const uint8_t uid[6], bool bleConnected, bool radioReady) {
+    /// Boot-time splash: centered "HDZap" + "FW <version>" on a black
+    /// canvas, held by the caller's `delay()` before `showStatus`
+    /// repaints over it. No state retained — the next band-level paint
+    /// (drawUidBand / drawLapBand / drawStrip) wipes the whole screen
+    /// in tiles, so nothing here outlives the next status update.
+    /// Called once from `setup()` so the operator sees which firmware
+    /// is running before the UID/lap UI takes over. The title is the
+    /// product brand ("HDZap"), not the BLE-advertised device name —
+    /// the latter is shown in the UID band caption once the normal
+    /// status layout takes over.
+    void showSplash(const char* version) {
+        M5.Display.fillScreen(TFT_BLACK);
+        // Disable text wrap explicitly so an unexpectedly long version
+        // string clips at the screen edge instead of rolling onto a
+        // second line that overlaps the title above. Restored to the
+        // class default (true) at the end.
+        M5.Display.setTextWrap(false);
+        // Title: large mono, centered horizontally.
+        M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
+        M5.Display.setTextSize(1);
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+        const char* title = "HDZap";
+        int titleW = M5.Display.textWidth(title);
+        int titleY = m_h / 2 - M5.Display.fontHeight() - 2;
+        if (titleY < 0) titleY = 0;
+        M5.Display.setCursor((m_w - titleW) / 2, titleY);
+        M5.Display.print(title);
+        // Version: small mono accent, "FW <version>" — match the iOS
+        // Settings row so the two surfaces use the same wording.
+        M5.Display.setFont(&fonts::Font0);
+        M5.Display.setTextColor(m_colAccent, TFT_BLACK);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "FW %s", (version && *version) ? version : "unknown");
+        int verW = M5.Display.textWidth(buf);
+        int verY = m_h / 2 + 6;
+        M5.Display.setCursor((m_w - verW) / 2, verY);
+        M5.Display.print(buf);
+        // Splash leaves the canvas as-is — no hairlines, no band frames.
+        // showStatus paints those (and clears the gap rows where the
+        // splash text bleeds outside the band rectangles), so the next
+        // status update wipes the splash entirely. Restore the class-
+        // invariant defaults the rest of the routines rely on:
+        // top_left datum (set in begin()), text wrap on, and ink color
+        // foreground.
+        M5.Display.setTextDatum(textdatum_t::top_left);
+        M5.Display.setTextWrap(true);
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+    }
+
+    void showStatus(const uint8_t uid[6], bool bleConnected, bool radioReady,
+                    bool uidIsDefault = false) {
         memcpy(m_uid, uid, 6);
         m_bleConnected = bleConnected;
         m_radioReady = radioReady;
+        m_uidIsDefault = uidIsDefault;
         clearTakeover();
+        // Self-contained repaint: clear the gap rows between bands
+        // (kHair1Y..kLapBandY = [60..64), kHair2Y..kStripY = [110..113))
+        // and re-paint the hairlines. Earlier callers (boot splash, a
+        // full-screen takeover) can leave anything in those rows — the
+        // band fillRects below cover [0..60), [64..110), [113..135),
+        // so without the explicit gap clears those 5 stray rows would
+        // hold ghost pixels. Cheap (two thin fillRects + drawHairlines'
+        // two 1-px lines) and runs only on real status events, not
+        // every frame.
+        M5.Display.fillRect(0, kHair1Y, m_w, kLapBandY - kHair1Y, TFT_BLACK);
+        M5.Display.fillRect(0, kHair2Y, m_w, kStripY - kHair2Y, TFT_BLACK);
+        drawHairlines();
         drawUidBand();
         drawLapBand();
         drawStrip();
+    }
+
+    /// Set the BLE-advertised device name shown in the UID band's
+    /// caption row (top-left). Idempotent. Caller passes the same
+    /// string used in `BLEDevice::init`, so a future rename only
+    /// surfaces here after the post-rename reboot — which is fine,
+    /// the LCD repaint runs in `setup()` before the user can read it.
+    /// Empty string clears the slot (falls back to "UID" caption).
+    void setDeviceName(const char* name) {
+        if (!name) name = "";
+        if (strncmp(m_deviceName, name, sizeof(m_deviceName)) == 0) return;
+        strncpy(m_deviceName, name, sizeof(m_deviceName) - 1);
+        m_deviceName[sizeof(m_deviceName) - 1] = 0;
+        drawUidBand();
     }
 
     void showLap(uint8_t num, uint32_t ms) {
@@ -216,6 +299,25 @@ private:
     bool m_radioReady = false;
     bool m_bindActive = false;
 
+    // True when the UID on display came from the MAC-derived fallback in
+    // setup(), not from an NVS load or a runtime BLE bind. Surfaces a
+    // small "UNBOUND" tag in the UID band caption so a Web Flasher
+    // "Erase All" run is visibly distinct from a previously-bound
+    // device — without this, the MAC fallback is byte-for-byte the
+    // same value across erase + reflash and looks like the wipe was a
+    // no-op. main.cpp owns the source-of-truth flag and passes it on
+    // every showStatus call.
+    bool m_uidIsDefault = false;
+
+    // BLE-advertised device name shown in the UID band caption row.
+    // Width is symbolically tied to nvs_store::kDeviceNameMaxLen (+1
+    // for null) so a future cap change can't silently truncate this
+    // mirror buffer. Caption row truncates with an ellipsis if the
+    // available width is smaller than the rendered string —
+    // primarily an issue when UNBOUND is also showing, which eats
+    // ~50 px on top of the right-side battery + BLE widgets.
+    char m_deviceName[nvs_store::kDeviceNameMaxLen + 1] = {};
+
     bool m_haveLap = false;
     uint8_t m_lapNum = 0;
     uint32_t m_lapMs = 0;
@@ -274,10 +376,64 @@ private:
     void drawUidBand() {
         M5.Display.fillRect(0, kUidBandY, m_w, kUidBandH, TFT_BLACK);
 
+        // Caption row: device name (or "UID" fallback) on the left, UNBOUND
+        // tag right after, battery + BLE widgets on the right. The right
+        // edge of the caption text must stay clear of the battery widget
+        // — drawBatteryWidget anchors to the BLE pill, so the worst-case
+        // left edge is ~m_w - 100 (BLE OFF + battery widget). Reserve a
+        // safety margin and elide the caption with an ellipsis if it
+        // wouldn't fit otherwise.
+        M5.Display.setFont(&fonts::Font0);
         M5.Display.setTextSize(1);
         M5.Display.setTextColor(m_bindActive ? m_colWarn : m_colSub, TFT_BLACK);
+        constexpr int kCaptionPxPerChar = 6;
+        // Right-side reserve covers the worst-case battery widget + BLE
+        // pill placement so the caption (incl. UNBOUND tag) cannot reach
+        // pixels owned by the widget. Worst case is BLE OFF: BLE label
+        // 42 px + 14 px gap = 56 px on the far right, and the battery
+        // widget (kIconTotalW=14 + kGap=4 + kTextW=24 = 42 px) anchored
+        // 8 px left of the BLE dot, so battery xLeft = m_w - 14 - 42 -
+        // 8 - 42 = 134. With the previous 100-px reserve, a 14-char
+        // name + UNBOUND extended to x=138 — 4 px into the battery
+        // widget. 110 leaves the caption ending at x≤130 with a
+        // safety margin.
+        constexpr int kCaptionRightReserve = 110;
+        const char* caption = (m_deviceName[0] != 0) ? m_deviceName : "UID";
+        constexpr int kUnboundPad = 6;             // px gap before UNBOUND tag
+        const int unboundW = (m_uidIsDefault && !m_bindActive)
+                                 ? (int)strlen("UNBOUND") * kCaptionPxPerChar + kUnboundPad
+                                 : 0;
+        const int captionAvailPx = m_w - 6 - unboundW - kCaptionRightReserve;
+        // Mirror m_deviceName's storage so the worst case (20-byte name +
+        // null) fits exactly. The "UID" fallback is also well within this.
+        char captionBuf[sizeof(m_deviceName)] = {};
+        strncpy(captionBuf, caption, sizeof(captionBuf) - 1);
+        const int maxCaptionChars = captionAvailPx / kCaptionPxPerChar;
+        if (maxCaptionChars > 0 && (int)strlen(captionBuf) > maxCaptionChars) {
+            // Replace the last visible character with an ellipsis so the
+            // truncation is unambiguous instead of looking like a different
+            // (shorter) name. Truncation lands at exactly maxCaptionChars
+            // total: (maxCaptionChars - 1) real chars + '~', so the user
+            // sees one more byte of the original name than truncating
+            // before the overwrite would yield.
+            captionBuf[maxCaptionChars] = 0;
+            captionBuf[maxCaptionChars - 1] = '~';
+        } else if (maxCaptionChars <= 0) {
+            captionBuf[0] = 0;
+        }
         M5.Display.setCursor(6, 6);
-        M5.Display.print("UID");
+        M5.Display.print(captionBuf);
+        // UNBOUND tag: in warn-yellow so it reads as "needs attention"
+        // without escalating to error-red. Suppressed during a bind
+        // takeover (m_bindActive) so the band is visually clean — that
+        // takeover is itself the "binding now" affordance.
+        if (m_uidIsDefault && !m_bindActive) {
+            const int captionPx = (int)strlen(captionBuf) * kCaptionPxPerChar;
+            M5.Display.setTextColor(m_colWarn, TFT_BLACK);
+            M5.Display.setCursor(6 + captionPx + kUnboundPad, 6);
+            M5.Display.print("UNBOUND");
+            M5.Display.setTextColor(m_colSub, TFT_BLACK);
+        }
 
         const char* bleLabel = m_bleConnected ? "BLE" : "BLE OFF";
         uint16_t bleCol = m_bleConnected ? m_colOk : m_colErr;
