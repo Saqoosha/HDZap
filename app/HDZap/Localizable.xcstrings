@@ -1033,7 +1033,7 @@
       }
     },
     "Bluetooth name" : {
-      "comment" : "M5StickS3 sub-screen: row label and rename screen section header for the BLE-advertised device name.",
+      "comment" : "Dual call-site: ConnectionSettingsView row label + DeviceRenameView section header, both for the BLE-advertised device name. Keep both English literals in sync if either is ever renamed — they share this xcstrings entry.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1044,7 +1044,7 @@
       }
     },
     "Configure" : {
-      "comment" : "Goggle pairing screen: section header for the mode picker and Apply / Pair button.",
+      "comment" : "Goggle pairing screen: section header containing the mode picker (Bind Phrase / Manual UID / New Pairing) and the per-mode action button — `Apply UID` for Bind Phrase / Manual UID, `Pair with new goggle` for New Pairing.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1088,7 +1088,7 @@
       }
     },
     "Format" : {
-      "comment" : "Settings root section header for the inline race-time + target-lap controls.",
+      "comment" : "Settings root section header for the inline race-time slider, target-lap stepper, and the derived target-pace readout row.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1143,7 +1143,7 @@
       }
     },
     "Position" : {
-      "comment" : "OSD layout editor section header for the visible-block top-row slider.",
+      "comment" : "OSD layout editor section header for the top-row slider plus the live row-range readout (`Goggle row(s) X[–Y] of N` / `All rows hidden`) directly underneath.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1209,7 +1209,7 @@
       }
     },
     "Version" : {
-      "comment" : "M5StickS3 sub-screen version row label (compact form pairing app + firmware versions side-by-side).",
+      "comment" : "M5StickS3 sub-screen row label sitting to the left of a vertical stack containing `App <ver>` and `FW <ver>`. Distinct from the Settings root, which renders App / Firmware as two separate rows under the About section.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1269,7 +1269,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ゴーグルに表示する OSD ブロックの上端の行（1 始まり）。ブロックの高さは表示する行数と同じで、スライダーの範囲はブロックが下端をはみ出さないよう自動で調整されます。"
+            "value" : "ゴーグルに表示する OSD ブロックの上端の行 (1 始まり)。ブロックの高さは表示する行数と同じで、スライダーの範囲はブロックが下端をはみ出さないよう自動で調整されます。"
           }
         }
       }
@@ -1324,7 +1324,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ゴーグル %lld 行目（全 %lld 行中）"
+            "value" : "ゴーグル %lld 行目(全 %lld 行中)"
           }
         }
       }
@@ -1335,7 +1335,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ゴーグル %lld〜%lld 行目（全 %lld 行中）"
+            "value" : "ゴーグル %lld〜%lld 行目(全 %lld 行中)"
           }
         }
       }
@@ -1396,7 +1396,7 @@
       }
     },
     "Pace" : {
-      "comment" : "OSD layout editor Show-rows toggle label for row 2 (average lap + remaining-laps pace).",
+      "comment" : "OSD layout editor Show-rows toggle label for row 2 (average lap + remaining-laps pace). NOTE: TimerView/RaceShareCard also pass the literal \"Pace\" to SummaryColumn(label:), but that param is currently a plain String (not LocalizedStringKey) so this translation does NOT leak there. If SummaryColumn.label is ever promoted to LocalizedStringKey, the JA value here will start showing on the post-race summary card and may need re-fitting for that surface.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1407,7 +1407,7 @@
       }
     },
     "Diff" : {
-      "comment" : "OSD layout editor Show-rows toggle label for row 3 (pace differential vs. target).",
+      "comment" : "OSD layout editor Show-rows toggle label for row 3 (pace differential vs. target). NOTE: TimerView/RaceShareCard also pass the literal \"Diff\" to SummaryColumn(label:), but that param is currently a plain String (not LocalizedStringKey) so this translation does NOT leak there. If SummaryColumn.label is ever promoted to LocalizedStringKey, the JA value here will start showing on the post-race summary card and may need re-fitting for that surface.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1512,6 +1512,105 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "他のデバイスは見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "Rename device" : {
+      "comment" : "DeviceRenameView navigation title.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイス名の変更"
+          }
+        }
+      }
+    },
+    "Name" : {
+      "comment" : "DeviceRenameView TextField placeholder for the new BLE-advertised device name.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前"
+          }
+        }
+      }
+    },
+    "%lld / %lld bytes" : {
+      "comment" : "DeviceRenameView footer byte counter (current UTF-8 bytes / max bytes). Mirrors the firmware-side advertised-name budget; flags red when over-budget.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld / %lld バイト"
+          }
+        }
+      }
+    },
+    "Connected firmware doesn't support renaming. Update firmware." : {
+      "comment" : "DeviceRenameView footer caption shown when the connected firmware lacks CHR_DEVICE_NAME (older builds). Rendered in orange.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続中のファームウェアは名前変更に未対応です。ファームウェアを更新してください。"
+          }
+        }
+      }
+    },
+    "Reconnect the M5StickS3 to rename it." : {
+      "comment" : "DeviceRenameView footer caption shown when BLE is not currently ready (rename requires a live connection).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前を変更するには M5StickS3 に再接続してください。"
+          }
+        }
+      }
+    },
+    "Saving reboots the M5StickS3. The connection drops for a few seconds, then iPhone reconnects automatically with the new name." : {
+      "comment" : "DeviceRenameView footer caption shown when ready to save (BLE connected + CHR_DEVICE_NAME supported). Explains the firmware-side ESP.restart() that lets BLEDevice::init pick up the new name.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存すると M5StickS3 が再起動します。接続が数秒間切れたあと、新しい名前で iPhone が自動で再接続します。"
+          }
+        }
+      }
+    },
+    "Restoring previous pairing…" : {
+      "comment" : "PairingSettingsView in-flight status while the New-Pairing failure-recovery path is rebroadcasting the prior UID to the goggle.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前のペアリングを復元中…"
+          }
+        }
+      }
+    },
+    "Couldn't broadcast the bind packet. The M5Stick switched to a fresh pairing but your goggle wasn't notified — use Restore previous goggle." : {
+      "comment" : "PairingSettingsView error label for the New-Pairing case where the local UID was committed but the ESP-NOW bind broadcast didn't go out, leaving the goggle on the old UID.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バインドパケットを送信できませんでした。M5Stick は新しいペアリングに切り替わりましたが、ゴーグルには通知できていません — 「前のゴーグルに戻す」を使ってください。"
+          }
+        }
+      }
+    },
+    "Couldn't restore the previous pairing — the M5Stick may have disconnected. Try again." : {
+      "comment" : "PairingSettingsView error label for the recovery-path failure case (the second-chance restore broadcast also didn't go through).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前のペアリングを復元できませんでした — M5Stick が切断された可能性があります。もう一度試してください。"
           }
         }
       }
