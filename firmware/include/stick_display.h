@@ -46,7 +46,12 @@ public:
         m_colOrange = M5.Display.color565(0xFF, 0x9F, 0x4A);
         m_colErr    = M5.Display.color565(0xFF, 0x64, 0x64);
         m_colCyan   = M5.Display.color565(0x6B, 0xE1, 0xFF);
-        drawHairlines();
+        // Hairlines are owned by showStatus (and wakePanel). Painting
+        // them here would flash them on the black canvas during the
+        // gap between begin() and the first showSplash/showStatus call
+        // (batteryMonitor.begin + Serial.begin + wake-cause check is
+        // ~tens of ms — enough to be visibly perceived as a glitch
+        // before the splash takes over).
     }
 
     /// Boot-time splash: centered "HDZap" + "FW <version>" on a black
@@ -86,16 +91,13 @@ public:
         int verY = m_h / 2 + 6;
         M5.Display.setCursor((m_w - verW) / 2, verY);
         M5.Display.print(buf);
-        // Re-paint the editorial-lite hairlines that fillScreen wiped.
-        // showStatus's per-band fillRects deliberately skip the
-        // hairline rows (y=60, y=110), so without this the rest of
-        // the session would run without them until the next
-        // wakePanel(). Cheaper to restore here than to make every
-        // band painter aware of the splash path.
-        drawHairlines();
-        // Restore the class-invariant defaults the rest of the
-        // routines rely on: top_left datum (set in begin()), text
-        // wrap on, and ink color foreground.
+        // Splash leaves the canvas as-is — no hairlines, no band frames.
+        // showStatus paints those (and clears the gap rows where the
+        // splash text bleeds outside the band rectangles), so the next
+        // status update wipes the splash entirely. Restore the class-
+        // invariant defaults the rest of the routines rely on:
+        // top_left datum (set in begin()), text wrap on, and ink color
+        // foreground.
         M5.Display.setTextDatum(textdatum_t::top_left);
         M5.Display.setTextWrap(true);
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
@@ -108,6 +110,18 @@ public:
         m_radioReady = radioReady;
         m_uidIsDefault = uidIsDefault;
         clearTakeover();
+        // Self-contained repaint: clear the gap rows between bands
+        // (kHair1Y..kLapBandY = [60..64), kHair2Y..kStripY = [110..113))
+        // and re-paint the hairlines. Earlier callers (boot splash, a
+        // full-screen takeover) can leave anything in those rows — the
+        // band fillRects below cover [0..60), [64..110), [113..135),
+        // so without the explicit gap clears those 5 stray rows would
+        // hold ghost pixels. Cheap (two thin fillRects + drawHairlines'
+        // two 1-px lines) and runs only on real status events, not
+        // every frame.
+        M5.Display.fillRect(0, kHair1Y, m_w, kLapBandY - kHair1Y, TFT_BLACK);
+        M5.Display.fillRect(0, kHair2Y, m_w, kStripY - kHair2Y, TFT_BLACK);
+        drawHairlines();
         drawUidBand();
         drawLapBand();
         drawStrip();
