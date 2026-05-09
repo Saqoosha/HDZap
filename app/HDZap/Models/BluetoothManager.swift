@@ -520,7 +520,6 @@ class BluetoothManager: NSObject {
             isTXSniffActive = false
             telemetryDebugRecords = []
             telemetryDebugTotalSeen = 0
-            telemetryDebugDropped = 0
         }
         return ok
     }

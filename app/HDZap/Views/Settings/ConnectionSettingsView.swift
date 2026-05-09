@@ -11,36 +11,11 @@ struct ConnectionSettingsView: View {
     var body: some View {
         List {
             connectedSection
-            renameSection
             discoveredSection
             scanSection
         }
         .navigationTitle("M5StickS3")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    @ViewBuilder
-    private var renameSection: some View {
-        // Only surface the rename drilldown when paired against firmware
-        // that carries CHR_DEVICE_NAME — older firmware would silently
-        // 404 the write. `supportsDeviceRename` flips false on
-        // disconnect, so the row also hides when offline (renaming
-        // requires a live connection anyway).
-        if bluetooth.isConnected && bluetooth.supportsDeviceRename {
-            Section {
-                NavigationLink {
-                    DeviceRenameView()
-                } label: {
-                    LabeledContent("Bluetooth name") {
-                        Text(bluetooth.currentDeviceName
-                             ?? bluetooth.connectedDeviceName
-                             ?? "—")
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -73,41 +48,6 @@ struct ConnectionSettingsView: View {
                 BatteryStatusRow()
 
                 FlightBatteryStatusRow()
-
-                versionRow
-            }
-        }
-    }
-
-    /// App + firmware version row. Hidden until the firmware version
-    /// characteristic has been read (the connected section is otherwise
-    /// already populated with name + battery, so a brief absence here
-    /// won't look broken). When the firmware reports a major version
-    /// that disagrees with the app's, the row turns into an inline
-    /// warning so the user has a place to see the version pair after
-    /// dismissing the top-of-screen error banner.
-    @ViewBuilder
-    private var versionRow: some View {
-        if let fw = bluetooth.firmwareVersion {
-            let app = BluetoothManager.appVersionString() ?? "?"
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Version")
-                    if bluetooth.firmwareIncompatible {
-                        Text(BluetoothManager.firmwareMismatchSummary)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("App \(app)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("FW \(fw)")
-                        .font(.caption)
-                        .foregroundStyle(bluetooth.firmwareIncompatible ? .red : .secondary)
-                }
             }
         }
     }
@@ -129,7 +69,7 @@ struct ConnectionSettingsView: View {
                             .stroke(.secondary, lineWidth: 1)
                             .frame(width: 10, height: 10)
                         VStack(alignment: .leading) {
-                            Text(bluetooth.displayName(for: peripheral) ?? "Unknown").font(.body)
+                            Text(peripheral.name ?? "Unknown").font(.body)
                             Text(peripheral.identifier.uuidString.prefix(8) + "...")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

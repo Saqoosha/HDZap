@@ -510,18 +510,6 @@ inline void ble_init(const char *device_name = "HDZeroOSD") {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_flight_battery_chr->addDescriptor(new BLE2902());
 
-    BLECharacteristic *pDeviceName = pService->createCharacteristic(
-        CHR_DEVICE_NAME_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-    pDeviceName->setCallbacks(new DeviceNameCallback());
-    {
-        // Seed the read value with the actual current name so iOS can
-        // populate the rename UI without a write-then-read round trip.
-        // The string passed to ble_init is the resolved current name
-        // (default or NVS-loaded), so reuse it here.
-        pDeviceName->setValue((uint8_t *)device_name, strlen(device_name));
-    }
-
     // Firmware version string for iOS-side compatibility check. READ-only
     // (compile-time constant for the running build), no callback, no
     // notify — iOS reads once after characteristic discovery and parses

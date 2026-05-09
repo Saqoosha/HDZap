@@ -240,20 +240,7 @@ void setup() {
 
     stickDisplay.begin();
     batteryMonitor.begin();
-    // Wake-cause check needs to land before the splash hold so a
-    // deep-sleep wake (operator pressing BtnA/BtnB to resume mid-race)
-    // can skip the splash window entirely and bring the UI up
-    // instantly. On a cold boot we want the full splash hold so the
-    // version is readable; on a wake it's noise.
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-    bool fromDeepSleep = (cause != ESP_SLEEP_WAKEUP_UNDEFINED);
-    // Boot splash: centered "HDZap" + "FW <git-describe>" so the
-    // operator can confirm which firmware is running before the
-    // UID/lap UI takes over. Skip the splash entirely on a deep-sleep
-    // wake so a button press resumes operation without a 1.2 s freeze.
-    if (!fromDeepSleep) {
-        stickDisplay.showSplash(FIRMWARE_VERSION);
-    }
     Serial.printf("Firmware: %s\n", FIRMWARE_VERSION);
 
     // If we just woke from deep sleep, surface why so an operator can
@@ -347,7 +334,7 @@ void setup() {
 #if defined(M5STICKS3)
     delay(5);
 #endif
-    stickDisplay.showStatus(g_uid, false, espnow_ready, g_uid_is_default);
+    stickDisplay.showStatus(g_uid, false, espnow_ready);
     Serial.println("[boot] setup complete");
 
     // After LCD + radios: safe to blast historical CSV — if USB TX backs up,
