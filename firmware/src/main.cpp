@@ -25,6 +25,16 @@ static_assert(OSDTextDisplay::ROW_TEXT_MAX == OSD_TEXT_ROW_MAX,
               "OSD text row max length mismatch between ble_service.h and osd_text_display.h");
 
 uint8_t g_uid[6] = {};
+// True only when the displayed UID came from the MAC fallback in
+// setup() — i.e. `nvs_store::loadUid` reported no saved UID and we
+// derived `g_uid` from `esp_read_mac` instead. Stays false on a
+// previously-bound boot (NVS hit) and on every subsequent successful
+// `applyStagedUid` (NVS write). Exists so the LCD can flag UNBOUND
+// for the Web Flasher "Erase All" case: the MAC fallback is hardware-
+// fixed per chip, so without this flag the post-erase UID is byte-
+// for-byte identical to the pre-erase one and the wipe looks like
+// it did nothing.
+static bool g_uid_is_default = false;
 static OSD osd;
 static OSDTextDisplay osdTextDisplay;
 static StickDisplay stickDisplay;
@@ -76,11 +86,13 @@ static constexpr uint32_t RENDER_RETRY_BACKOFF_MS = 50;
 static constexpr uint8_t  MAX_RENDER_RETRIES      = 2;
 /// Staging window before the first render dispatch. New dirty rows
 /// that arrive within this window are batched into a single cycle
-/// instead of each triggering a separate 200 ms verify pass. 80 ms
-/// covers 4 back-to-back BLE writes (worst-case ~30 ms connection
-/// interval each) with margin, so Ready and Results displays (4 rows
-/// each) appear atomically.
-static constexpr uint32_t RENDER_STAGING_MS       = 80;
+/// instead of each triggering a separate 200 ms verify pass. iOS now
+/// fires the OSD-text writes back-to-back as `writeWithoutResponse`
+/// (one or two connection events for all 4 rows) and pre-pends the
+/// layout char in the same burst, so 40 ms is enough to coalesce a
+/// full Ready / Result frame while halving the perceived render lag
+/// versus the previous 80 ms window.
+static constexpr uint32_t RENDER_STAGING_MS       = 40;
 
 // --- Power saving (issue #5, phase 3 deep sleep) -------------------------
 // After g_sleep_timeout_ms of no operator activity (same definition as
@@ -187,6 +199,9 @@ static void applyStagedUid() {
     portENTER_CRITICAL(&g_ble_mux);
     memcpy(g_uid, new_uid, 6);
     portEXIT_CRITICAL(&g_ble_mux);
+    // The UID is now backed by an NVS save, not the MAC fallback —
+    // drop the UNBOUND flag so the LCD stops flagging the band.
+    g_uid_is_default = false;
 
     bool wasRadioDown = !espnow_ready;
     bool radioOk;
@@ -206,7 +221,7 @@ static void applyStagedUid() {
             Serial.println("ESP-NOW init still failing after UID change");
         }
     }
-    stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
+    stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready, g_uid_is_default);
     if (!radioOk) {
         stickDisplay.showMessage("ESPNOW FAIL", stickDisplay.colorErr());
     } else {
@@ -240,8 +255,34 @@ void setup() {
     stickDisplay.begin();
     batteryMonitor.begin();
     Serial.begin(115200);
-    delay(500); // Wait for USB CDC serial to enumerate before first println.
+    // Wake-cause check needs to land before the splash hold so a
+    // deep-sleep wake (operator pressing BtnA/BtnB to resume mid-race)
+    // can skip the splash window entirely and bring the UI up
+    // instantly. On a cold boot we want the full splash hold so the
+    // version is readable; on a wake it's noise.
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    bool fromDeepSleep = (cause != ESP_SLEEP_WAKEUP_UNDEFINED);
+    // Boot splash: centered "HDZap" + "FW <git-describe>" so the
+    // operator can confirm which firmware is running before the
+    // UID/lap UI takes over. Skip the splash entirely on a deep-sleep
+    // wake so a button press resumes operation without a 1.2 s freeze.
+    if (!fromDeepSleep) {
+        stickDisplay.showSplash(FIRMWARE_VERSION);
+    }
+    // 500 ms wait for USB CDC enumeration before the first println.
+    // Runs concurrently with the splash hold below; the two delays
+    // overlap on cold boot so total wall-clock from showSplash to
+    // showStatus is ~max(500, 700) ms = 700 ms, not 1200.
+    delay(500);
     Serial.println("\n=== HDZero OSD Lap Timer ===");
+    Serial.printf("Firmware: %s\n", FIRMWARE_VERSION);
+    if (!fromDeepSleep) {
+        // Cold-boot only: hold the splash long enough to read after
+        // the CDC delay above. 200 ms more on top of the 500 ms wait
+        // = 700 ms total visibility, which testing showed is the
+        // sweet spot for a glance.
+        delay(200);
+    }
     {
         unsigned actual = (unsigned)getCpuFrequencyMhz();
         if (!cpuOk || actual != 80) {
@@ -251,11 +292,10 @@ void setup() {
         }
     }
 
-    // If we just woke from deep sleep, surface why so an operator can
-    // tell a power-on-reset from a button-wake on serial. Doesn't change
-    // behavior — the rest of setup() runs identically either way because
-    // deep sleep didn't preserve any of our state.
-    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    // Surface the wake cause so an operator can tell a power-on-reset
+    // from a button-wake on serial. The cause was already read above
+    // for the splash gate; print the breadcrumb here where the rest
+    // of the boot diagnostics live.
     if (cause == ESP_SLEEP_WAKEUP_EXT1) {
         uint64_t mask = esp_sleep_get_ext1_wakeup_status();
         Serial.printf("Wake from deep sleep: ext1 GPIO mask=0x%llx (BtnA=GPIO11, BtnB=GPIO12)\n",
@@ -273,6 +313,7 @@ void setup() {
 
     if (!nvs_store::loadUid(g_uid)) {
         esp_read_mac(g_uid, ESP_MAC_WIFI_STA);
+        g_uid_is_default = true;
         Serial.println("No saved UID, using MAC");
     }
 
@@ -302,10 +343,14 @@ void setup() {
     osd.begin(g_uid);
     osdTextDisplay.begin(&osd);
 
-    ble_init("HDZeroOSD");
+    char deviceName[nvs_store::kDeviceNameMaxLen + 1] = {};
+    nvs_store::loadDeviceName(deviceName, sizeof(deviceName));
+    Serial.printf("BLE name: %s\n", deviceName);
+    ble_init(deviceName);
+    stickDisplay.setDeviceName(deviceName);
     Serial.println("BLE initialized, advertising...");
 
-    stickDisplay.showStatus(g_uid, false, espnow_ready);
+    stickDisplay.showStatus(g_uid, false, espnow_ready, g_uid_is_default);
 
     // Boot counts as activity; without this the panel could sleep before
     // the operator has had a chance to interact at all.
@@ -389,7 +434,7 @@ void loop() {
 
     if (g_ble_connected != last_ble_state) {
         last_ble_state = g_ble_connected;
-        stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
+        stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready, g_uid_is_default);
         // Push the current battery snapshot on every connect edge so a
         // newly-paired iOS gets a value immediately, not on the next poll
         // delta. Without this the first 5 s after connect leave the iOS
@@ -415,6 +460,55 @@ void loop() {
         bool ok = send_bind_packet(g_uid);
         Serial.printf("Bind packet %s\n", ok ? "sent" : "FAILED");
         stickDisplay.showBindResult(ok);
+    }
+
+    // --- OSD layout (Y offset) update from BLE --------------------------
+    // Apply BEFORE the OSD-text dirty drain so a coincident layout-change
+    // + content-update settles in one render cycle: setBaseRow re-marks
+    // every row dirty so the IDLE catch-up trigger below picks them up.
+    // Wipe the goggle overlay buffer before the next render, otherwise
+    // text from the prior base row stays visible alongside the new rows.
+    if (g_osd_layout_changed) {
+        int8_t y;
+        portENTER_CRITICAL(&g_ble_mux);
+        y = g_osd_layout_y_offset_pending;
+        g_osd_layout_changed = false;
+        portEXIT_CRITICAL(&g_ble_mux);
+        // Clamp y_offset to [-(MAX_BASE_ROW), 0]: 0 = bottom-anchored
+        // default, -MAX_BASE_ROW puts the block at the top of the grid.
+        // Any positive value (which would push the block off the bottom)
+        // collapses to 0; out-of-range negatives clamp to -MAX_BASE_ROW.
+        int newBase = (int)OSDTextDisplay::DEFAULT_BASE_ROW + (int)y;
+        if (newBase < 0) newBase = 0;
+        if (newBase > (int)OSDTextDisplay::MAX_BASE_ROW) {
+            newBase = OSDTextDisplay::MAX_BASE_ROW;
+        }
+        uint8_t prevBase = osdTextDisplay.baseRow();
+        // Cancel any in-flight render BEFORE re-marking rows dirty so a
+        // pending verify success doesn't clear the freshly-set dirty
+        // bits via `clearDirtyBits(g_render_dispatched_mask)` — the
+        // dispatched mask was for the prior (now stale) base row, and
+        // clearing it would also drop the bits setBaseRow just turned
+        // on, leaving the next render cycle with nothing to draw.
+        // Symptom without this guard: a slider tick that lands inside
+        // the 200 ms verify window of a prior text update silently
+        // loses its layout change — the OSD stays at prevBase until
+        // the next BLE write retriggers requestRender().
+        if (g_render_state != RenderState::IDLE) {
+            cancelRender();
+        }
+        osdTextDisplay.setBaseRow((uint8_t)newBase);
+        if (espnow_ready && (uint8_t)newBase != prevBase) {
+            // Best-effort: if the clear packet drops, the next render
+            // overwrites the new rows but the old ones at prevBase will
+            // linger until the operator hits Clear OSD. Logging that
+            // case so a "ghost text" report is diagnosable.
+            if (!osd.clear()) {
+                Serial.println("OSD layout: clear after base-row change failed");
+            }
+        }
+        Serial.printf("OSD layout: y_offset=%d base_row=%u\n",
+                      (int)y, (unsigned)newBase);
     }
 
     {
@@ -670,7 +764,7 @@ void loop() {
             stickDisplay.showMessage("RESET FAIL", stickDisplay.colorErr());
         } else {
             Serial.println("Laps reset");
-            stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready);
+            stickDisplay.showStatus(g_uid, g_ble_connected, espnow_ready, g_uid_is_default);
             // Drop any stale "LAPS FULL" / "LAP RENDER FAIL" from the
             // sticky strip — a fresh reset is a clean slate.
             stickDisplay.clearMessage();
@@ -685,6 +779,43 @@ void loop() {
         millis() - g_last_activity_ms >= IDLE_TIMEOUT_MS) {
         Serial.println("LCD sleep (idle)");
         stickDisplay.sleepPanel();
+    }
+
+    // --- Device-name rename from BLE -------------------------------------
+    // iOS write → persist → reboot. BLEDevice::init(name) is one-shot, so
+    // there's no clean live path: tearing the BLE stack down at runtime
+    // would invalidate every BLECharacteristic* + callback object the
+    // server has handed out. A 2-3 s reboot window is cheap and bonded
+    // iOS auto-reconnects without user action.
+    //
+    // Like the sleep-config consumer below, this block must precede the
+    // deep-sleep gate — a rename write landing at the idle threshold
+    // would otherwise be wiped by `esp_deep_sleep_start()` before the
+    // NVS persist runs, and the user's tap would silently no-op until
+    // the next button press wakes the device.
+    if (g_device_name_changed) {
+        char pending[nvs_store::kDeviceNameMaxLen + 1] = {};
+        portENTER_CRITICAL(&g_ble_mux);
+        memcpy(pending, (const void*)g_device_name_pending, sizeof(pending));
+        g_device_name_changed = false;
+        portEXIT_CRITICAL(&g_ble_mux);
+        if (nvs_store::saveDeviceName(pending)) {
+            Serial.printf("Device name: saved '%s' — restarting in 200 ms\n", pending);
+            // Brief pause so the BLE write's ATT response (write-with-
+            // response from iOS) actually leaves the radio before the
+            // restart drops the link; without this iOS's write would
+            // surface as a transient error in the rename UI. Stalling
+            // the loop for 200 ms is acceptable here because the next
+            // line is `ESP.restart()` — every other loop responsibility
+            // (battery monitor, OSD retry, LCD sleep) is about to be
+            // re-entered from `setup()` anyway. The CLAUDE.md rule
+            // against `delay()` between ESP-NOW packets does not apply:
+            // no ESP-NOW traffic is in flight at this point in the loop.
+            delay(200);
+            ESP.restart();
+        } else {
+            Serial.printf("Device name: NVS save failed for '%s' — keeping current\n", pending);
+        }
     }
 
     // --- Deep-sleep config update from BLE -------------------------------
