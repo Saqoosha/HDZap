@@ -49,20 +49,23 @@ public:
         drawHairlines();
     }
 
-    /// Boot-time splash: centered "HDZeroOSD" + "FW <version>" on a
-    /// black canvas, held by the caller's `delay()` before `showStatus`
+    /// Boot-time splash: centered "HDZap" + "FW <version>" on a black
+    /// canvas, held by the caller's `delay()` before `showStatus`
     /// repaints over it. No state retained — the next band-level paint
     /// (drawUidBand / drawLapBand / drawStrip) wipes the whole screen
     /// in tiles, so nothing here outlives the next status update.
     /// Called once from `setup()` so the operator sees which firmware
-    /// is running before the UID/lap UI takes over.
+    /// is running before the UID/lap UI takes over. The title is the
+    /// product brand ("HDZap"), not the BLE-advertised device name —
+    /// the latter is shown in the UID band caption once the normal
+    /// status layout takes over.
     void showSplash(const char* version) {
         M5.Display.fillScreen(TFT_BLACK);
-        // Title: medium-large mono, centered horizontally.
-        M5.Display.setFont(&fonts::FreeMonoBold12pt7b);
+        // Title: large mono, centered horizontally.
+        M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
         M5.Display.setTextSize(1);
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
-        const char* title = "HDZeroOSD";
+        const char* title = "HDZap";
         int titleW = M5.Display.textWidth(title);
         int titleY = m_h / 2 - M5.Display.fontHeight() - 2;
         if (titleY < 0) titleY = 0;
