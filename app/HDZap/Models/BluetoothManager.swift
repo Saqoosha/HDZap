@@ -58,13 +58,11 @@ struct BackpackTelemetryRecord: Identifiable {
     }
 }
 
-// Service UUID bumped d479 → d489 → d490 in lockstep with firmware, to
-// defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
-// added characteristics are otherwise invisible until the iPhone is rebooted).
-// This bump ships CHR_TELEMETRY_DEBUG_UUID for the Backpack Telemetry Debug
-// subview; existing pairings need a one-time toggle of iOS Bluetooth
-// (or forget-and-rescan) before the new characteristic becomes visible.
-private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d490")
+// Service UUID ...d491 → ...d492 adds flightBatteryUUID (`…d48d`) while
+// preserving telemetryDebugUUID (`…d48c`) from the Backpack Telemetry Debug
+// subview. iOS may need BT toggle or forget device to invalidate
+// CoreBluetooth's service cache after a bump.
+private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d492")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
 // CHR_LAP_TIME_UUID (...d483) was retired when the firmware switched to the
@@ -75,7 +73,19 @@ private let statusUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d485")
 private let txSniffUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d486")
 private let osdTextUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d487")
 private let batteryUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d488")
-private let telemetryDebugUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48b")
+private let deviceNameUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
+private let osdLayoutUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48b")
+/// Flight pack CRSF Battery via ESP-NOW telemetry (optional on older firmware).
+private let flightBatteryUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48d")
+private let firmwareVersionUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48f")
+/// Backpack telemetry debug stream (write start/stop, notify records).
+private let telemetryDebugUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48c")
+
+/// BLE adv scan-response leaves room for ~20 bytes of UTF-8 device name
+/// after the 128-bit service UUID. Match the firmware constant in
+/// `nvs_store::kDeviceNameMaxLen` — diverging here would let iOS write
+/// a longer string that the firmware silently rejects.
+let bleDeviceNameMaxBytes = 20
 
 @MainActor
 @Observable
@@ -176,6 +186,38 @@ class BluetoothManager: NSObject {
     private(set) var batteryPercent: UInt8?
     private(set) var isCharging = false
     private(set) var batteryAlarm: BatteryAlarm = .none
+
+    /// Raw last NOTIFY from flight-battery telemetry (10-byte v1 frame).
+    private(set) var lastFlightBatteryWire: Data?
+    private(set) var flightBatteryNotifyRevision: UInt32 = 0
+    private(set) var flightBatteryVoltageDv: Int?
+    private(set) var flightBatteryCurrentDa: Int?
+    private(set) var flightBatteryConsumedMah: Int?
+    private(set) var flightBatteryRemainingPercent: Int?
+
+    /// Firmware version string read once on connect from CHR_FW_VERSION.
+    /// Format mirrors `git describe --tags --dirty --always`:
+    ///   - tagged release commit:  `v1.0.0`
+    ///   - post-tag dev commit:    `v1.0.0-12-gabc1234` (`-dirty` suffix
+    ///                             when the tree had uncommitted changes)
+    ///   - untagged dev commit:    `<short-sha>` or `<short-sha>-dirty`
+    ///   - no-history fallback:    literal "unknown"
+    /// `nil` until the firmware-version characteristic has been read.
+    /// Cleared on disconnect / teardown so a stale version can't linger
+    /// past the link drop and lie about the next M5Stick the user pairs.
+    private(set) var firmwareVersion: String?
+    /// Set on connect when `firmwareMajor(from:)` parses a real major
+    /// integer from `firmwareVersion` AND it disagrees with the app's
+    /// `CFBundleShortVersionString` major. Drives the
+    /// `ConnectionSettingsView` warning row.
+    ///
+    /// Intentionally NOT triggered by an unparseable firmware version —
+    /// dev builds, untagged commits (`<short-sha>`), and the no-history
+    /// "unknown" fallback all skip the compare so dev/CI connects don't
+    /// fire false positives. The `app/firmware both shipped from the
+    /// same release tag` guarantee is what makes the major-version
+    /// compare meaningful in the first place.
+    private(set) var firmwareIncompatible = false
 
     /// True while the app has asked the firmware to listen for TX bind packets.
     /// Toggled locally on start/stop — firmware has no state echo.
@@ -528,6 +570,16 @@ class BluetoothManager: NSObject {
         batteryPercent = nil
         isCharging = false
         batteryAlarm = .none
+        resetFlightBatteryState()
+    }
+
+    private func resetFlightBatteryState() {
+        lastFlightBatteryWire = nil
+        flightBatteryNotifyRevision = 0
+        flightBatteryVoltageDv = nil
+        flightBatteryCurrentDa = nil
+        flightBatteryConsumedMah = nil
+        flightBatteryRemainingPercent = nil
     }
 
     /// Wipe all backpack-telemetry-debug state. Called on every teardown
@@ -662,8 +714,9 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([
-            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID, txSniffUUID,
-            osdTextUUID, batteryUUID, telemetryDebugUUID
+            uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID,
+            txSniffUUID, osdTextUUID, batteryUUID, deviceNameUUID, osdLayoutUUID,
+            firmwareVersionUUID, telemetryDebugUUID, flightBatteryUUID,
         ], for: service)
     }
 
@@ -682,7 +735,8 @@ extension BluetoothManager: CBPeripheralDelegate {
         for char in chars {
             characteristics[char.uuid] = char
             if char.uuid == statusUUID || char.uuid == txSniffUUID
-                || char.uuid == batteryUUID || char.uuid == telemetryDebugUUID {
+                || char.uuid == batteryUUID || char.uuid == telemetryDebugUUID
+                || char.uuid == flightBatteryUUID {
                 peripheral.setNotifyValue(true, for: char)
             }
             // Battery is push-only from firmware: the connect-edge notify
@@ -693,7 +747,7 @@ extension BluetoothManager: CBPeripheralDelegate {
             // initial value from the characteristic's cached `setValue`,
             // independent of CCCD timing — `didUpdateValueFor` handles
             // both paths the same way.
-            if char.uuid == batteryUUID {
+            if char.uuid == batteryUUID || char.uuid == flightBatteryUUID {
                 peripheral.readValue(for: char)
             }
         }
@@ -764,6 +818,13 @@ extension BluetoothManager: CBPeripheralDelegate {
             }
             return
         }
+        if characteristic.uuid == flightBatteryUUID {
+            if let error {
+                resetFlightBatteryState()
+                lastError = "Flight battery subscribe failed: \(error.localizedDescription). Flight battery state won't appear in-app."
+            }
+            return
+        }
         // Gate on statusUUID so a future notify-on-another-characteristic
         // failure doesn't get misattributed as "Status subscribe failed".
         guard characteristic.uuid == statusUUID else { return }
@@ -788,6 +849,12 @@ extension BluetoothManager: CBPeripheralDelegate {
             }
             if characteristic.uuid == batteryUUID {
                 resetBatteryState()
+            }
+            if characteristic.uuid == telemetryDebugUUID {
+                resetTelemetryDebugState()
+            }
+            if characteristic.uuid == flightBatteryUUID {
+                resetFlightBatteryState()
             }
             lastError = formatBLEError(kind: "notify error", uuid: characteristic.uuid, error: error)
             return
@@ -867,6 +934,21 @@ extension BluetoothManager: CBPeripheralDelegate {
             }
             return
         }
+        if characteristic.uuid == flightBatteryUUID {
+            guard let data = characteristic.value, data.count >= 10, data[0] == 1 else {
+                let n = characteristic.value?.count ?? 0
+                resetFlightBatteryState()
+                lastError = "Flight battery frame unexpected size/version (\(n)B). Firmware/app version mismatch?"
+                return
+            }
+            lastFlightBatteryWire = data
+            flightBatteryVoltageDv = Int(Int16(bitPattern: UInt16(data[2]) | (UInt16(data[3]) << 8)))
+            flightBatteryCurrentDa = Int(Int16(bitPattern: UInt16(data[4]) | (UInt16(data[5]) << 8)))
+            flightBatteryConsumedMah = Int(data[6]) | (Int(data[7]) << 8) | (Int(data[8]) << 16)
+            flightBatteryRemainingPercent = Int(Int8(bitPattern: data[9]))
+            flightBatteryNotifyRevision &+= 1
+            return
+        }
         guard characteristic.uuid == statusUUID else { return }
         guard let data = characteristic.value, data.count >= 8 else {
             // Short frame points at firmware/app version skew — surface as
@@ -918,6 +1000,10 @@ extension BluetoothManager: CBPeripheralDelegate {
         case osdTextUUID: return "OSD text"
         case batteryUUID: return "Battery"
         case telemetryDebugUUID: return "Telemetry debug"
+        case deviceNameUUID: return "Device name"
+        case flightBatteryUUID: return "Flight battery"
+        case firmwareVersionUUID: return "Firmware version"
+        case osdLayoutUUID: return "OSD layout"
         default: return uuid.uuidString
         }
     }

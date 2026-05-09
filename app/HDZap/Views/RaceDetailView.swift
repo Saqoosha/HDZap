@@ -12,6 +12,8 @@ struct RaceDetailView: View {
 
     @State private var shareItem: ShareItem?
     @State private var lastShareURL: URL?
+    @State private var batteryShareItem: ShareItem?
+    @State private var lastBatteryShareURL: URL?
     @State private var shareError: String?
     @State private var pendingDelete = false
 
@@ -36,7 +38,13 @@ struct RaceDetailView: View {
         .navigationTitle(navigationTitle)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if record != nil {
+                if let record {
+                    if !record.flightBatterySamples.isEmpty {
+                        Button(action: { shareBatteryCsvAction(record) }) {
+                            Image(systemName: "battery.100percent")
+                        }
+                        .accessibilityLabel("Share flight battery CSV")
+                    }
                     Button(action: shareAction) {
                         Image(systemName: "square.and.arrow.up")
                     }
@@ -58,8 +66,14 @@ struct RaceDetailView: View {
         // share sheet is still open, SwiftUI may not deliver the
         // sheet's `onDismiss`, leaving the temp PNG stranded. The
         // helper is idempotent (no-op once `lastShareURL` is nil).
-        .onDisappear { cleanupShareTempFile() }
+        .onDisappear {
+            cleanupShareTempFile()
+            cleanupBatteryCsvTempFile()
+        }
         .sheet(item: $shareItem, onDismiss: cleanupShareTempFile) { item in
+            ShareSheet(url: item.url)
+        }
+        .sheet(item: $batteryShareItem, onDismiss: cleanupBatteryCsvTempFile) { item in
             ShareSheet(url: item.url)
         }
         .alert(
@@ -105,6 +119,12 @@ struct RaceDetailView: View {
             )
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
+
+            if !record.flightBatterySamples.isEmpty {
+                flightBatterySection(record)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
+            }
         }
         .scrollIndicators(.hidden)
         .environment(\.accentHue, record.accentHue)
@@ -150,6 +170,56 @@ struct RaceDetailView: View {
         if let url = lastShareURL {
             ShareImageError.cleanupTempFile(at: url, log: Self.log)
             lastShareURL = nil
+        }
+    }
+
+    private func cleanupBatteryCsvTempFile() {
+        if let url = lastBatteryShareURL {
+            ShareImageError.cleanupTempFile(at: url, log: Self.log)
+            lastBatteryShareURL = nil
+        }
+    }
+
+    @ViewBuilder
+    private func flightBatterySection(_ record: RaceRecord) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Flight pack (CRSF)")
+                .font(.headline)
+            ForEach(Array(record.flightBatterySummaryLines().enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Text("Battery CSV exports raw samples for spreadsheets.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Writes `record.flightBatteryCSVText()` to a temp `.csv` and opens the share sheet.
+    private func shareBatteryCsvAction(_ record: RaceRecord) {
+        cleanupBatteryCsvTempFile()
+        let csv = record.flightBatteryCSVText()
+        guard !csv.isEmpty else { return }
+        let base = RaceFormat.detailTitle.string(from: record.startedAt)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let name = "HDZap-battery-\(base).csv"
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let url = dir.appendingPathComponent(name)
+        guard let data = csv.data(using: .utf8) else {
+            shareError = "Couldn't encode battery CSV as UTF-8."
+            return
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+            lastBatteryShareURL = url
+            batteryShareItem = ShareItem(url: url)
+        } catch {
+            shareError = "Couldn't write battery CSV (\(error.localizedDescription))."
         }
     }
 

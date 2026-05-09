@@ -36,6 +36,8 @@ struct TimerView: View {
     /// FINAL-lap save — couldn't insert the same race twice. Cleared on
     /// RESET.
     @State private var savedRaceID: UUID?
+    /// CRSF flight-pack battery samples for the in-memory session.
+    @State private var raceFlightBatterySamples: [RaceFlightBatterySample] = []
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
     /// lap consumes the remaining window. Cleared on START and RESET.
@@ -191,6 +193,83 @@ struct TimerView: View {
                 saveRaceIfNeeded()
                 sendResultOSD()
             }
+        }
+        // Replay the OSD layout Y offset whenever the goggle becomes
+        // reachable, then re-paint the live race frame so alignment +
+        // visibility (which ride the OSD text path, not the layout
+        // char) also land. Firmware doesn't persist any of these (per
+        // project decision: iOS owns them), so a fresh boot, deep-sleep
+        // wake, or BLE reconnect would otherwise revert to whatever the
+        // goggle's overlay buffer last held while iOS still thinks the
+        // user's preferred layout is in effect.
+        // Skipped while the layout editor is on screen — the editor's
+        // own debounced push will repaint with the dummy preview the
+        // pilot is editing against, and racing it from here would
+        // briefly flash the live race frame onto the goggle just before
+        // the editor reasserts its preview.
+        .onChange(of: bluetooth.isReady) { _, ready in
+            guard ready, !osdLayout.previewEditorActive else { return }
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset,
+                                        urgent: true)
+            flushCurrentRaceFrame()
+        }
+        // Resync the layout char whenever the user's stored layout
+        // changes from outside the editor (currently only `resetToDefaults`
+        // can hit this path while the editor is closed). While the editor
+        // is active, gate these handlers so they don't double-write the
+        // layout char on every slider tick — the editor already debounces
+        // its own push onto the same characteristic, so any extra resync
+        // from here is purely redundant traffic. `rows` is watched
+        // alongside `firstVisibleRow` because changing visibility shifts
+        // `firmwareYOffset` (visible-block height determines the buffer's
+        // top row).
+        .onChange(of: osdLayout.firstVisibleRow) { _, _ in
+            guard !osdLayout.previewEditorActive, bluetooth.isReady else { return }
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+        }
+        .onChange(of: osdLayout.rows) { _, _ in
+            guard !osdLayout.previewEditorActive, bluetooth.isReady else { return }
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+        }
+        // The moment the layout editor pops, repaint the live race
+        // frame over whatever dummy preview rows the editor pushed. The
+        // outer Settings sheet often stays open afterward, so deferring
+        // to its dismiss alone would leave fake `LAP 3 12.345` etc. on
+        // the goggle for the rest of the Settings session.
+        .onChange(of: osdLayout.previewEditorActive) { _, active in
+            guard !active, bluetooth.isReady else { return }
+            // Re-issue the layout char too — the editor may have left
+            // the goggle on a different `firmwareYOffset` (e.g. user
+            // toggled visibility while there) that the editor's
+            // debounce dropped on cancel.
+            _ = bluetooth.sendOSDLayout(yOffset: osdLayout.snapshot.firmwareYOffset)
+            flushCurrentRaceFrame()
+        }
+        // Belt-and-braces: if the user closes the Settings sheet
+        // without ever entering the layout editor — or the editor's
+        // disappear flush somehow missed (notification ordering, etc.)
+        // — re-flush on the sheet's true→false transition.
+        .onChange(of: showSettings) { _, isOpen in
+            guard !isOpen, bluetooth.isReady else { return }
+            flushCurrentRaceFrame()
+        }
+        // Race start: switch the goggle from any prior Ready frame
+        // (which uses the all-visible layout variant — different
+        // `firmwareYOffset` whenever the user has rows hidden) to the
+        // user's in-race partial layout, and pre-clear the slots that
+        // partial visibility leaves blank. Without this prelude, the
+        // first sendTimeLeftRow tick would route slot indices through
+        // the partial buffer math while the goggle still believed it
+        // was rendering the all-visible buffer, so TIME LEFT could
+        // land on the wrong grid row until the next full push.
+        .onChange(of: lapTimer.isRunning) { _, running in
+            guard running, bluetooth.isReady else { return }
+            pushOSDBuffer(osdLayout.snapshot, semanticRaws: [
+                RaceMetrics.timeLeftRaw(remainingSec: remaining), "", "", "",
+            ])
+        }
+        .onChange(of: bluetooth.flightBatteryNotifyRevision) { _, _ in
+            ingestFlightBatteryTelemetry()
         }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
@@ -649,6 +728,7 @@ struct TimerView: View {
             metricsSnapshot = nil
             lastLapWasFinal = false
             lapTimer.start()
+            raceFlightBatterySamples.removeAll()
             // Audio cue for the start of the race; also warms the audio
             // session so the first lap announcement doesn't pay the
             // setActive(true) round-trip.
@@ -696,7 +776,20 @@ struct TimerView: View {
             manuallyEnded = false
             lastLapWasFinal = false
             savedRaceID = nil
+            raceFlightBatterySamples.removeAll()
         }
+    }
+
+    private func ingestFlightBatteryTelemetry() {
+        guard lapTimer.isRunning, !sessionEnded, let started = lapTimer.sessionStartedAt else { return }
+        guard let raw = bluetooth.lastFlightBatteryWire,
+              let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started) else { return }
+        if let previous = raceFlightBatterySamples.last,
+           previous.voltageDv == sample.voltageDv,
+           previous.currentDa == sample.currentDa,
+           previous.consumedMah == sample.consumedMah,
+           previous.remainingPercent == sample.remainingPercent { return }
+        raceFlightBatterySamples.append(sample)
     }
 
     private func saveRaceIfNeeded() {
@@ -708,12 +801,17 @@ struct TimerView: View {
             Self.log.error("saveRaceIfNeeded: sessionEnded but sessionStartedAt is nil")
             return
         }
+        let flightSamplesSorted = raceFlightBatterySamples.sorted {
+            if $0.tRace != $1.tRace { return $0.tRace < $1.tRace }
+            return $0.receivedAt < $1.receivedAt
+        }
         guard let record = RaceRecord.snapshot(
             laps: lapTimer.laps,
             startedAt: startedAt,
             sessionLimit: sessionLimit,
             targetLapCount: clampedTargetLapCount,
-            accentHue: accentHue
+            accentHue: accentHue,
+            flightBatterySamples: flightSamplesSorted
         ) else {
             // Empty / invalid sessions (timeUp without ever lapping) are
             // legitimately skipped, but log so the same skip doesn't

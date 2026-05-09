@@ -8,6 +8,7 @@
 #include "osd_text_display.h"
 #include "nvs_store.h"
 #include "ble_service.h" // includes tx_sniff.h transitively
+#include "espnow_recv.h"
 #include "battery_monitor.h"
 #include "power_log.h"
 
@@ -218,6 +219,7 @@ static void applyStagedUid() {
         // apply to the freshly-committed UID.
         stickDisplay.clearMessage();
         if (wasRadioDown) Serial.println("ESP-NOW recovered");
+        espnow_recv_attach_cb();
     }
     // Push the new UID to iOS over BLE notify. Without this, the iOS
     // status frame is only refreshed on connect/disconnect, so a UID
@@ -228,37 +230,36 @@ static void applyStagedUid() {
 }
 
 void setup() {
-    // Issue #5 phase 2 redux: drop CPU clock from the 240 MHz default
-    // to 80 MHz. Bluedroid's documented minimum is 80 MHz; below that
-    // BLE becomes unstable. The CPU dynamic-power portion scales
-    // linearly with frequency so this is a few-mA win on top of static
-    // BLE/ESP-NOW radio draw — biggest under load, smaller at idle.
-    // Ordering relative to Serial.begin() doesn't matter on ESP32-S3
-    // (UART divisor is APB-derived and APB stays at 80 MHz regardless
-    // of CPU clock) and is irrelevant for USB CDC, but kept early
-    // anyway so any peripheral that captures the clock at init sees
-    // the post-scaling value.
-    bool cpuOk = setCpuFrequencyMhz(80);
+    // USB-CDC consoles must enumerate before bursts of println — keep this
+    // ahead of BLE/WiFi spam so boot traces are capturable during LCD issues.
+    Serial.begin(115200);
+    delay(700);
+
+    Serial.println("\n=== HDZero OSD Lap Timer ===");
+    Serial.printf("[boot] CPU MHz before LCD = %u\n", (unsigned)getCpuFrequencyMhz());
 
     stickDisplay.begin();
     batteryMonitor.begin();
-    Serial.begin(115200);
-    delay(500); // Wait for USB CDC serial to enumerate before first println.
-    Serial.println("\n=== HDZero OSD Lap Timer ===");
-    {
-        unsigned actual = (unsigned)getCpuFrequencyMhz();
-        if (!cpuOk || actual != 80) {
-            Serial.printf("CPU: setCpuFrequencyMhz(80) FAILED — running at %u MHz\n", actual);
-        } else {
-            Serial.printf("CPU: %u MHz\n", actual);
-        }
+    // Wake-cause check needs to land before the splash hold so a
+    // deep-sleep wake (operator pressing BtnA/BtnB to resume mid-race)
+    // can skip the splash window entirely and bring the UI up
+    // instantly. On a cold boot we want the full splash hold so the
+    // version is readable; on a wake it's noise.
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    bool fromDeepSleep = (cause != ESP_SLEEP_WAKEUP_UNDEFINED);
+    // Boot splash: centered "HDZap" + "FW <git-describe>" so the
+    // operator can confirm which firmware is running before the
+    // UID/lap UI takes over. Skip the splash entirely on a deep-sleep
+    // wake so a button press resumes operation without a 1.2 s freeze.
+    if (!fromDeepSleep) {
+        stickDisplay.showSplash(FIRMWARE_VERSION);
     }
+    Serial.printf("Firmware: %s\n", FIRMWARE_VERSION);
 
     // If we just woke from deep sleep, surface why so an operator can
     // tell a power-on-reset from a button-wake on serial. Doesn't change
     // behavior — the rest of setup() runs identically either way because
     // deep sleep didn't preserve any of our state.
-    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
     if (cause == ESP_SLEEP_WAKEUP_EXT1) {
         uint64_t mask = esp_sleep_get_ext1_wakeup_status();
         Serial.printf("Wake from deep sleep: ext1 GPIO mask=0x%llx (BtnA=GPIO11, BtnB=GPIO12)\n",
@@ -271,12 +272,25 @@ void setup() {
     // (presumably battery-only) session before we start writing to it.
     // Operator workflow: unplug → run on battery for hours → plug back in
     // → boot prints the trail before continuing the next session.
+    // `/power.csv` mounts here; dumping is deferred until the tail of setup()
+    // so an idle USB CDC link can't block forever before BLE + ESP-NOW +
+    // the first LCD paint.
     powerLog.begin();
-    powerLog.dumpToSerial();
 
     if (!nvs_store::loadUid(g_uid)) {
         esp_read_mac(g_uid, ESP_MAC_WIFI_STA);
         Serial.println("No saved UID, using MAC");
+    }
+
+    {
+        uint8_t telemetrySource[6];
+        if (nvs_store::loadTelemetrySourceUid(telemetrySource)) {
+            portENTER_CRITICAL(&g_sniff_mux);
+            memcpy(g_telemetry_source_uid, telemetrySource, sizeof(g_telemetry_source_uid));
+            g_telemetry_source_configured = true;
+            g_telemetry_source_captured = false;
+            portEXIT_CRITICAL(&g_sniff_mux);
+        }
     }
 
     {
@@ -292,6 +306,14 @@ void setup() {
 
     Serial.printf("UID: %02X:%02X:%02X:%02X:%02X:%02X\n",
                   g_uid[0], g_uid[1], g_uid[2], g_uid[3], g_uid[4], g_uid[5]);
+    if (g_telemetry_source_configured) {
+        Serial.printf("Telemetry source: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      g_telemetry_source_uid[0], g_telemetry_source_uid[1],
+                      g_telemetry_source_uid[2], g_telemetry_source_uid[3],
+                      g_telemetry_source_uid[4], g_telemetry_source_uid[5]);
+    } else {
+        Serial.println("Telemetry source: not configured");
+    }
 
     espnow_ready = espnow_init(g_uid);
     if (!espnow_ready) {
@@ -300,6 +322,7 @@ void setup() {
         stickDisplay.showMessage("ESPNOW FAIL (BLE only)", stickDisplay.colorErr());
     } else {
         Serial.println("ESP-NOW initialized");
+        espnow_recv_attach_cb();
     }
 
     osd.begin(g_uid);
@@ -313,6 +336,23 @@ void setup() {
     // Boot counts as activity; without this the panel could sleep before
     // the operator has had a chance to interact at all.
     g_last_activity_ms = millis();
+
+    bool cpuOk = setCpuFrequencyMhz(80);
+    unsigned hzAfter = (unsigned)getCpuFrequencyMhz();
+    if (!cpuOk || hzAfter != 80) {
+        Serial.printf("CPU: setCpuFrequencyMhz(80) FAILED — running at %u MHz\n", hzAfter);
+    } else {
+        Serial.printf("[boot] CPU scaled to %u MHz for BLE/idle savings\n", hzAfter);
+    }
+#if defined(M5STICKS3)
+    delay(5);
+#endif
+    stickDisplay.showStatus(g_uid, false, espnow_ready, g_uid_is_default);
+    Serial.println("[boot] setup complete");
+
+    // After LCD + radios: safe to blast historical CSV — if USB TX backs up,
+    // the operator still sees a usable stick.
+    powerLog.dumpToSerial();
 }
 
 void loop() {
@@ -661,12 +701,26 @@ void loop() {
 
     if (g_sniff_captured) {
         uint8_t uid[6];
+        uint8_t telemetrySource[6];
+        bool telemetrySourceCaptured = false;
         portENTER_CRITICAL(&g_sniff_mux);
         memcpy(uid, g_sniff_uid, 6);
+        memcpy(telemetrySource, g_telemetry_source_uid, 6);
+        telemetrySourceCaptured = g_telemetry_source_captured;
+        g_telemetry_source_captured = false;
         g_sniff_captured = false;
         portEXIT_CRITICAL(&g_sniff_mux);
         Serial.printf("TX UID captured: %02X:%02X:%02X:%02X:%02X:%02X\n",
                       uid[0], uid[1], uid[2], uid[3], uid[4], uid[5]);
+        if (telemetrySourceCaptured) {
+            if (nvs_store::saveTelemetrySourceUid(telemetrySource)) {
+                Serial.printf("Telemetry source captured: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                              telemetrySource[0], telemetrySource[1], telemetrySource[2],
+                              telemetrySource[3], telemetrySource[4], telemetrySource[5]);
+            } else {
+                Serial.println("Telemetry source save failed");
+            }
+        }
         ble_notify_tx_uid(uid);
     }
 
@@ -706,6 +760,23 @@ void loop() {
         uint32_t total;
         if (telemetry_sniff::telemetry_pop(record, dropped, total)) {
             ble_notify_telemetry_packet(record);
+        }
+    }
+
+    // Flight-pack CRSF Battery (MSP 0x0011 wrapped by Backpack). Promiscuous
+    // RX only stages candidate bytes; parsing + BLE notification stays here.
+    {
+        uint8_t promiscCandidate[kPromiscMspCandidateMaxLen];
+        int promiscCandidateLen = 0;
+        if (hdzap_consume_promisc_msp_candidate(promiscCandidate,
+                                                sizeof(promiscCandidate),
+                                                &promiscCandidateLen)) {
+            flight_battery_on_espnow_payload(promiscCandidate, promiscCandidateLen);
+        }
+
+        FlightBatterySampleRaw fb{};
+        if (flight_battery_consume_if_staged(&fb)) {
+            ble_maybe_notify_flight_battery(fb);
         }
     }
 
