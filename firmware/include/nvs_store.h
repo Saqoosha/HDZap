@@ -8,6 +8,7 @@
 // Namespace "hdzero", keys:
 //   - "init"   : sentinel, removed before uid writes and rewritten after.
 //   - "uid"    : 6 bytes.
+//   - "teleuid": 6-byte ESP-NOW sender MAC accepted for flight-pack telemetry.
 //   - "slpmin" : single byte, deep-sleep timeout in minutes (0 = disabled).
 //                No sentinel pattern: a single putUChar is one NVS entry,
 //                so it can't be torn at the entry level. The failure mode
@@ -50,6 +51,37 @@ inline bool saveUid(const uint8_t uid[6]) {
     if (uidWritten != 6 || sentinelWritten != 1) {
         Serial.printf("nvs_store: partial save (uid=%u, sentinel=%u)\n",
                       (unsigned)uidWritten, (unsigned)sentinelWritten);
+        return false;
+    }
+    return true;
+}
+
+inline bool saveTelemetrySourceUid(const uint8_t uid[6]) {
+    Preferences prefs;
+    if (!prefs.begin("hdzero", false)) return false;
+    size_t written = prefs.putBytes("teleuid", uid, 6);
+    prefs.end();
+    if (written != 6) {
+        Serial.printf("nvs_store: saveTelemetrySourceUid wrote %u bytes (expected 6)\n",
+                      (unsigned)written);
+        return false;
+    }
+    return true;
+}
+
+inline bool loadTelemetrySourceUid(uint8_t uid[6]) {
+    Preferences prefs;
+    if (!prefs.begin("hdzero", true)) return false;
+    bool hasUid = prefs.isKey("teleuid");
+    if (!hasUid) {
+        prefs.end();
+        return false;
+    }
+    size_t read = prefs.getBytes("teleuid", uid, 6);
+    prefs.end();
+    if (read != 6) {
+        Serial.printf("nvs_store: telemetry source read returned %u bytes (expected 6)\n",
+                      (unsigned)read);
         return false;
     }
     return true;

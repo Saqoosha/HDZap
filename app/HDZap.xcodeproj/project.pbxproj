@@ -16,6 +16,7 @@
 		3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63119602A4C7217E6D0C00A1 /* OKLCH.swift */; };
 		34305017E1FD46A91F2686E9 /* DeviceRenameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */; };
 		374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */; };
+		4BD1A6777B94B70BDAD20186 /* RaceRecord+FlightBattery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */; };
 		523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */; };
 		6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DB96B10D57102797F555BE /* BluetoothManager.swift */; };
 		7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFF7583FD58A10FE7357025 /* HDZapApp.swift */; };
@@ -32,11 +33,13 @@
 		C377E0A27CFCE41D44BC6AB8 /* OSDLayoutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */; };
 		C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */; };
 		CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D706FE213381CDC8D3EC0893 /* TimerView.swift */; };
+		D3B6435AACBDBC150667EE1C /* RaceFlightBatterySample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025B5A861D62E2D7242FE3CA /* RaceFlightBatterySample.swift */; };
 		EA2F8003A1A5258DBA937A5F /* ConnectionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13438604B6DB026C9FDAC24F /* ConnectionSettingsView.swift */; };
 		F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		025B5A861D62E2D7242FE3CA /* RaceFlightBatterySample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceFlightBatterySample.swift; sourceTree = "<group>"; };
 		12757F8C010AFDC40357896D /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
 		13438604B6DB026C9FDAC24F /* ConnectionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSettingsView.swift; sourceTree = "<group>"; };
 		1D691E6FC4DA267F798640A3 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
@@ -60,6 +63,7 @@
 		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettings.swift; sourceTree = "<group>"; };
 		B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RaceRecord+FlightBattery.swift"; sourceTree = "<group>"; };
 		CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
 		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
@@ -106,9 +110,11 @@
 				CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */,
 				2E4A2435CB82ED37EA712928 /* LapTimer.swift */,
 				B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */,
+				025B5A861D62E2D7242FE3CA /* RaceFlightBatterySample.swift */,
 				4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */,
 				D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */,
 				EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */,
+				B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -243,8 +249,10 @@
 				9DE8F86CE8258154BB0C4D55 /* OSDLayoutSettingsView.swift in Sources */,
 				523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */,
 				3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */,
+				D3B6435AACBDBC150667EE1C /* RaceFlightBatterySample.swift in Sources */,
 				C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */,
 				BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */,
+				4BD1A6777B94B70BDAD20186 /* RaceRecord+FlightBattery.swift in Sources */,
 				1A29BAB25C8509DF2CDA8248 /* RaceRecord.swift in Sources */,
 				B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */,
 				03B99D4D428FE955BCC3B8B4 /* SettingsView.swift in Sources */,

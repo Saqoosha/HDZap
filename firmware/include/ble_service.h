@@ -13,14 +13,12 @@
 #include "espnow_link.h"
 #include "tx_sniff.h"
 #include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
+#include "flight_battery_telemetry.h"
 
-// Service UUID bumped to ...d490 in lockstep with iOS to defeat
+// Service UUID bumped to ...d491 in lockstep with iOS to defeat
 // CoreBluetooth's per-peripheral GATT cache. The bump is necessary every
-// time the GATT shape changes — this commit adds CHR_FW_VERSION (...d48f)
-// on top of the prior CHR_DEVICE_NAME (...d489) addition that already
-// moved the service from d48d → d48e. iOS treats both adding a
-// characteristic AND changing a characteristic's properties as shape
-// changes, so the bump rule covers any GATT delta.
+// time the GATT shape changes — this commit adds CHR_FLIGHT_BATTERY
+// (...d48c) on top of the prior CHR_FW_VERSION (...d48f) addition.
 //
 // Adding a characteristic without bumping the service UUID is safe ONLY
 // if no existing iOS build attempts to read or write it. This change
@@ -29,8 +27,9 @@
 //
 // History: d48c → d48d (CHR_OSD_LAYOUT property bitmap gained WRITE_NR),
 //          d48d → d48e (CHR_DEVICE_NAME added),
-//          d48e → d490  (CHR_FW_VERSION added; d48f used by the new char).
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d490"
+//          d48e → d490 (CHR_FW_VERSION added; d48f used by the new char),
+//          d490 → d491 (CHR_FLIGHT_BATTERY added; d48c was still free).
+#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d491"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
@@ -41,6 +40,8 @@
 #define CHR_DEVICE_NAME_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
 #define CHR_OSD_LAYOUT_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48b"
+/// Flight pack CRSF Battery (0x08) from Backpack ESP-NOW telemetry.
+#define CHR_FLIGHT_BATTERY_UUID "f47ac10b-58cc-4372-a567-0e02b2c3d48c"
 #define CHR_FW_VERSION_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48f"
 
 // Resolved by the PlatformIO pre-script `scripts/inject_version.py` from
@@ -118,6 +119,7 @@ inline BLEServer *g_ble_server = nullptr;
 inline BLECharacteristic *g_status_chr = nullptr;
 inline BLECharacteristic *g_tx_sniff_chr = nullptr;
 inline BLECharacteristic *g_battery_chr = nullptr;
+inline BLECharacteristic *g_flight_battery_chr = nullptr;
 inline volatile bool g_ble_connected = false;
 // Last Test OSD outcome, surfaced via status notify so the iOS pairing
 // flow can verify a fresh bind landed without asking the user to look at
@@ -174,6 +176,7 @@ inline void ble_update_status() {
 class ServerCallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer *s, esp_ble_gatts_cb_param_t *param) override {
         g_ble_connected = true;
+        memset(&g_flight_battery_last_sent, 0xFF, sizeof(g_flight_battery_last_sent));
         ble_update_status();
         // Issue #5 phase 2 redux: ask iOS for low-power conn params.
         // 30-50 ms interval, latency 4 -> peripheral wakes 1/5 events
@@ -290,6 +293,45 @@ inline void ble_update_battery(const uint8_t payload[2]) {
     }
     g_battery_chr->setValue(const_cast<uint8_t *>(payload), 2);
     g_battery_chr->notify();
+}
+
+/// CRSF Battery (0x08) mirrored to iOS. v1 LE layout:
+/// `[ver:1][flags:1][volt_dv:2][curr_da:2][mah:3][rem:1]`.
+inline void ble_maybe_notify_flight_battery(const FlightBatterySampleRaw &s) {
+    if (!g_flight_battery_chr) {
+        static bool warned = false;
+        if (!warned) {
+            Serial.println("ble_maybe_notify_flight_battery: g_flight_battery_chr null (GATT overflow?)");
+            warned = true;
+        }
+        return;
+    }
+    if (!g_ble_connected) {
+        return;
+    }
+    if (s.voltage_dv == g_flight_battery_last_sent.voltage_dv &&
+        s.current_da == g_flight_battery_last_sent.current_da &&
+        s.consumed_mah == g_flight_battery_last_sent.consumed_mah &&
+        s.remaining_pct == g_flight_battery_last_sent.remaining_pct) {
+        return;
+    }
+    g_flight_battery_last_sent = s;
+    uint8_t buf[10];
+    buf[0] = 1; // schema version
+    buf[1] = 0; // flags
+    uint16_t v = static_cast<uint16_t>(s.voltage_dv);
+    uint16_t c = static_cast<uint16_t>(s.current_da);
+    uint32_t mah = static_cast<uint32_t>(s.consumed_mah) & 0x00FFFFFFu;
+    buf[2] = static_cast<uint8_t>(v);
+    buf[3] = static_cast<uint8_t>(v >> 8);
+    buf[4] = static_cast<uint8_t>(c);
+    buf[5] = static_cast<uint8_t>(c >> 8);
+    buf[6] = static_cast<uint8_t>(mah);
+    buf[7] = static_cast<uint8_t>(mah >> 8);
+    buf[8] = static_cast<uint8_t>(mah >> 16);
+    buf[9] = static_cast<uint8_t>(s.remaining_pct);
+    g_flight_battery_chr->setValue(buf, sizeof(buf));
+    g_flight_battery_chr->notify();
 }
 
 class SleepConfigCallback : public BLECharacteristicCallbacks {
@@ -473,9 +515,9 @@ inline void ble_init(const char *device_name) {
     // 1 per BLE2902 descriptor`. createService() defaults to 15 and then
     // silently drops overflow characteristics — last visible symptom was
     // iOS only seeing 5 of 8 chars after we added battery / TX sniff.
-    // 32 leaves comfortable headroom; recompute and bump if a future GATT
-    // addition pushes the count past ~28.
-    BLEService *pService = g_ble_server->createService(BLEUUID(BLE_SERVICE_UUID), 32, 0);
+    // 40 leaves comfortable headroom; recompute and bump if a future GATT
+    // addition pushes the count past ~36.
+    BLEService *pService = g_ble_server->createService(BLEUUID(BLE_SERVICE_UUID), 40, 0);
 
     BLECharacteristic *pUID = pService->createCharacteristic(
         CHR_UID_CONFIG_UUID, BLECharacteristic::PROPERTY_WRITE);
@@ -508,6 +550,11 @@ inline void ble_init(const char *device_name) {
         CHR_BATTERY_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     g_battery_chr->addDescriptor(new BLE2902());
+
+    g_flight_battery_chr = pService->createCharacteristic(
+        CHR_FLIGHT_BATTERY_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+    g_flight_battery_chr->addDescriptor(new BLE2902());
 
     BLECharacteristic *pDeviceName = pService->createCharacteristic(
         CHR_DEVICE_NAME_UUID,

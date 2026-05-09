@@ -40,6 +40,8 @@ struct TimerView: View {
     /// FINAL-lap save — couldn't insert the same race twice. Cleared on
     /// RESET.
     @State private var savedRaceID: UUID?
+    /// CRSF flight-pack battery samples for the in-memory session.
+    @State private var raceFlightBatterySamples: [RaceFlightBatterySample] = []
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
     /// lap consumes the remaining window. Cleared on START and RESET.
@@ -287,6 +289,9 @@ struct TimerView: View {
             pushOSDBuffer(osdLayout.snapshot, semanticRaws: [
                 RaceMetrics.timeLeftRaw(remainingSec: remaining), "", "", "",
             ])
+        }
+        .onChange(of: bluetooth.flightBatteryNotifyRevision) { _, _ in
+            ingestFlightBatteryTelemetry()
         }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
@@ -762,6 +767,7 @@ struct TimerView: View {
             // restore it.
             readyShown = false
             lapTimer.start()
+            raceFlightBatterySamples.removeAll()
             // Audio cue for the start of the race; also warms the audio
             // session so the first lap announcement doesn't pay the
             // setActive(true) round-trip.
@@ -815,7 +821,20 @@ struct TimerView: View {
             lastLapWasFinal = false
             readyShown = false
             savedRaceID = nil
+            raceFlightBatterySamples.removeAll()
         }
+    }
+
+    private func ingestFlightBatteryTelemetry() {
+        guard lapTimer.isRunning, !sessionEnded, let started = lapTimer.sessionStartedAt else { return }
+        guard let raw = bluetooth.lastFlightBatteryWire,
+              let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started) else { return }
+        if let previous = raceFlightBatterySamples.last,
+           previous.voltageDv == sample.voltageDv,
+           previous.currentDa == sample.currentDa,
+           previous.consumedMah == sample.consumedMah,
+           previous.remainingPercent == sample.remainingPercent { return }
+        raceFlightBatterySamples.append(sample)
     }
 
     private func saveRaceIfNeeded() {
@@ -827,12 +846,17 @@ struct TimerView: View {
             Self.log.error("saveRaceIfNeeded: sessionEnded but sessionStartedAt is nil")
             return
         }
+        let flightSamplesSorted = raceFlightBatterySamples.sorted {
+            if $0.tRace != $1.tRace { return $0.tRace < $1.tRace }
+            return $0.receivedAt < $1.receivedAt
+        }
         guard let record = RaceRecord.snapshot(
             laps: lapTimer.laps,
             startedAt: startedAt,
             sessionLimit: sessionLimit,
             targetLapCount: clampedTargetLapCount,
-            accentHue: accentHue
+            accentHue: accentHue,
+            flightBatterySamples: flightSamplesSorted
         ) else {
             // Empty / invalid sessions (timeUp without ever lapping) are
             // legitimately skipped, but log so the same skip doesn't

@@ -6,6 +6,8 @@
 // MSP function codes
 constexpr uint16_t MSP_SET_OSD_ELEM = 0x00B6;
 constexpr uint16_t MSP_ELRS_BIND = 0x0009;
+/// CRSF telemetry frames addressed to ELRS backpacks (Betaflight TX → backpack).
+constexpr uint16_t MSP_ELRS_BACKPACK_CRSF_TLM = 0x0011;
 
 // MSP DisplayPort sub-commands
 constexpr uint8_t MSP_DP_HEARTBEAT = 0x00;

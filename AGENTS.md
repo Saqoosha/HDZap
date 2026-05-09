@@ -103,6 +103,7 @@ copy with no English library dialogs. Target hardware: M5StickS3 only.
 - Bind phrase UID derivation: MD5(`-DMY_BINDING_PHRASE="<phrase>"`), first 6 bytes, bit0 cleared
 - VTX not required for backpack OSD display
 - Binding overwrites existing UID — scenarios 1 & 2 avoid this by reusing existing UID
+- Flight battery telemetry uses promiscuous Wi-Fi capture because Backpack telemetry is visible on-air but not addressed to the M5 ESP-NOW MAC. Filter it by the separately persisted telemetry source sender MAC (`teleuid`, learned from the TX bind/sniff packet), not by the OSD target `g_uid`.
 
 ## Architecture Boundaries
 
