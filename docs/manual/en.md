@@ -338,7 +338,7 @@ With the bind working, you can run a race.
 ### Race setup
 
 1. Tap the gear icon at the top right → open the Settings sheet.
-2. Adjust **Race time** (default 90 s) and **Target lap** in the inline **Format** section at the top.
+2. Adjust **Race time** (default 90 s) and **Target lap** in the **Format** section at the top.
 3. Close the Settings sheet.
 
 ### Running
@@ -350,7 +350,7 @@ With the bind working, you can run a race.
 
 ### What's on the Goggle's OSD
 
-During the race, the Goggle shows a 4-line overlay along the bottom. Each line is centered within the 50-column OSD grid.
+During the race, the Goggle shows up to a 4-line overlay along the bottom (**Settings → Device → OSD layout** lets you hide individual rows and tweak alignment / vertical position). Each visible line defaults to centered within the 50-column OSD grid.
 
 **Pre-race (READY):**
 
@@ -392,7 +392,7 @@ What each field means:
 - **AVG / PACE**: average so far, and how many laps you'll finish at the current pace
 - **D±x BANK / NEED / ON TARGET**: gap to the target pace. BANK = ahead, NEED = behind, ON TARGET = on target. `/L` is the per-lap delta.
 
-### Tips while racing
+### Tips while flying
 
 - **Voice announcements**: turn it on in Settings and the iPhone reads each lap time aloud.
 - **Haptics**: the iPhone vibrates on Start / Lap, so you can confirm the tap registered without looking at the screen.
@@ -428,9 +428,7 @@ The card includes:
 
 ## 9. Settings reference
 
-The Settings sheet is organised as a status-first list with drilldown sub-screens — the same pattern as iOS's own Settings.app. The root has the inline **Format** section at the top followed by **Device** and **App** sections that drill into the sub-screens below. Each row shows its current value on the right (Apple Settings.app pattern).
-
-### Format (inline at the top of the root)
+### Format
 
 - **Race time**: 60–180 s (5 s steps)
 - **Target lap**: e.g. 5L
@@ -438,9 +436,9 @@ The Settings sheet is organised as a status-first list with drilldown sub-screen
 
 ### Device → M5StickS3 (Connection)
 
-- **Status dot + name** at the top of the list — the same row that scrolled down to here from the root.
+- **Status dot + device name** at the top of the list.
 - **Connected**: device name, identifier prefix, battery percentage / charging icon, **Disconnect** button.
-- **Bluetooth name** (only visible while connected): drilldown to rename the M5StickS3. UTF-8 up to 20 bytes; the unit reboots once after Save and the iPhone reconnects automatically. See [Chapter 5 → Renaming the M5StickS3](#renaming-the-m5sticks3-optional).
+- **Bluetooth name** (only visible while connected): tap to open the rename screen for the M5StickS3. UTF-8 up to 20 bytes; the unit reboots once after Save and the iPhone reconnects automatically. See [Chapter 5 → Renaming the M5StickS3](#renaming-the-m5sticks3-optional).
 - **Other devices**: discovered M5StickS3 units, each with a **Connect** button.
 - **Scan**: rescan for nearby M5StickS3 devices.
 
@@ -463,8 +461,6 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 - **Clear OSD**: wipes the goggle overlay buffer.
 - **Reset layout**: returns the editor to the defaults (bottom-anchored, centered, all rows visible).
 
-> ℹ️ The vertical position requires firmware that supports the OSD layout characteristic. Older firmware still respects alignment and show/hide; the editor warns when the live position can't be pushed.
-
 ### App → Lap announcer (Audio)
 
 - **Announce lap times**: on / off
@@ -482,8 +478,8 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 ### About
 
-- **App version**: the iOS app's `CFBundleShortVersionString`. Always shown.
-- **Firmware**: the M5StickS3's `git describe` build version. Only appears once the unit has connected (read on first GATT discovery). Renders **red** with a mismatch warning when the firmware's major version disagrees with the app — that's the cue to re-flash so the wire format lines up. The same row also shows in **Settings → Device → M5StickS3** under "Version".
+- **App version**: the HDZap app's version. Always shown.
+- **Firmware**: the M5StickS3's current firmware version. Shown after a successful connection. If it disagrees with the app version, this row turns **red** with a warning — re-flash the M5StickS3 from the Web Flasher to bring it back in line. The same info also shows in **Settings → Device → M5StickS3** under **Version**.
 
 ---
 
