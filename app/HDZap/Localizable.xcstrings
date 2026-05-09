@@ -1418,12 +1418,100 @@
       }
     },
     "Row %lld" : {
-      "comment" : "OSD layout editor Show-rows toggle label fallback for any row past the named four (currently unreachable — rowCount is fixed at 4 — but exists for completeness).",
+      "comment" : "OSD layout editor Show-rows toggle label fallback for any row past the named four (currently unreachable — rowCount is fixed at 4 — but exists for completeness). Also reused by Settings root osdLayoutSummary for the single-visible-row case.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 行目"
+          }
+        }
+      }
+    },
+    "Not connected" : {
+      "comment" : "Settings root M5StickS3 row subtitle when no device is connected.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未接続"
+          }
+        }
+      }
+    },
+    "All hidden" : {
+      "comment" : "Settings root OSD layout drilldown summary when every row is toggled off.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべて非表示"
+          }
+        }
+      }
+    },
+    "Rows %lld–%lld" : {
+      "comment" : "Settings root OSD layout drilldown summary for a multi-row visible block (1-indexed top–bottom).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld〜%lld 行目"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "comment" : "Settings root Lap announcer drilldown summary when the announcer is disabled.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフ"
+          }
+        }
+      }
+    },
+    "On · %@" : {
+      "comment" : "Settings root Lap announcer drilldown summary when enabled. %@ is the selected language's display name (English / Japanese).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オン · %@"
+          }
+        }
+      }
+    },
+    "%@ · %lld%%" : {
+      "comment" : "Settings root M5StickS3 row subtitle when connected and not charging. %@ is the device name; %lld is battery percent.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %lld%%"
+          }
+        }
+      }
+    },
+    "%@ · %lld%% · Charging" : {
+      "comment" : "Settings root M5StickS3 row subtitle when connected and charging. %@ is the device name; %lld is battery percent.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %lld%% · 充電中"
+          }
+        }
+      }
+    },
+    "No other devices found." : {
+      "comment" : "M5StickS3 sub-screen Other-devices section text shown when already connected and no other peripherals were discovered (the bare 'No devices found. Tap Scan to search.' applies when nothing is connected at all).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他のデバイスは見つかりませんでした。"
           }
         }
       }
