@@ -1260,11 +1260,18 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
         if characteristic.uuid == flightBatteryUUID {
-            guard let data = characteristic.value,
-                  let fields = RaceFlightBatterySample.decodeFieldsV1(data) else {
-                let n = characteristic.value?.count ?? 0
+            // Empty value = "no telemetry has been decoded yet on the
+            // firmware side." Firmware doesn't seed g_flight_battery_chr
+            // at boot (it only setValue's once a CRSF Battery frame
+            // decodes), so the explicit readValue() we kick off in
+            // didDiscoverCharacteristicsFor returns 0 bytes until the
+            // first push lands. Most visible after a deep-sleep wake
+            // before the bound TX has resumed sending telemetry. Stay
+            // silent — this is the steady state, not a wire mismatch.
+            guard let data = characteristic.value, !data.isEmpty else { return }
+            guard let fields = RaceFlightBatterySample.decodeFieldsV1(data) else {
                 resetFlightBatteryState()
-                lastError = "Flight battery frame unexpected size/version (\(n)B). Firmware/app version mismatch?"
+                lastError = "Flight battery frame unexpected size/version (\(data.count)B). Firmware/app version mismatch?"
                 return
             }
             lastFlightBatteryWire = data
