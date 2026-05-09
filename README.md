@@ -34,7 +34,7 @@ PlatformIO project for ESP32 devkit (target: M5StickS3).
 SwiftUI app (iOS 18+) with CoreBluetooth.
 
 - **Timer** — stopwatch with large LAP button, lap history, best lap tracking
-- **Connection** — BLE scan/connect, 3-mode UID setup, bind command, TX UID capture
+- **Settings** — drilldown sub-screens for the M5StickS3, goggle pairing (3 UID modes + TX UID capture + auto-rollback), goggle OSD layout, lap announcer, and appearance. See the [user manual § 9](docs/manual/en.md#9-settings-reference) for the full breakdown.
 
 ## Repository Layout
 
@@ -71,7 +71,7 @@ Hotfixes still go through `develop` → `main` PRs. Direct push to `main` is blo
 
 ## BLE Protocol
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. The UUID is bumped on every GATT-shape change — including characteristic property-bitmap changes — so iOS CoreBluetooth's per-peripheral cache reliably re-discovers the new shape without a phone reboot.
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d490`. The UUID is bumped on every GATT-shape change — including characteristic property-bitmap changes — so iOS CoreBluetooth's per-peripheral cache reliably re-discovers the new shape without a phone reboot.
 
 | Characteristic | UUID suffix | Direction | Format |
 |---|---|---|---|
@@ -80,9 +80,12 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. The UUID is bumped on ever
 | OSD Control | `...d484` | Write | `[cmd:u8]` |
 | Status | `...d485` | Read+Notify | `[conn:u8][uid:6][test:u8]` |
 | TX Sniff | `...d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6]` |
-| OSD Text | `...d487` | Write | `[row:u8][ascii:1-19B]`; rows 0..3 stage one bottom-anchored 4-row text frame |
+| OSD Text | `...d487` | Write+WriteNR | `[row:u8][ascii:1-50B]`; rows 0..3 stage one bottom-anchored 4-row text frame |
 | Battery | `...d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced; bits 4-7 reserved)]` |
 | Device Name | `...d489` | Read+Write | UTF-8, ≤20 bytes; write triggers NVS persist + reboot so the new name lands in `BLEDevice::init` |
+| Sleep Config | `...d48a` | Read+Write | `[minutes:u8]` deep-sleep idle timeout; firmware seeds from NVS at boot |
+| OSD Layout | `...d48b` | Read+Write+WriteNR | `[y_offset:i8]` rows to shift the 4-row buffer up from the default base row (range `[-14, 0]`); WriteNR lets the iOS slider drag without ATT acks |
+| FW Version | `...d48f` | Read | UTF-8 `git describe --tags --dirty --always` string injected at build by `firmware/scripts/inject_version.py`; iOS reads on connect and warns if the leading major component disagrees with `CFBundleShortVersionString` |
 
 UID Config modes: `0x01` bind phrase, `0x02` raw 6-byte UID, `0x03` new pairing (ESP32 MAC).
 OSD commands: `0x01` clear, `0x02` reset laps, `0x03` test OSD.

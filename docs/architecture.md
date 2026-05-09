@@ -202,18 +202,37 @@ HDZeroLapTimerApp
         │     ├── actions: lapTimer.start/stop/lap/reset
         │     ├── actions: bluetooth.sendOSDText/sendOSDControl
         │     └── embeds: LapListView
-        └── SettingsView
-              ├── reads: BluetoothManager (isConnected, discoveredDevices,
-              │          connectedIdentifier, currentUID, capturedTXUID,
-              │          isTXSniffActive)
-              ├── owns: targetLapCount, raceSessionLimit, accentHue
-              │         @AppStorage settings
-              ├── actions: bluetooth.startScan/connect/disconnect
-              ├── actions: bluetooth.sendUIDConfig/sendBindCommand
-              ├── actions: bluetooth.sendOSDText/sendOSDControl (Send/Clear test)
-              ├── actions: bluetooth.startTXSniff/stopTXSniff/clearCapturedTXUID
-              └── uses: UIDUtils (uidFromBindPhrase, formatUID,
-                        formatUIDDecimal, parseUID, normalizeUID)
+        └── SettingsView (root)
+              ├── "Format" Section (inline)
+              │     └── race time + target lap + target pace
+              ├── "Device" Section
+              │     ├── "M5StickS3" row → ConnectionSettingsView
+              │     │     ├── connected device + battery + Disconnect
+              │     │     ├── Bluetooth name row → DeviceRenameView (writes
+              │     │     │   CHR_DEVICE_NAME; gated on isConnected &&
+              │     │     │   supportsDeviceRename)
+              │     │     └── discovered list + Scan
+              │     ├── "Goggle pairing" row → PairingSettingsView
+              │     │     ├── bind phrase / manual UID / new pairing modes
+              │     │     ├── TX UID capture (start/stop/apply)
+              │     │     ├── auto-rollback flow + apply alert
+              │     │     └── Restore previous goggle
+              │     └── "OSD layout" row → OSDLayoutSettingsView
+              │           ├── live preview + position slider + alignment
+              │           ├── per-row show/hide (Time/Lap/Pace/Diff)
+              │           ├── Send Test OSD + Clear OSD + Reset layout
+              │           └── pushes layout char + buffer rows on debounce
+              ├── "App" Section
+              │     ├── "Lap announcer" row → AudioSettingsView
+              │     └── "Appearance" row → AppearanceSettingsView
+              ├── "About" Section
+              │     ├── "App version" row (always shown)
+              │     └── "Firmware" row (only after CHR_FW_VERSION lands;
+              │           red on major-version mismatch with the app)
+              └── owns: targetLapCount, raceSessionLimit, accentHue
+                        @AppStorage settings; uses UIDUtils
+                        (uidFromBindPhrase, formatUID*, parseUID,
+                        normalizeUID)
 ```
 
 ### State Management
@@ -255,7 +274,7 @@ Three paths leave the connected state:
 
 ### BLE GATT
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48d`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics — *or property-bitmap changes* — without a phone reboot. Most recent bump (`…d48c → …d48d`) accompanied CHR_OSD_LAYOUT gaining `PROPERTY_WRITE_NR` so iOS's slider can use `writeWithoutResponse`.
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d490`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics — *or property-bitmap changes* — without a phone reboot. Most recent bump (`…d48e → …d490`) shipped CHR_FW_VERSION (`…d48f`), a READ-only `git describe` string. The prior bump (`…d48d → …d48e`) shipped CHR_DEVICE_NAME (`…d489`), the renameable BLE-advertised name characteristic. The earlier `…d48c → …d48d` bump accompanied CHR_OSD_LAYOUT (`…d48b`) gaining `PROPERTY_WRITE_NR` so iOS's slider could use `writeWithoutResponse`.
 
 | Characteristic | UUID | Properties | Payload |
 |---|---|---|---|
@@ -264,10 +283,12 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48d`. Bumped on every GATT-shape
 | OSD Control | `f47ac10b-...-0e02b2c3d484` | Write | `[cmd:u8]` |
 | Status | `f47ac10b-...-0e02b2c3d485` | Read+Notify | `[conn:u8][uid:6B][test:u8]` = 8B |
 | TX Sniff | `f47ac10b-...-0e02b2c3d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6B]` on capture |
-| OSD Text | `f47ac10b-...-0e02b2c3d487` | Write | `[row:u8][ascii:1-19B]`; rows `0..3` stage one bottom-anchored 4-row text frame, dirty bits OR-merged on each write |
+| OSD Text | `f47ac10b-...-0e02b2c3d487` | Write+WriteNR | `[row:u8][ascii:1-50B]` (max = `OSD_TEXT_ROW_MAX = 50`); rows `0..3` stage one bottom-anchored 4-row text frame, dirty bits OR-merged on each write |
 | Battery | `f47ac10b-...-0e02b2c3d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced; bits 4-7 reserved → iOS surfaces unknown bits via `lastError`)]` |
-| Sleep Config | `f47ac10b-...-0e02b2c3d48a` | Read+Write | `[minutes:u8]` deep-sleep timeout in minutes (firmware-seeded from NVS at boot) |
-| OSD Layout | `f47ac10b-...-0e02b2c3d48b` | Write | `[y_offset:i8]` rows to shift the 4-row buffer up from `DEFAULT_BASE_ROW=14` (range `[-14,0]`); iOS owns alignment / show-hide via the OSD Text path |
+| Device Name | `f47ac10b-...-0e02b2c3d489` | Read+Write | UTF-8, ≤20 B; write persists to NVS (`btname`) and `ESP.restart()`s so `BLEDevice::init(name)` re-runs with the new value. iOS bonded auto-reconnects after the ~3 s reboot |
+| Sleep Config | `f47ac10b-...-0e02b2c3d48a` | Read+Write | `[minutes:u8]` deep-sleep idle timeout (firmware-seeded from NVS-backed `slpmin` at boot) |
+| OSD Layout | `f47ac10b-...-0e02b2c3d48b` | Read+Write+WriteNR | `[y_offset:i8]` rows to shift the 4-row buffer up from `DEFAULT_BASE_ROW=14` (range `[-14,0]`); iOS owns alignment / show-hide via the OSD Text path. WriteNR lets the slider drag skip ATT acks. y_offset is **not** NVS-persisted: firmware seeds the read value to 0 on boot, iOS replays its UserDefaults-backed setting on connect |
+| FW Version | `f47ac10b-...-0e02b2c3d48f` | Read | UTF-8 string from `git describe --tags --dirty --always`, injected at build time by the PlatformIO pre-script `firmware/scripts/inject_version.py`. iOS reads it on characteristic discovery and surfaces a non-blocking warning when the leading major-version component disagrees with the app's `CFBundleShortVersionString` |
 
 ### MSPv2 Packet Format
 
