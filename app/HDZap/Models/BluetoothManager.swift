@@ -253,6 +253,13 @@ class BluetoothManager: NSObject {
     private(set) var flightBatteryCurrentDa: Int?
     private(set) var flightBatteryConsumedMah: Int?
     private(set) var flightBatteryRemainingPercent: Int?
+    /// Wall-clock timestamp of the most recent decoded flight-battery
+    /// notify. `nil` until the first packet lands; cleared on disconnect.
+    /// Used by the main-screen strip to distinguish LIVE / STALE / NO TX
+    /// without needing a separate firmware-side "TX telemetry enabled"
+    /// signal — if the radio's LUA telemetry switch is off, no decode
+    /// ever happens and this stays nil.
+    private(set) var lastFlightBatteryReceivedAt: Date?
 
     /// Firmware version string read once on connect from CHR_FW_VERSION.
     /// Format mirrors `git describe --tags --dirty --always`:
@@ -776,6 +783,7 @@ class BluetoothManager: NSObject {
         flightBatteryCurrentDa = nil
         flightBatteryConsumedMah = nil
         flightBatteryRemainingPercent = nil
+        lastFlightBatteryReceivedAt = nil
     }
 
     /// Wipe all backpack-telemetry-debug state. Called on every teardown
@@ -1279,6 +1287,7 @@ extension BluetoothManager: CBPeripheralDelegate {
             flightBatteryCurrentDa = fields.currentDa
             flightBatteryConsumedMah = fields.consumedMah
             flightBatteryRemainingPercent = fields.remainingPercent
+            lastFlightBatteryReceivedAt = Date()
             flightBatteryNotifyRevision &+= 1
             return
         }

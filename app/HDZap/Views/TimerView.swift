@@ -78,6 +78,14 @@ struct TimerView: View {
     /// accounting.
     @State private var shareError: String?
 
+    /// While true, the flight-battery strip shows synthetic values that
+    /// drift over time so the layout can be eyeballed before a flight
+    /// pack is wired up. Flip to false (or delete the flag) once the
+    /// real-time read path lands. Synthetic values are produced by
+    /// `dummyFlightBatteryReading()` against the wall clock so the
+    /// strip animates without any state of its own.
+    private static let useDummyFlightBattery = true
+
     private var timeUp: Bool { lapTimer.elapsedTime >= sessionLimit }
     private var sessionEnded: Bool {
         manuallyEnded || (!lapTimer.isRunning && timeUp)
@@ -121,9 +129,22 @@ struct TimerView: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
+                        // Padding is applied INSIDE the strip's visible
+                        // branch so the NO TX hide also removes the
+                        // top/bottom margin — otherwise an empty 32-pt
+                        // band would sit between the masthead and the
+                        // sessionBar with nothing in it.
+                        // The bottom margin between the strip and the
+                        // sessionBar is owned by the sessionBar's top
+                        // padding (20 pt) rather than the strip's
+                        // bottom padding so that when the strip hides,
+                        // the sessionBar still keeps a comfortable
+                        // breathing distance from the masthead.
+                        flightBatteryStrip
+
                         sessionBar
                             .padding(.horizontal, 24)
-                            .padding(.top, 6)
+                            .padding(.top, 20)
 
                         timerBlock
                             .padding(.horizontal, 24)
@@ -513,6 +534,188 @@ struct TimerView: View {
                 Text("\(raceSessionLimit)").monoCap(size: 8.5, tracking: 1.5)
             }
         }
+    }
+
+    // MARK: - Flight battery strip
+
+    /// Voltage hero + consumed mAh + remaining-percent label, with a
+    /// thin progress bar underneath that mirrors the percent value.
+    /// Hidden when neither the dummy generator nor a real BLE notify
+    /// has produced a value, so a fresh boot before the goggle is
+    /// connected doesn't show empty fields. Wired up via `TimelineView`
+    /// while in dummy mode so the numbers drift visibly without any
+    /// view-side state.
+    /// Threshold for flipping a flight-battery reading from LIVE to
+    /// STALE. CRSF Battery sensor telemetry runs at ≤ 0.25 Hz (one
+    /// packet every ~4 s) on most ELRS link rates, so a 2-3 s window
+    /// would false-flip every cycle. 12 s leaves room for the worst
+    /// observed cadence (one missed packet) before declaring the link
+    /// stale.
+    private static let flightBatteryStaleAfter: TimeInterval = 12
+
+    @ViewBuilder
+    private var flightBatteryStrip: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            let status = flightBatteryStatus(at: ctx.date)
+            // NO TX → strip is hidden entirely (including paddings, see
+            // body site). The user wanted no visual placeholder when
+            // the radio's LUA telemetry switch is off or the TX is
+            // unbound; the strip just disappears until the first
+            // packet lands.
+            if status != .noTx, let r = flightBatteryReading(at: ctx.date) {
+                VStack(spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        flightBatteryStatusDot(status)
+                            .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                        Text("VBAT").monoCap(size: 8.5, tracking: 1.5)
+                        Text(String(format: "%.1f V", r.volts))
+                            .font(.editorialMono(15, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(EditorialTheme.ink)
+                        Text("·").foregroundStyle(EditorialTheme.dim)
+                        Text("\(r.mah) mAh")
+                            .font(.editorialMono(11))
+                            .monospacedDigit()
+                            .foregroundStyle(EditorialTheme.sub)
+                        Spacer(minLength: 8)
+                        if let pct = r.pct {
+                            Text("\(pct)%")
+                                .font(.editorialMono(11))
+                                .monospacedDigit()
+                                .foregroundStyle(EditorialTheme.sub)
+                        }
+                    }
+                    flightBatteryProgressBar(percent: r.pct)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 18)
+                // Bottom gap is owned by `sessionBar.padding(.top, 20)`
+                // at the body site so that the gap survives this
+                // strip's NO TX hide.
+            } else {
+                EmptyView()
+            }
+        }
+    }
+
+    /// Two visible states for the flight-battery strip (NO TX hides
+    /// the strip entirely, see `flightBatteryStrip`):
+    /// - `.live` — a packet decoded within the last
+    ///   `flightBatteryStaleAfter` seconds
+    /// - `.stale` — packets used to flow but the link has gone quiet.
+    ///   Causes: TX powered off, out of range, LUA toggle flipped
+    ///   mid-flight
+    /// - `.noTx` — never seen a packet since BLE connect (LUA telemetry
+    ///   off, or no source bound). Strip is hidden in this state.
+    private enum FlightBatteryStatus {
+        case live, stale, noTx
+
+        var color: Color {
+            switch self {
+            case .live: return Color(red: 0.18, green: 0.56, blue: 0.30)  // editorial green
+            case .stale: return Color(red: 0.78, green: 0.50, blue: 0.18) // editorial amber
+            case .noTx: return EditorialTheme.dim
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func flightBatteryStatusDot(_ status: FlightBatteryStatus) -> some View {
+        Circle()
+            .fill(status.color)
+            .frame(width: 7, height: 7)
+    }
+
+    private func flightBatteryStatus(at now: Date) -> FlightBatteryStatus {
+        if Self.useDummyFlightBattery {
+            // Dummy cycles all three so STALE and the NO TX hide both
+            // exercise without a real flight pack. 60-s phase: 0-40 s
+            // LIVE, 40-55 s STALE (matches the 12-s real threshold
+            // proportionally), 55-60 s NO TX (strip vanishes). Same
+            // wall clock as `dummyFlightBatteryReading`.
+            let phase = now.timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+            switch phase {
+            case ..<40: return .live
+            case ..<55: return .stale
+            default: return .noTx
+            }
+        }
+        guard let last = bluetooth.lastFlightBatteryReceivedAt else { return .noTx }
+        return now.timeIntervalSince(last) < Self.flightBatteryStaleAfter ? .live : .stale
+    }
+
+    /// 3pt-tall track + ink fill, mirroring the editorial language of
+    /// the sessionBar progress without the hairline overlays. Hidden
+    /// when remaining-% is unknown (CRSF wire reports −1 in that case)
+    /// so the strip never lies about a 0% state. Linear animation on
+    /// `pct` so the bar visibly moves with each 1 Hz timeline tick.
+    @ViewBuilder
+    private func flightBatteryProgressBar(percent: Int?) -> some View {
+        if let pct = percent {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(EditorialTheme.hair)
+                    Rectangle()
+                        .fill(EditorialTheme.ink)
+                        .frame(width: max(0, geo.size.width * Double(pct) / 100))
+                        .animation(.linear(duration: 0.4), value: pct)
+                }
+            }
+            .frame(height: 3)
+        } else {
+            EmptyView()
+        }
+    }
+
+    private struct FlightBatteryReading {
+        let volts: Double
+        let amps: Double
+        let mah: Int
+        /// `nil` when remaining is unknown (CRSF wire reports −1 in that
+        /// case; iOS surfaces it as nil so the UI can hide the field
+        /// instead of showing a misleading "−1%").
+        let pct: Int?
+    }
+
+    private func flightBatteryReading(at now: Date) -> FlightBatteryReading? {
+        if Self.useDummyFlightBattery {
+            // Suppress the reading during NO TX; STALE keeps the last
+            // value because "stale" by definition means a real reading
+            // exists but the source has gone quiet. Same phase math as
+            // `flightBatteryStatus(at:)` so the two stay in lockstep.
+            switch flightBatteryStatus(at: now) {
+            case .live, .stale: return Self.dummyFlightBatteryReading(at: now)
+            case .noTx: return nil
+            }
+        }
+        guard let voltageDv = bluetooth.flightBatteryVoltageDv,
+              let currentDa = bluetooth.flightBatteryCurrentDa,
+              let consumedMah = bluetooth.flightBatteryConsumedMah else {
+            return nil
+        }
+        let pct = bluetooth.flightBatteryRemainingPercent
+        return FlightBatteryReading(
+            volts: Double(voltageDv) / 10.0,
+            amps: Double(currentDa) / 10.0,
+            mah: consumedMah,
+            pct: (pct.map { $0 >= 0 } ?? false) ? pct : nil
+        )
+    }
+
+    /// Wall-clock-driven synthetic telemetry, repeats every 60 s. Voltage
+    /// sags from a fresh ~16.8 V down to ~14.5 V, current swings ~8-22 A,
+    /// consumed mAh accumulates, and remaining % drifts from 100 toward
+    /// ~30. No state — feeding the same `now` produces the same reading,
+    /// which keeps SwiftUI happy when bodies re-evaluate.
+    private static func dummyFlightBatteryReading(at now: Date) -> FlightBatteryReading {
+        let cycle: Double = 60
+        let phase = now.timeIntervalSince1970.truncatingRemainder(dividingBy: cycle) / cycle
+        let volts = 16.8 - phase * 2.3
+        let amps = 12.0 + sin(phase * .pi * 4) * 7.0
+        let mah = Int(phase * 1200)
+        let pct = max(30, Int(100 - phase * 70))
+        return FlightBatteryReading(volts: volts, amps: amps, mah: mah, pct: pct)
     }
 
     // MARK: - Timer block
