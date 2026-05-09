@@ -49,6 +49,58 @@ public:
         drawHairlines();
     }
 
+    /// Boot-time splash: centered "HDZap" + "FW <version>" on a black
+    /// canvas, held by the caller's `delay()` before `showStatus`
+    /// repaints over it. No state retained — the next band-level paint
+    /// (drawUidBand / drawLapBand / drawStrip) wipes the whole screen
+    /// in tiles, so nothing here outlives the next status update.
+    /// Called once from `setup()` so the operator sees which firmware
+    /// is running before the UID/lap UI takes over. The title is the
+    /// product brand ("HDZap"), not the BLE-advertised device name —
+    /// the latter is shown in the UID band caption once the normal
+    /// status layout takes over.
+    void showSplash(const char* version) {
+        M5.Display.fillScreen(TFT_BLACK);
+        // Disable text wrap explicitly so an unexpectedly long version
+        // string clips at the screen edge instead of rolling onto a
+        // second line that overlaps the title above. Restored to the
+        // class default (true) at the end.
+        M5.Display.setTextWrap(false);
+        // Title: large mono, centered horizontally.
+        M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
+        M5.Display.setTextSize(1);
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+        const char* title = "HDZap";
+        int titleW = M5.Display.textWidth(title);
+        int titleY = m_h / 2 - M5.Display.fontHeight() - 2;
+        if (titleY < 0) titleY = 0;
+        M5.Display.setCursor((m_w - titleW) / 2, titleY);
+        M5.Display.print(title);
+        // Version: small mono accent, "FW <version>" — match the iOS
+        // Settings row so the two surfaces use the same wording.
+        M5.Display.setFont(&fonts::Font0);
+        M5.Display.setTextColor(m_colAccent, TFT_BLACK);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "FW %s", (version && *version) ? version : "unknown");
+        int verW = M5.Display.textWidth(buf);
+        int verY = m_h / 2 + 6;
+        M5.Display.setCursor((m_w - verW) / 2, verY);
+        M5.Display.print(buf);
+        // Re-paint the editorial-lite hairlines that fillScreen wiped.
+        // showStatus's per-band fillRects deliberately skip the
+        // hairline rows (y=60, y=110), so without this the rest of
+        // the session would run without them until the next
+        // wakePanel(). Cheaper to restore here than to make every
+        // band painter aware of the splash path.
+        drawHairlines();
+        // Restore the class-invariant defaults the rest of the
+        // routines rely on: top_left datum (set in begin()), text
+        // wrap on, and ink color foreground.
+        M5.Display.setTextDatum(textdatum_t::top_left);
+        M5.Display.setTextWrap(true);
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+    }
+
     void showStatus(const uint8_t uid[6], bool bleConnected, bool radioReady,
                     bool uidIsDefault = false) {
         memcpy(m_uid, uid, 6);

@@ -10,11 +10,14 @@ enum OSDCommand: UInt8 {
     case testOSD = 0x03
 }
 
-// Service UUID bumped from ...d48d → ...d48e in lockstep with firmware,
-// to defeat iOS CoreBluetooth's per-peripheral GATT cache (without bonding,
-// added characteristics are otherwise invisible until the iPhone is rebooted).
-// This bump ships with the new deviceNameUUID (...d489).
-private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48e")
+// Service UUID bumped to ...d490 in lockstep with firmware to defeat iOS
+// CoreBluetooth's per-peripheral GATT cache (without bonding, added
+// characteristics are otherwise invisible until the iPhone is rebooted).
+// This bump ships with the new firmwareVersionUUID (...d48f); the prior
+// d48d → d48e move shipped with deviceNameUUID (...d489) and is already
+// on develop. Both characteristics are GATT shape changes from iOS's
+// perspective, so each delta gets its own service UUID move.
+private let serviceUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d490")
 private let uidConfigUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d481")
 private let bindCommandUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d482")
 // CHR_LAP_TIME_UUID (...d483) was retired when the firmware switched to the
@@ -27,6 +30,7 @@ private let osdTextUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d487")
 private let batteryUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d488")
 private let deviceNameUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d489")
 private let osdLayoutUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48b")
+private let firmwareVersionUUID = CBUUID(string: "f47ac10b-58cc-4372-a567-0e02b2c3d48f")
 
 /// BLE adv scan-response leaves room for ~20 bytes of UTF-8 device name
 /// after the 128-bit service UUID. Match the firmware constant in
@@ -192,6 +196,30 @@ class BluetoothManager: NSObject {
     private(set) var batteryPercent: UInt8?
     private(set) var isCharging = false
     private(set) var batteryAlarm: BatteryAlarm = .none
+
+    /// Firmware version string read once on connect from CHR_FW_VERSION.
+    /// Format mirrors `git describe --tags --dirty --always`:
+    ///   - tagged release commit:  `v1.0.0`
+    ///   - post-tag dev commit:    `v1.0.0-12-gabc1234` (`-dirty` suffix
+    ///                             when the tree had uncommitted changes)
+    ///   - untagged dev commit:    `<short-sha>` or `<short-sha>-dirty`
+    ///   - no-history fallback:    literal "unknown"
+    /// `nil` until the firmware-version characteristic has been read.
+    /// Cleared on disconnect / teardown so a stale version can't linger
+    /// past the link drop and lie about the next M5Stick the user pairs.
+    private(set) var firmwareVersion: String?
+    /// Set on connect when `firmwareMajor(from:)` parses a real major
+    /// integer from `firmwareVersion` AND it disagrees with the app's
+    /// `CFBundleShortVersionString` major. Drives the
+    /// `ConnectionSettingsView` warning row.
+    ///
+    /// Intentionally NOT triggered by an unparseable firmware version —
+    /// dev builds, untagged commits (`<short-sha>`), and the no-history
+    /// "unknown" fallback all skip the compare so dev/CI connects don't
+    /// fire false positives. The `app/firmware both shipped from the
+    /// same release tag` guarantee is what makes the major-version
+    /// compare meaningful in the first place.
+    private(set) var firmwareIncompatible = false
 
     /// True while the app has asked the firmware to listen for TX bind packets.
     /// Toggled locally on start/stop — firmware has no state echo.
@@ -375,6 +403,7 @@ class BluetoothManager: NSObject {
         capturedTXUID = nil
         isTXSniffActive = false
         resetBatteryState()
+        resetFirmwareVersion()
         centralManager.cancelPeripheralConnection(peripheral)
     }
 
@@ -611,6 +640,76 @@ class BluetoothManager: NSObject {
         batteryAlarm = .none
     }
 
+    private func resetFirmwareVersion() {
+        firmwareVersion = nil
+        firmwareIncompatible = false
+    }
+
+    /// Parse the leading `<major>` integer from a `git describe`-style
+    /// version string. Returns `nil` for unparseable inputs (dev builds
+    /// without a tag, "unknown", empty), which the caller treats as
+    /// "skip the compatibility check".
+    ///
+    /// Accepts the optional leading `v` prefix the release flow uses
+    /// (`v1.0.0`, `v1.0.0-12-gabc1234`, `v1.0.0-12-gabc1234-dirty`).
+    /// Splitting on the first `.` rejects bare integers / short SHAs
+    /// that happen to start with digits — `git describe` always emits
+    /// either `<sha>` (no dot, not a real version) or `vX.Y.Z[...]`.
+    static func firmwareMajor(from version: String) -> Int? {
+        var s = Substring(version)
+        if s.first == "v" || s.first == "V" { s = s.dropFirst() }
+        let parts = s.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, let n = Int(parts[0]) else { return nil }
+        return n
+    }
+
+    /// App's `CFBundleShortVersionString` (== MARKETING_VERSION, set in
+    /// `app/project.yml`). `nil` if the bundle returned a malformed
+    /// version string. Centralised so the firmware-compat check and the
+    /// `ConnectionSettingsView` version row read it the same way.
+    static func appVersionString() -> String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    /// Single source of truth for the mismatch-warning text used by
+    /// every UI surface that flags `firmwareIncompatible`. Keeps the
+    /// Settings root About row, the ConnectionSettingsView version
+    /// row, and the recordError banner from drifting out of sync —
+    /// SwiftUI treats the literal as a localization key, so a future
+    /// edit on one site would silently break the others.
+    static let firmwareMismatchSummary = String(
+        localized: "Major version mismatch — update HDZap or reflash the M5StickS3."
+    )
+
+    /// Major component of `appVersionString()`. `nil` when the bundle
+    /// version is missing or unparseable.
+    static func appMajor() -> Int? {
+        guard let v = appVersionString() else { return nil }
+        return firmwareMajor(from: v)
+    }
+
+    private func evaluateFirmwareCompatibility() {
+        guard let fwVersion = firmwareVersion,
+              let fwMajor = Self.firmwareMajor(from: fwVersion),
+              let appMajor = Self.appMajor() else {
+            // Either side unparseable — don't fire a false-positive
+            // warning on dev builds. UI still shows the raw fwVersion
+            // string for diagnostics.
+            firmwareIncompatible = false
+            return
+        }
+        let mismatch = fwMajor != appMajor
+        firmwareIncompatible = mismatch
+        if mismatch {
+            // Surface in the error log too so the user sees the warning
+            // even if they aren't on the Connection settings screen.
+            // recordError's consecutive-duplicate collapse keeps repeated
+            // reconnects to the same firmware from spamming the queue.
+            let appV = Self.appVersionString() ?? "?"
+            lastError = "Firmware \(fwVersion) is from a different major version than this app (v\(appV)). Update one of them — features may not match."
+        }
+    }
+
     private static func osdASCIIData(for line: String) -> Data {
         let ascii = line.uppercased().unicodeScalars.map { scalar -> UInt8 in
             scalar.isASCII ? UInt8(scalar.value) : 63
@@ -721,6 +820,10 @@ extension BluetoothManager: CBCentralManagerDelegate {
         // the link is gone is misleading whether the next state is
         // suppressed (user tap) or auto-reconnect.
         resetBatteryState()
+        // Same reasoning for firmware version: the next reconnect will
+        // re-read it, and a stale string would otherwise contradict the
+        // disconnected state shown in the UI.
+        resetFirmwareVersion()
         if suppressAutoReconnect {
             suppressAutoReconnect = false
             userTappedDisconnect = false
@@ -752,6 +855,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         peripheral.discoverCharacteristics([
             uidConfigUUID, bindCommandUUID, osdControlUUID, statusUUID,
             txSniffUUID, osdTextUUID, batteryUUID, deviceNameUUID, osdLayoutUUID,
+            firmwareVersionUUID,
         ], for: service)
     }
 
@@ -790,6 +894,12 @@ extension BluetoothManager: CBPeripheralDelegate {
             // the read serves directly from the cached attribute value
             // without a firmware-side onRead callback round-trip.
             if char.uuid == deviceNameUUID {
+                peripheral.readValue(for: char)
+            }
+            // Firmware version is a constant for the running build (no
+            // notify), so a single read is sufficient. The compatibility
+            // warning fires from `didUpdateValueFor` once the value lands.
+            if char.uuid == firmwareVersionUUID {
                 peripheral.readValue(for: char)
             }
         }
@@ -834,6 +944,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         capturedTXUID = nil
         isTXSniffActive = false
         resetBatteryState()
+        resetFirmwareVersion()
         connectedPeripheral = nil
         characteristics = [:]
         suppressAutoReconnect = true
@@ -916,6 +1027,24 @@ extension BluetoothManager: CBPeripheralDelegate {
             if peripheral.identifier == connectedPeripheral?.identifier {
                 advertisedNames[peripheral.identifier] = name
             }
+            return
+        }
+        if characteristic.uuid == firmwareVersionUUID {
+            // UTF-8 string from `git describe`, see firmwareVersion docstring.
+            // `data == nil` is "no value yet" (not a wire violation, don't
+            // fire). Empty / non-UTF-8 IS a wire violation — surface
+            // `lastError` so the user sees the same kind of "firmware/app
+            // version mismatch?" hint other characteristics fire on
+            // malformed payloads (battery, status).
+            guard let data = characteristic.value else { return }
+            guard !data.isEmpty,
+                  let v = String(data: data, encoding: .utf8) else {
+                resetFirmwareVersion()
+                lastError = "Firmware version frame malformed (\(data.count)B, non-UTF-8 or empty). Firmware/app version mismatch?"
+                return
+            }
+            firmwareVersion = v
+            evaluateFirmwareCompatibility()
             return
         }
         if characteristic.uuid == batteryUUID {
@@ -1054,6 +1183,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         case osdTextUUID: return "OSD text"
         case batteryUUID: return "Battery"
         case deviceNameUUID: return "Device name"
+        case firmwareVersionUUID: return "Firmware version"
         case osdLayoutUUID: return "OSD layout"
         default: return uuid.uuidString
         }

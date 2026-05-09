@@ -14,18 +14,23 @@
 #include "tx_sniff.h"
 #include "nvs_store.h"   // loadSleepMinutes() for the sleep-config char's read seed
 
-// Service UUID bumped from ...d48d → ...d48e to defeat iOS CoreBluetooth's
-// per-peripheral GATT cache after a new characteristic (CHR_DEVICE_NAME,
-// ...d489) was added. Adding a characteristic — like changing properties
-// on an existing one — is a GATT shape change, and iOS would otherwise
-// keep using its cached service definition and silently fail to discover
-// the new char.
+// Service UUID bumped to ...d490 in lockstep with iOS to defeat
+// CoreBluetooth's per-peripheral GATT cache. The bump is necessary every
+// time the GATT shape changes — this commit adds CHR_FW_VERSION (...d48f)
+// on top of the prior CHR_DEVICE_NAME (...d489) addition that already
+// moved the service from d48d → d48e. iOS treats both adding a
+// characteristic AND changing a characteristic's properties as shape
+// changes, so the bump rule covers any GATT delta.
 //
 // Adding a characteristic without bumping the service UUID is safe ONLY
-// if no existing iOS build attempts to read or write it. The same rule
-// applies to changing a characteristic's *properties* — iOS treats it
-// as a shape change.
-#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d48e"
+// if no existing iOS build attempts to read or write it. This change
+// ships an iOS build that reads CHR_FW_VERSION on connect, so the
+// service UUID has to move at the same time.
+//
+// History: d48c → d48d (CHR_OSD_LAYOUT property bitmap gained WRITE_NR),
+//          d48d → d48e (CHR_DEVICE_NAME added),
+//          d48e → d490  (CHR_FW_VERSION added; d48f used by the new char).
+#define BLE_SERVICE_UUID        "f47ac10b-58cc-4372-a567-0e02b2c3d490"
 #define CHR_UID_CONFIG_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 #define CHR_BIND_CMD_UUID       "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 #define CHR_OSD_CONTROL_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d484"
@@ -36,6 +41,18 @@
 #define CHR_DEVICE_NAME_UUID    "f47ac10b-58cc-4372-a567-0e02b2c3d489"
 #define CHR_SLEEP_CONFIG_UUID   "f47ac10b-58cc-4372-a567-0e02b2c3d48a"
 #define CHR_OSD_LAYOUT_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48b"
+#define CHR_FW_VERSION_UUID     "f47ac10b-58cc-4372-a567-0e02b2c3d48f"
+
+// Resolved by the PlatformIO pre-script `scripts/inject_version.py` from
+// `git describe --tags --dirty --always`. Falls back to "unknown" when
+// no git history is available (source tarball build, missing git binary).
+// iOS treats anything without a `<digit>+.` head — `unknown`, a bare
+// short-sha, etc. — as "skip the major-version compare", so dev builds
+// don't produce a spurious mismatch warning every connect; only a
+// `vX.Y...` style version triggers the check.
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "unknown"
+#endif
 
 // BLE callback context (Bluedroid's btc_task, typically core 0 under
 // Arduino) writes these; Arduino main loop (typically core 1) reads.
@@ -502,6 +519,22 @@ inline void ble_init(const char *device_name) {
         // The string passed to ble_init is the resolved current name
         // (default or NVS-loaded), so reuse it here.
         pDeviceName->setValue((uint8_t *)device_name, strlen(device_name));
+    }
+
+    // Firmware version string for iOS-side compatibility check. READ-only
+    // (compile-time constant for the running build), no callback, no
+    // notify — iOS reads once after characteristic discovery and parses
+    // the major-version component. Match the existing fail-loud pattern
+    // (see g_battery_chr null check below) so a future numHandles
+    // regression surfaces in serial instead of crashing on the first
+    // setValue.
+    BLECharacteristic *pFwVersion = pService->createCharacteristic(
+        CHR_FW_VERSION_UUID, BLECharacteristic::PROPERTY_READ);
+    if (!pFwVersion) {
+        Serial.println("ble_init: CHR_FW_VERSION createCharacteristic failed (numHandles overflow?)");
+    } else {
+        const char *v = FIRMWARE_VERSION;
+        pFwVersion->setValue((uint8_t *)v, strlen(v));
     }
 
     BLECharacteristic *pSleep = pService->createCharacteristic(

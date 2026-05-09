@@ -29,6 +29,7 @@ struct SettingsView: View {
                 raceSection
                 deviceSection
                 appSection
+                aboutSection
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -220,6 +221,41 @@ struct SettingsView: View {
                     Circle()
                         .fill(EditorialTheme.accent(hue: accentHue))
                         .frame(width: 14, height: 14)
+                }
+            }
+        }
+    }
+
+    // MARK: - About (app + firmware version, glanceable from root)
+
+    /// At-a-glance app and firmware version row. Same source of truth as
+    /// the version row inside `ConnectionSettingsView`, but lives on the
+    /// Settings root so the operator can confirm the pair before drilling
+    /// into M5StickS3. Firmware row is hidden until a connect-time read
+    /// has landed (`bluetooth.firmwareVersion != nil`); when the firmware
+    /// reports a major that disagrees with the app, both this row's
+    /// trailing text and the inline warning go red — matching the
+    /// drilldown so the two surfaces never disagree on what's wrong.
+    private var aboutSection: some View {
+        let appVersion = BluetoothManager.appVersionString() ?? "?"
+        return Section("About") {
+            LabeledContent("App version") {
+                Text(appVersion)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            if let fw = bluetooth.firmwareVersion {
+                LabeledContent("Firmware") {
+                    Text(fw)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(bluetooth.firmwareIncompatible ? .red : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                if bluetooth.firmwareIncompatible {
+                    Text(BluetoothManager.firmwareMismatchSummary)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
         }
