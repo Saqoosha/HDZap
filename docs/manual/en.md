@@ -192,7 +192,7 @@ If you have several M5StickS3 units, the default `HDZeroOSD` name makes them har
 
 1. Settings → **Device** → **M5StickS3**.
 2. Tap **Bluetooth name**.
-3. Type the new name (UTF-8, up to 20 bytes — emoji counts as 4 bytes each) and tap **Save**.
+3. Type the new name (UTF-8, up to 20 bytes — most emoji count as 4+ bytes, ZWJ-joined or flag-pair emoji more) and tap **Save**.
 4. The M5StickS3 reboots once (about 3 seconds). The iPhone reconnects automatically; the new name appears on the M5StickS3's LCD UID band and in the iOS connected section.
 
 > 💡 The new name is persisted to flash memory, so it survives power cycles. To restore the default, save `HDZeroOSD`.
@@ -347,7 +347,7 @@ With the bind working, you can run a race.
 ### Race setup
 
 1. Tap the gear icon at the top right → open the Settings sheet.
-2. Adjust the race duration (default 90 s) and the target lap count in the inline **Race** section at the top.
+2. Adjust race time (default 90 s) and target lap count in the inline **Format** section at the top.
 3. Close the Settings sheet.
 
 ### Running
@@ -437,13 +437,13 @@ The card includes:
 
 ## 9. Settings reference
 
-The Settings sheet is organised as a status-first list with drilldown sub-screens — the same pattern as iOS's own Settings.app. The root has the inline **Race** controls at the top followed by **Device** and **App** rows that drill into the sub-screens below. Each row shows its current value on the right (Apple Settings.app pattern).
+The Settings sheet is organised as a status-first list with drilldown sub-screens — the same pattern as iOS's own Settings.app. The root has the inline **Format** section at the top followed by **Device** and **App** sections that drill into the sub-screens below. Each row shows its current value on the right (Apple Settings.app pattern).
 
-### Race (inline at the top of the root)
+### Format (inline at the top of the root)
 
-- **Race duration**: 60–180 s (5 s steps)
-- **Target lap count**: e.g. 5L
-- **Target pace**: derived from race time and target lap count
+- **Race time**: 60–180 s (5 s steps)
+- **Target lap**: e.g. 5L
+- **Target pace**: derived from race time and target lap (read-only)
 
 ### Device → M5StickS3 (Connection)
 
@@ -476,13 +476,13 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 ### App → Lap announcer (Audio)
 
-- **Lap announcements**: on / off
-- **Announce best lap**: highlight a new best lap in speech
+- **Announce lap times**: on / off
+- **Say "best lap" on new best**: prefix the announcement with "best lap" when a lap sets a new fastest
 - **Language**: Japanese, English, etc.
 - **Voice**: system default + any installed voices
 - **Rate**: speech speed
 - **Pitch**: voice pitch
-- **Test**: try the current settings out loud
+- **Test voice**: try the current settings out loud
 - **Reset**: restore the announcer defaults
 
 ### App → Appearance

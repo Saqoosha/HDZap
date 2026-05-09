@@ -202,24 +202,29 @@ HDZeroLapTimerApp
         │     ├── actions: lapTimer.start/stop/lap/reset
         │     ├── actions: bluetooth.sendOSDText/sendOSDControl
         │     └── embeds: LapListView
-        └── SettingsView (root: race controls + drilldown rows)
-              ├── Device → ConnectionSettingsView
-              │     ├── connected device + battery + Disconnect
-              │     ├── Bluetooth name → DeviceRenameView (writes
-              │     │   CHR_DEVICE_NAME; gated on supportsDeviceRename)
-              │     └── discovered list + Scan
-              ├── Device → PairingSettingsView
-              │     ├── bind phrase / manual UID / new pairing modes
-              │     ├── TX UID capture (start/stop/apply)
-              │     ├── auto-rollback flow + apply alert
-              │     └── Restore previous goggle
-              ├── Device → OSDLayoutSettingsView
-              │     ├── live preview + position slider + alignment
-              │     ├── per-row show/hide (Time/Lap/Pace/Diff)
-              │     ├── Send Test OSD + Clear OSD + Reset layout
-              │     └── pushes layout char + buffer rows on debounce
-              ├── App → AudioSettingsView (lap announcer)
-              ├── App → AppearanceSettingsView (accent hue)
+        └── SettingsView (root)
+              ├── "Format" Section (inline)
+              │     └── race time + target lap + target pace
+              ├── "Device" Section
+              │     ├── "M5StickS3" row → ConnectionSettingsView
+              │     │     ├── connected device + battery + Disconnect
+              │     │     ├── Bluetooth name row → DeviceRenameView (writes
+              │     │     │   CHR_DEVICE_NAME; gated on isConnected &&
+              │     │     │   supportsDeviceRename)
+              │     │     └── discovered list + Scan
+              │     ├── "Goggle pairing" row → PairingSettingsView
+              │     │     ├── bind phrase / manual UID / new pairing modes
+              │     │     ├── TX UID capture (start/stop/apply)
+              │     │     ├── auto-rollback flow + apply alert
+              │     │     └── Restore previous goggle
+              │     └── "OSD layout" row → OSDLayoutSettingsView
+              │           ├── live preview + position slider + alignment
+              │           ├── per-row show/hide (Time/Lap/Pace/Diff)
+              │           ├── Send Test OSD + Clear OSD + Reset layout
+              │           └── pushes layout char + buffer rows on debounce
+              ├── "App" Section
+              │     ├── "Lap announcer" row → AudioSettingsView
+              │     └── "Appearance" row → AppearanceSettingsView
               └── owns: targetLapCount, raceSessionLimit, accentHue
                         @AppStorage settings; uses UIDUtils
                         (uidFromBindPhrase, formatUID*, parseUID,
@@ -274,11 +279,11 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. Bumped on every GATT-shape
 | OSD Control | `f47ac10b-...-0e02b2c3d484` | Write | `[cmd:u8]` |
 | Status | `f47ac10b-...-0e02b2c3d485` | Read+Notify | `[conn:u8][uid:6B][test:u8]` = 8B |
 | TX Sniff | `f47ac10b-...-0e02b2c3d486` | Write+Notify | Write: `[0x01]` start / `[0x00]` stop; Notify: `[uid:6B]` on capture |
-| OSD Text | `f47ac10b-...-0e02b2c3d487` | Write | `[row:u8][ascii:1-19B]`; rows `0..3` stage one bottom-anchored 4-row text frame, dirty bits OR-merged on each write |
+| OSD Text | `f47ac10b-...-0e02b2c3d487` | Write+WriteNR | `[row:u8][ascii:1-50B]` (max = `OSD_TEXT_ROW_MAX = 50`); rows `0..3` stage one bottom-anchored 4-row text frame, dirty bits OR-merged on each write |
 | Battery | `f47ac10b-...-0e02b2c3d488` | Read+Notify | `[percent:u8 (0xFF unknown)][flags:u8 (bit0 charging, bit1 LOW, bit2 CRITICAL, bit3 silenced; bits 4-7 reserved → iOS surfaces unknown bits via `lastError`)]` |
 | Device Name | `f47ac10b-...-0e02b2c3d489` | Read+Write | UTF-8, ≤20 B; write persists to NVS (`btname`) and `ESP.restart()`s so `BLEDevice::init(name)` re-runs with the new value. iOS bonded re-pairs after the ~3 s reboot |
 | Sleep Config | `f47ac10b-...-0e02b2c3d48a` | Read+Write | `[minutes:u8]` deep-sleep idle timeout (firmware-seeded from NVS-backed `slpmin` at boot) |
-| OSD Layout | `f47ac10b-...-0e02b2c3d48b` | Write+WriteNR | `[y_offset:i8]` rows to shift the 4-row buffer up from `DEFAULT_BASE_ROW=14` (range `[-14,0]`); iOS owns alignment / show-hide via the OSD Text path. WriteNR lets the slider drag skip ATT acks |
+| OSD Layout | `f47ac10b-...-0e02b2c3d48b` | Read+Write+WriteNR | `[y_offset:i8]` rows to shift the 4-row buffer up from `DEFAULT_BASE_ROW=14` (range `[-14,0]`); iOS owns alignment / show-hide via the OSD Text path. WriteNR lets the slider drag skip ATT acks; the firmware seeds the read value at boot so a fresh iOS read sees the persisted offset, not 0 |
 
 ### MSPv2 Packet Format
 

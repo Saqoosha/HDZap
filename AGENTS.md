@@ -121,20 +121,20 @@ copy with no English library dialogs. Target hardware: M5StickS3 only.
 
 ## iOS Settings Layout
 
-Drilldown structure (root `SettingsView` is ~250 LOC after the #36 restructure; the flat 10-section list was replaced with status-first navigation rows that fit one iPhone screen):
+Drilldown structure after the #36 restructure (the flat 10-section list was replaced with status-first navigation rows that fit one iPhone screen):
 
-- **Race** (inline) — race time, target lap, target pace.
-- **Device** section
-  - **M5StickS3** → `ConnectionSettingsView` — connected device + battery + Bluetooth name rename + discovered list + Scan. The **Bluetooth name** drilldown (`DeviceRenameView`, gated on `bluetooth.supportsDeviceRename`) writes CHR_DEVICE_NAME (`…d489`) and warns about the M5 reboot.
-  - **Goggle pairing** → `PairingSettingsView` — bind phrase / manual UID / new pairing modes + TX UID capture (formerly its own section) + auto-rollback flow + apply alert, all on one workflow screen.
-  - **OSD layout** → `OSDLayoutSettingsView` — preview, position slider, alignment, per-row show/hide, plus **Send Test OSD** + **Clear OSD** + **Reset layout** (the standalone Debug section is gone; those were its only entries).
-- **App** section
-  - **Lap announcer** → `AudioSettingsView` (formerly the Audio section).
-  - **Appearance** → `AppearanceSettingsView` (formerly the Appearance section).
+- **Format** (inline at the root) — race time, target lap, target pace. The variable in `SettingsView.swift` is `raceSection`, but the user-visible header is `Text("Format")` — refer to the on-screen label in user-facing prose.
+- **Device** section header containing three rows:
+  - "**M5StickS3**" row → `ConnectionSettingsView` — connected device + battery + Bluetooth name rename + discovered list + Scan. The **Bluetooth name** row (`DeviceRenameView`, gated on `bluetooth.isConnected && bluetooth.supportsDeviceRename`) writes CHR_DEVICE_NAME (`…d489`) and warns about the M5 reboot.
+  - "**Goggle pairing**" row → `PairingSettingsView` (nav title: "Pairing") — bind phrase / manual UID / new pairing modes + TX UID capture + auto-rollback flow + apply alert, all on one workflow screen.
+  - "**OSD layout**" row → `OSDLayoutSettingsView` (nav title: "OSD Layout") — preview, position slider, alignment, per-row show/hide, plus **Send Test OSD** + **Clear OSD** + **Reset layout**.
+- **App** section header containing two rows:
+  - "**Lap announcer**" row → `AudioSettingsView`.
+  - "**Appearance**" row → `AppearanceSettingsView`.
 
-Each `NavigationLink` shows the current value on the right rail (Apple Settings.app pattern): pairing UID hex, OSD layout row range, lap announcer state + language, accent color swatch.
+Each `NavigationLink` shows the current value on the right rail (Apple Settings.app pattern): pairing UID in decimal (`96,210,…` — matches what HDZero goggles and the M5Stick LCD show), OSD layout row range, lap announcer state + language, accent color swatch.
 
-Shared constants live in their own statics so a typo in one site can't silently fork state: `EditorialTheme.accentHueStorageKey`, `LapAnnouncerDefaults.defaultEnabled` / `.defaultAnnounceBest`. `OSDLayoutSettingsView` caches `testOSDDateFormatter` / `testOSDTimeFormatter` as `static let`s; `PairingSettingsView.runPairingFlow` is explicitly `@MainActor` so a future `Task.detached` call site fails at build time rather than crashing inside `BluetoothManager.recordError`.
+`PairingSettingsView.runPairingFlow` is explicitly `@MainActor` so a future `Task.detached` call site fails at build time rather than crashing inside `BluetoothManager.recordError`.
 
 ## Conventions
 
