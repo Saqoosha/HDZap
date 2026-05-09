@@ -78,14 +78,6 @@ struct TimerView: View {
     /// accounting.
     @State private var shareError: String?
 
-    /// While true, the flight-battery strip shows synthetic values that
-    /// drift over time so the layout can be eyeballed before a flight
-    /// pack is wired up. Flip to false (or delete the flag) once the
-    /// real-time read path lands. Synthetic values are produced by
-    /// `dummyFlightBatteryReading()` against the wall clock so the
-    /// strip animates without any state of its own.
-    private static let useDummyFlightBattery = true
-
     private var timeUp: Bool { lapTimer.elapsedTime >= sessionLimit }
     private var sessionEnded: Bool {
         manuallyEnded || (!lapTimer.isRunning && timeUp)
@@ -627,19 +619,6 @@ struct TimerView: View {
     }
 
     private func flightBatteryStatus(at now: Date) -> FlightBatteryStatus {
-        if Self.useDummyFlightBattery {
-            // Dummy cycles all three so STALE and the NO TX hide both
-            // exercise without a real flight pack. 60-s phase: 0-40 s
-            // LIVE, 40-55 s STALE (matches the 12-s real threshold
-            // proportionally), 55-60 s NO TX (strip vanishes). Same
-            // wall clock as `dummyFlightBatteryReading`.
-            let phase = now.timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
-            switch phase {
-            case ..<40: return .live
-            case ..<55: return .stale
-            default: return .noTx
-            }
-        }
         guard let last = bluetooth.lastFlightBatteryReceivedAt else { return .noTx }
         return now.timeIntervalSince(last) < Self.flightBatteryStaleAfter ? .live : .stale
     }
@@ -679,16 +658,6 @@ struct TimerView: View {
     }
 
     private func flightBatteryReading(at now: Date) -> FlightBatteryReading? {
-        if Self.useDummyFlightBattery {
-            // Suppress the reading during NO TX; STALE keeps the last
-            // value because "stale" by definition means a real reading
-            // exists but the source has gone quiet. Same phase math as
-            // `flightBatteryStatus(at:)` so the two stay in lockstep.
-            switch flightBatteryStatus(at: now) {
-            case .live, .stale: return Self.dummyFlightBatteryReading(at: now)
-            case .noTx: return nil
-            }
-        }
         guard let voltageDv = bluetooth.flightBatteryVoltageDv,
               let currentDa = bluetooth.flightBatteryCurrentDa,
               let consumedMah = bluetooth.flightBatteryConsumedMah else {
@@ -701,21 +670,6 @@ struct TimerView: View {
             mah: consumedMah,
             pct: (pct.map { $0 >= 0 } ?? false) ? pct : nil
         )
-    }
-
-    /// Wall-clock-driven synthetic telemetry, repeats every 60 s. Voltage
-    /// sags from a fresh ~16.8 V down to ~14.5 V, current swings ~8-22 A,
-    /// consumed mAh accumulates, and remaining % drifts from 100 toward
-    /// ~30. No state — feeding the same `now` produces the same reading,
-    /// which keeps SwiftUI happy when bodies re-evaluate.
-    private static func dummyFlightBatteryReading(at now: Date) -> FlightBatteryReading {
-        let cycle: Double = 60
-        let phase = now.timeIntervalSince1970.truncatingRemainder(dividingBy: cycle) / cycle
-        let volts = 16.8 - phase * 2.3
-        let amps = 12.0 + sin(phase * .pi * 4) * 7.0
-        let mah = Int(phase * 1200)
-        let pct = max(30, Int(100 - phase * 70))
-        return FlightBatteryReading(volts: volts, amps: amps, mah: mah, pct: pct)
     }
 
     // MARK: - Timer block
