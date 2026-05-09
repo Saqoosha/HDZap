@@ -489,6 +489,11 @@ bind ができたら、いよいよ走らせます。
 
 - **Hue スライダー**：UI のテーマ色を 0〜360° で変更
 
+### アバウト（About）
+
+- **App version**：iOS アプリの `CFBundleShortVersionString`。常に表示。
+- **Firmware**：M5StickS3 の `git describe` ビルドバージョン。M5 と接続して GATT 情報を取得したあとだけ表示されます。アプリ側のメジャーバージョンと一致しない場合は **赤字** + 不一致警告 — wire format が合うように再フラッシュしてください。同じ行は **設定 → デバイス → M5StickS3** の "Version" にも出ます。
+
 ---
 
 ## 10. うまくいかないとき（トラブルシューティング）

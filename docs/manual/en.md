@@ -489,6 +489,11 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 - **Hue slider**: changes the UI accent color across 0°–360°.
 
+### About
+
+- **App version**: the iOS app's `CFBundleShortVersionString`. Always shown.
+- **Firmware**: the M5StickS3's `git describe` build version. Only appears once the unit has connected (read on first GATT discovery). Renders **red** with a mismatch warning when the firmware's major version disagrees with the app — that's the cue to re-flash so the wire format lines up. The same row also shows in **Settings → Device → M5StickS3** under "Version".
+
 ---
 
 ## 10. Troubleshooting

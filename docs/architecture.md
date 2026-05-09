@@ -225,6 +225,10 @@ HDZeroLapTimerApp
               ├── "App" Section
               │     ├── "Lap announcer" row → AudioSettingsView
               │     └── "Appearance" row → AppearanceSettingsView
+              ├── "About" Section
+              │     ├── "App version" row (always shown)
+              │     └── "Firmware" row (only after CHR_FW_VERSION lands;
+              │           red on major-version mismatch with the app)
               └── owns: targetLapCount, raceSessionLimit, accentHue
                         @AppStorage settings; uses UIDUtils
                         (uidFromBindPhrase, formatUID*, parseUID,
@@ -270,7 +274,7 @@ Three paths leave the connected state:
 
 ### BLE GATT
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics — *or property-bitmap changes* — without a phone reboot. Most recent bump (`…d48d → …d48e`) shipped CHR_DEVICE_NAME (`…d489`), the renameable BLE-advertised name characteristic. The previous bump (`…d48c → …d48d`) accompanied CHR_OSD_LAYOUT (`…d48b`) gaining `PROPERTY_WRITE_NR` so iOS's slider could use `writeWithoutResponse`.
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d490`. Bumped on every GATT-shape change so iOS CoreBluetooth's per-peripheral cache reliably re-discovers added/removed characteristics — *or property-bitmap changes* — without a phone reboot. Most recent bump (`…d48e → …d490`) shipped CHR_FW_VERSION (`…d48f`), a READ-only `git describe` string. The prior bump (`…d48d → …d48e`) shipped CHR_DEVICE_NAME (`…d489`), the renameable BLE-advertised name characteristic. The earlier `…d48c → …d48d` bump accompanied CHR_OSD_LAYOUT (`…d48b`) gaining `PROPERTY_WRITE_NR` so iOS's slider could use `writeWithoutResponse`.
 
 | Characteristic | UUID | Properties | Payload |
 |---|---|---|---|
@@ -284,6 +288,7 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. Bumped on every GATT-shape
 | Device Name | `f47ac10b-...-0e02b2c3d489` | Read+Write | UTF-8, ≤20 B; write persists to NVS (`btname`) and `ESP.restart()`s so `BLEDevice::init(name)` re-runs with the new value. iOS bonded re-pairs after the ~3 s reboot |
 | Sleep Config | `f47ac10b-...-0e02b2c3d48a` | Read+Write | `[minutes:u8]` deep-sleep idle timeout (firmware-seeded from NVS-backed `slpmin` at boot) |
 | OSD Layout | `f47ac10b-...-0e02b2c3d48b` | Read+Write+WriteNR | `[y_offset:i8]` rows to shift the 4-row buffer up from `DEFAULT_BASE_ROW=14` (range `[-14,0]`); iOS owns alignment / show-hide via the OSD Text path. WriteNR lets the slider drag skip ATT acks. y_offset is **not** NVS-persisted: firmware seeds the read value to 0 on boot, iOS replays its UserDefaults-backed setting on connect |
+| FW Version | `f47ac10b-...-0e02b2c3d48f` | Read | UTF-8 string from `git describe --tags --dirty --always`, injected at build time by the PlatformIO pre-script `firmware/scripts/inject_version.py`. iOS reads it on characteristic discovery and surfaces a non-blocking warning when the leading major-version component disagrees with the app's `CFBundleShortVersionString` |
 
 ### MSPv2 Packet Format
 

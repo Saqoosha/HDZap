@@ -71,7 +71,7 @@ Hotfixes still go through `develop` → `main` PRs. Direct push to `main` is blo
 
 ## BLE Protocol
 
-Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. The UUID is bumped on every GATT-shape change — including characteristic property-bitmap changes — so iOS CoreBluetooth's per-peripheral cache reliably re-discovers the new shape without a phone reboot.
+Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d490`. The UUID is bumped on every GATT-shape change — including characteristic property-bitmap changes — so iOS CoreBluetooth's per-peripheral cache reliably re-discovers the new shape without a phone reboot.
 
 | Characteristic | UUID suffix | Direction | Format |
 |---|---|---|---|
@@ -85,6 +85,7 @@ Service UUID: `f47ac10b-58cc-4372-a567-0e02b2c3d48e`. The UUID is bumped on ever
 | Device Name | `...d489` | Read+Write | UTF-8, ≤20 bytes; write triggers NVS persist + reboot so the new name lands in `BLEDevice::init` |
 | Sleep Config | `...d48a` | Read+Write | `[minutes:u8]` deep-sleep idle timeout; firmware seeds from NVS at boot |
 | OSD Layout | `...d48b` | Read+Write+WriteNR | `[y_offset:i8]` rows to shift the 4-row buffer up from the default base row (range `[-14, 0]`); WriteNR lets the iOS slider drag without ATT acks |
+| FW Version | `...d48f` | Read | UTF-8 `git describe --tags --dirty --always` string injected at build by `firmware/scripts/inject_version.py`; iOS reads on connect and warns if the leading major component disagrees with `CFBundleShortVersionString` |
 
 UID Config modes: `0x01` bind phrase, `0x02` raw 6-byte UID, `0x03` new pairing (ESP32 MAC).
 OSD commands: `0x01` clear, `0x02` reset laps, `0x03` test OSD.
