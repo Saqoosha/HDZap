@@ -175,14 +175,10 @@ Connect the iPhone to the M5StickS3 over Bluetooth.
 4. Tap **Scan**. Nearby M5StickS3 devices appear under **Other devices**.
 5. Tap **Connect** next to the device named **HDZeroOSD** (or whatever name you previously gave it — see [Renaming the M5StickS3](#renaming-the-m5sticks3-optional) below).
 
-   <img src="images/05-bluetooth-before.png" alt="M5StickS3 sub-screen before connecting" width="320" />
-
 6. On a successful connection:
    - A green dot appears in the **Connected** section with the device name and a Disconnect button
    - The battery percentage and charging icon show up below the name
    - The M5StickS3's LCD also shows the connected state
-
-   <img src="images/05-bluetooth-after.png" alt="M5StickS3 sub-screen after connecting" width="320" />
 
 You now have a working link between the iPhone and the M5StickS3. Next: bind to the Goggle.
 
