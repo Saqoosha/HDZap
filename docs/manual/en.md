@@ -246,7 +246,7 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 3. Type the same bind phrase that was flashed onto the ELRS Backpack into the text field.
 4. Tap **Apply UID**.
 5. Wait for the status banner to step through `Switching pairing…` → `Verifying…` → `Pairing works` 🎉
-6. **Smoke test:** Settings → **Device** → **OSD layout** → tap **Send Test OSD**. If the current time appears on the Goggle, the bind worked.
+6. **Smoke test:** Settings → **Device** → **OSD layout** — opening the screen auto-pushes a live preview to the Goggle. If you see it, the bind worked 🎉
 
 ---
 
@@ -264,7 +264,7 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 4. **Open the ExpressLRS Lua script on EdgeTX and run the Bind menu** from there.
 5. The M5StickS3 receives the bind broadcast, extracts the UID, and shows it on screen.
 6. Tap **Apply** → `Switching pairing…` → `Verifying…` → `Pairing works`.
-7. **Smoke test:** Settings → **Device** → **OSD layout** → **Send Test OSD**. If the current time appears on the Goggle, you're good.
+7. **Smoke test:** Settings → **Device** → **OSD layout** — the page auto-pushes a live preview to the Goggle. If you see it, you're good.
 
 ---
 
@@ -279,7 +279,7 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 3. Set the segmented control to **Manual UID**.
 4. **Type all six numbers, comma-separated, into the single input field.**
 5. Tap **Apply UID** → `Switching pairing…` → `Verifying…` → `Pairing works`.
-6. **Smoke test:** Settings → **Device** → **OSD layout** → **Send Test OSD**. Time should appear on the Goggle.
+6. **Smoke test:** Settings → **Device** → **OSD layout** — the page auto-pushes a live preview to the Goggle. Anything visible there means it worked.
 
 ---
 
@@ -300,28 +300,19 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 4. Tap **Pair with new goggle**. The M5StickS3 broadcasts a bind packet.
 5. The Goggle accepts and the binding is complete.
 6. The status banner should step through `Verifying…` → `Pairing works`.
-7. **Smoke test:** Settings → **Device** → **OSD layout** → **Send Test OSD**. Time should appear on the Goggle.
+7. **Smoke test:** Settings → **Device** → **OSD layout** — the page auto-pushes a live preview to the Goggle. Anything visible there means it worked.
 
 ---
 
-### Verifying with Send Test OSD
+### Verifying the bind
 
-Once the bind reports success, always run the smoke test.
+Once the bind reports success, the simplest smoke test is just opening **Settings → Device → OSD layout**.
 
-1. Settings → **Device** → **OSD layout**.
-2. Tap **Send Test OSD**.
-3. The bottom of the Goggle frame shows three lines: **`TEST OSD` + the current date + the time** (every tap updates the time, so you can visually confirm packets are landing).
+The screen auto-pushes a live preview (4 rows of dummy text reflecting your current layout) to the Goggle on entry. If you see the preview, the entire path (iPhone → M5StickS3 → Goggle) is working 🎉
 
-   ```
-                        TEST OSD                     
-                       2026-05-07                    
-                     14:23:45.123                    
-                                                     
-   ```
+If nothing appears, re-walk [Chapter 6's flowchart](#decision-flowchart-which-path-is-yours) from the top.
 
-   The text **does not disappear on its own.** To clear it, tap **Clear OSD** on the same screen.
-
-If the text appears, the entire path (iPhone → M5StickS3 → Goggle) is working.
+> 💡 The **Send Test OSD** button on the same screen pushes the **current iPhone time** once — useful when you want a fresh, visibly-changing reference point (each tap updates the timestamp). It doesn't auto-clear, so tap **Clear OSD** next to it when you're done.
 
 ### Auto-rollback
 
@@ -331,7 +322,7 @@ You can also tap **Restore previous goggle** on the Goggle pairing screen at any
 
 ### When things go wrong
 
-- **Send Test OSD doesn't show anything on the Goggle**
+- **No OSD appears on the Goggle (opening OSD layout, or tapping Send Test OSD)**
   1. Re-check the Goggle backpack firmware version is v1.5.5 or newer — most common cause.
   2. Is the Goggle close enough? Within a few meters is recommended.
   3. Tap Apply UID one more time.
@@ -519,9 +510,9 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 | Symptom | Fix |
 |---|---|
-| Send Test OSD shows nothing on the Goggle | **First, verify the Goggle backpack firmware is v1.5.5 or newer** (most common cause). Then re-walk [Chapter 6's flowchart](#decision-flowchart-which-path-is-yours) from the top |
+| OSD doesn't appear on the Goggle | **First, verify the Goggle backpack firmware is v1.5.5 or newer** (most common cause). Then re-walk [Chapter 6's flowchart](#decision-flowchart-which-path-is-yours) from the top |
 | OSD text is garbled / partially missing | Re-check the Goggle firmware version. Then suspect 2.4 GHz interference (Wi-Fi, the drone itself, etc.) |
-| Send Test OSD fails immediately after binding | Use **Restore previous goggle** to revert, then try a different bind path |
+| OSD fails to appear immediately after binding | Use **Restore previous goggle** to revert, then try a different bind path |
 
 ---
 
