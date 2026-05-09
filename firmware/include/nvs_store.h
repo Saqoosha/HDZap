@@ -57,6 +57,14 @@ inline bool saveUid(const uint8_t uid[6]) {
 }
 
 inline bool saveTelemetrySourceUid(const uint8_t uid[6]) {
+    // Unicast MAC invariant: ESP-NOW sender MACs we accept telemetry
+    // from must have bit 0 of the first byte clear, same rule as the
+    // OSD UID. Reject before persisting so a corrupt RAM value can't
+    // outlive the reboot.
+    if (!uid || (uid[0] & 0x01)) {
+        Serial.println("nvs_store: saveTelemetrySourceUid: rejected non-unicast MAC");
+        return false;
+    }
     Preferences prefs;
     if (!prefs.begin("hdzero", false)) return false;
     size_t written = prefs.putBytes("teleuid", uid, 6);
@@ -82,6 +90,14 @@ inline bool loadTelemetrySourceUid(uint8_t uid[6]) {
     if (read != 6) {
         Serial.printf("nvs_store: telemetry source read returned %u bytes (expected 6)\n",
                       (unsigned)read);
+        return false;
+    }
+    // Same unicast-MAC invariant as the save path. Catches a corrupt
+    // NVS entry or a downgrade from a build that didn't enforce the
+    // check on save — better to fall back to "no telemetry source"
+    // than to filter against a bogus broadcast/multicast address.
+    if (uid[0] & 0x01) {
+        Serial.println("nvs_store: telemetry source UID is non-unicast — rejecting");
         return false;
     }
     return true;

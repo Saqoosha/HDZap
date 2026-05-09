@@ -45,12 +45,14 @@ The script:
 2. Runs `xcodegen generate` and archives the iOS app
 3. Exports `.ipa` and uploads it to TestFlight via `altool`
 4. `jj describe` the working-copy change with the bump
-5. `jj bookmark set main -r @` and `jj git push --bookmark main` (jj auto-creates a new empty change at `@` after the push — no `jj new` needed)
-6. Captures the released commit hash on `main` and tags it as `v<version>`, then `git push origin v<version>`
+5. `jj bookmark set develop -r @` and `jj git push --bookmark develop` (jj auto-creates a new empty change at `@` after the push — no `jj new` needed)
+6. Waits for the develop CI run to go green (firmware build + staging Pages deploy), opens a release PR `develop → main`, and merges it — direct push to `main` is rejected by branch protection
+7. After the merge, captures the merged commit hash on `main`, tags it as `v<version>`, and pushes the tag (`git push origin v<version>`)
+8. Creates a GitHub Release for `v<version>` and fast-forwards local `develop` to `main` so the next cycle starts in sync
 
 ### 4. Tell the user where to find the build
 
-```
+```text
 TestFlight processes the new build in 5–30 min. Once VALID, internal testers
 in the "Internal Testers" group can install via the TestFlight app.
 ```

@@ -155,6 +155,14 @@ static constexpr uint64_t WAKE_GPIO_MASK = BIT64(11) | BIT64(12);
 static constexpr uint32_t IDLE_TIMEOUT_MS = 30000;
 static uint32_t g_last_activity_ms = 0;
 
+// File-scope rather than function-static because `telemetry_sniff_start()`
+// zeroes `g_telemetry_dropped` for the new session, so a lingering
+// function-local last-logged value would emit a misleading
+// "ring overflow (dropped=0 total=...)" line on the first drain after
+// every restart. The start handler in `loop()` resets this in lockstep
+// with the dropped counter.
+static uint16_t g_last_telemetry_dropped_logged = 0;
+
 static void markActivity() {
     g_last_activity_ms = millis();
     if (stickDisplay.isPanelAsleep()) {
@@ -793,6 +801,11 @@ void loop() {
     if (telemetry_sniff::g_telemetry_start_requested) {
         telemetry_sniff::g_telemetry_start_requested = false;
         if (telemetry_sniff::telemetry_sniff_start()) {
+            // telemetry_sniff_start zeroes g_telemetry_dropped for the
+            // new session — keep our last-logged mirror in sync so the
+            // first drain doesn't log a phantom "dropped=0" against a
+            // stale prior session's high-water mark.
+            g_last_telemetry_dropped_logged = 0;
             Serial.println("Telemetry sniff: started");
         }
     }
@@ -818,11 +831,10 @@ void loop() {
         if (telemetry_sniff::telemetry_pop(record, dropped, total)) {
             ble_notify_telemetry_packet(record);
         }
-        static uint16_t last_dropped_logged = 0;
-        if (dropped != last_dropped_logged) {
+        if (dropped != g_last_telemetry_dropped_logged) {
             Serial.printf("Telemetry sniff: ring overflow (dropped=%u total=%u)\n",
                           (unsigned)dropped, (unsigned)total);
-            last_dropped_logged = dropped;
+            g_last_telemetry_dropped_logged = dropped;
         }
     }
 
