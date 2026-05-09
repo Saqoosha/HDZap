@@ -49,6 +49,40 @@ public:
         drawHairlines();
     }
 
+    /// Boot-time splash: centered "HDZeroOSD" + "FW <version>" on a
+    /// black canvas, held by the caller's `delay()` before `showStatus`
+    /// repaints over it. No state retained — the next band-level paint
+    /// (drawUidBand / drawLapBand / drawStrip) wipes the whole screen
+    /// in tiles, so nothing here outlives the next status update.
+    /// Called once from `setup()` so the operator sees which firmware
+    /// is running before the UID/lap UI takes over.
+    void showSplash(const char* version) {
+        M5.Display.fillScreen(TFT_BLACK);
+        // Title: medium-large mono, centered horizontally.
+        M5.Display.setFont(&fonts::FreeMonoBold12pt7b);
+        M5.Display.setTextSize(1);
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+        const char* title = "HDZeroOSD";
+        int titleW = M5.Display.textWidth(title);
+        int titleY = m_h / 2 - M5.Display.fontHeight() - 2;
+        if (titleY < 0) titleY = 0;
+        M5.Display.setCursor((m_w - titleW) / 2, titleY);
+        M5.Display.print(title);
+        // Version: small mono accent, "FW <version>" — match the iOS
+        // Settings row so the two surfaces use the same wording.
+        M5.Display.setFont(&fonts::Font0);
+        M5.Display.setTextColor(m_colAccent, TFT_BLACK);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "FW %s", (version && *version) ? version : "unknown");
+        int verW = M5.Display.textWidth(buf);
+        int verY = m_h / 2 + 6;
+        M5.Display.setCursor((m_w - verW) / 2, verY);
+        M5.Display.print(buf);
+        // Restore the textdatum-invariant defaults the rest of the class
+        // relies on (top_left was set in begin()).
+        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+    }
+
     void showStatus(const uint8_t uid[6], bool bleConnected, bool radioReady,
                     bool uidIsDefault = false) {
         memcpy(m_uid, uid, 6);

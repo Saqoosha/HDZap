@@ -253,10 +253,19 @@ void setup() {
     bool cpuOk = setCpuFrequencyMhz(80);
 
     stickDisplay.begin();
+    // Boot splash: centered title + "FW <git-describe>" so the operator
+    // can confirm which firmware is running before any UI band paints
+    // over it. Held visible for ~1.2 s — long enough to read, short
+    // enough not to delay the BLE/ESP-NOW init the user is waiting for.
+    // The Serial.begin/USB-enumeration delay below already overlaps
+    // with this hold, so the actual added latency is closer to 700 ms.
+    stickDisplay.showSplash(FIRMWARE_VERSION);
     batteryMonitor.begin();
     Serial.begin(115200);
     delay(500); // Wait for USB CDC serial to enumerate before first println.
     Serial.println("\n=== HDZero OSD Lap Timer ===");
+    Serial.printf("Firmware: %s\n", FIRMWARE_VERSION);
+    delay(700); // hold the splash a bit longer so it's actually readable
     {
         unsigned actual = (unsigned)getCpuFrequencyMhz();
         if (!cpuOk || actual != 80) {
