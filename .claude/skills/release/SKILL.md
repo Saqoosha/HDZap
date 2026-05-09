@@ -70,8 +70,23 @@ The script:
 7. **Wait** for the develop CI run to go green (firmware build + staging Pages deploy under `/dev/`).
 8. **Open a release PR** `develop → main` and **merge it** (`--merge`, preserves the cut as a merge commit on `main`).
 9. Fetch `origin/main`, **tag** the merge commit as `v<version>`, push the tag.
-10. **Create a GitHub Release** with notes pointing at the PR + production URLs.
-11. **Fast-forward** local `develop` to `main` so the next cycle starts in sync.
+10. **Create a GitHub Release** with consistent formatting:
+
+    ```bash
+    gh release create "v<X.Y.Z>" \
+      --title "<X.Y.Z>" \
+      --notes "<release notes>"
+    ```
+
+    **Title format**: `X.Y.Z` for full releases (e.g., "1.0.1"), `X.Y.Z build N` for build-only (e.g., "1.0.0 build 4").
+    **Body format** (both variants):
+    - `## What's in X.Y.Z` (full) or `## Changes since <previous>` (build-only) — bullet list of user-facing changes only; skip docs/infra/CI/internal changes
+    - `## Compatibility` (full releases only; omit for build-only)
+    - `## Links` — TestFlight beta invite + Web Flasher + Manual (EN) + Manual (JA)
+    - Do NOT include a "🤖 Generated with…" footer line.
+
+11. **Fill TestFlight "What to Test"** for both en-US and ja locales via the App Store Connect API — see the TestFlight "What to Test" section below.
+12. **Fast-forward** local `develop` to `main` so the next cycle starts in sync.
 
 ### 4. Re-run main CI after the tag push (cosmetic, but matters)
 
@@ -100,7 +115,24 @@ Also share the production URLs once the main-branch CI deploy lands:
 - Manual (English): <https://saqoosha.github.io/HDZap/>
 - Manual (日本語): <https://saqoosha.github.io/HDZap/ja/>
 
-If a TestFlight "What to Test" note is wanted, ask the user before adding it via ASC API or the web UI.
+## TestFlight "What to Test"
+
+Fill the "What to Test" field for every build via the App Store Connect API, in both en-US and ja.
+
+```python
+# Generate JWT from the .p8 key, then:
+POST /v1/betaBuildLocalizations
+# or PATCH if the locale already exists
+
+locales = {
+    "en-US": "What to test:\n• …",
+    "ja": "テスト内容:\n• …",
+}
+```
+
+- The build ID comes from the `altool --upload-app` response (`Delivery UUID`), or from `GET /v1/builds?filter[app]=<app_id>&sort=-uploadedDate`.
+- Draft the notes by looking at the user-facing diff — skip docs/infra/CI/internal changes.
+- Write both locales in parallel; create if missing, update if the locale already exists on the build.
 
 ## Build-only release (no MARKETING_VERSION bump)
 
@@ -111,6 +143,7 @@ Use this variant when the operator wants the develop tip to reach existing TestF
 ### Procedure
 
 1. **Pre-flight** (same as the script): on develop, working tree clean, `develop == origin/develop`, target tag `v<current-marketing>+build<N+1>` does not exist.
+
 2. **Bump build only** in `app/project.yml`:
 
    ```bash
@@ -120,15 +153,25 @@ Use this variant when the operator wants the develop tip to reach existing TestF
    # MARKETING_VERSION stays at its current value — do NOT touch it.
    ```
 
-3. **Build & archive** (same as the full release):
+3. **Build & archive**. `project.yml` uses `<TEAM_ID>` as a placeholder for `DEVELOPMENT_TEAM` — pass the real team ID on the xcodebuild command line:
 
    ```bash
-   ./scripts/build.sh
+   cd app && xcodegen generate && xcodebuild \
+     -project HDZap.xcodeproj \
+     -scheme HDZap \
+     -destination 'generic/platform=iOS' \
+     -configuration Release \
+     -archivePath build/archives/HDZap.xcarchive \
+     -allowProvisioningUpdates \
+     DEVELOPMENT_TEAM=VCFY2GFR89 \
+     archive
    ```
 
-4. **Upload to TestFlight** (irreversible):
+4. **Upload to TestFlight** (irreversible). `upload-testflight.sh` has `<KEY_ID>` / `<ISSUER_ID>` placeholders — pass real values via env vars:
 
    ```bash
+   ASC_API_KEY_ID=76DV838N2N \
+   ASC_API_ISSUER_ID=69a6de6e-6653-47e3-e053-5b8c7c11a4d1 \
    ./scripts/upload-testflight.sh
    ```
 
@@ -176,7 +219,21 @@ Use this variant when the operator wants the develop tip to reach existing TestF
    jj git push --bookmark develop
    ```
 
-10. **(Skip)** GitHub Release. The `v<X.Y.Z>+build<N>` tag is internal-only — the GitHub Release UI is reserved for marketing-version cuts. If a release-notes surface is wanted for the build, edit the prior `v<X.Y.Z>` release to mention the new build.
+10. **Create a GitHub Release** with the same title and body format as full releases:
+
+    ```bash
+    gh release create "v<X.Y.Z>+build${NEW_BUILD}" \
+      --title "<X.Y.Z> build ${NEW_BUILD}" \
+      --notes "<release notes>"
+    ```
+
+    **Title format**: `X.Y.Z build N` (e.g., "1.0.0 build 4").
+    **Body format**:
+    - `## Changes since <previous>` — bullet list of user-facing changes only; skip docs/infra/CI/internal changes
+    - `## Links` — TestFlight beta invite + Web Flasher + Manual (EN) + Manual (JA)
+    - Do NOT include a "🤖 Generated with…" footer line.
+
+11. **Fill TestFlight "What to Test"** for both en-US and ja locales — see the TestFlight "What to Test" section above.
 
 ### When to use full vs. build-only
 
@@ -194,6 +251,8 @@ When in doubt, default to a full release — the build-only path is for the spec
 - **Always analyze the diff first** before deciding the version. The repo contains both `app/` (iOS) and `firmware/` (ESP32). Firmware-only changes still ship through the release PR (the Web Flasher firmware bundle moves with the release), but you can skip the iOS bump+upload by running just the PR + tag steps by hand if the iOS app has not changed.
 - The release PR uses `--merge`. After the merge, `main`'s HEAD is the merge commit, and the script fast-forwards local `develop` to `main` so the two stay aligned.
 - **Branch protection**: `main` is protected against direct push (PR-only merge, force-push and delete blocked, admin bypass enabled for emergencies). The release script promotes through a PR, so this is not an obstacle. Hotfixes still go via PR — branch from `main`, fix, PR straight back to `main`, then bring `develop` up to date.
-- The `.p8` private key location and ASC API credentials live in `docs/testflight-setup.md` (and, for Claude Code only, the `testflight_credentials` memory entry). The script defaults to those — override via `ASC_API_KEY_ID` / `ASC_API_ISSUER_ID` env vars when releasing for a different team or app.
+- **Placeholder credentials**: `project.yml` uses `<TEAM_ID>` for `DEVELOPMENT_TEAM` (valid YAML). `ExportOptions.plist` uses `YOUR_TEAM_ID` for `teamID` (valid XML — the legacy `<TEAM_ID>` literal broke `plutil` / xcodebuild parsing because `<` and `>` are XML special characters). `upload-testflight.sh` uses `<KEY_ID>` / `<ISSUER_ID>` for ASC API credentials. Pass real values on the command line or via env vars at build time.
+- The `.p8` private key location and ASC API credentials live in `docs/testflight-setup.md` (and, for Claude Code only, the `testflight_credentials` memory entry).
 - Re-running `release.sh` with the **same** version number fails fast — the tag-replace branch was removed because it silently masked auth/network errors. To re-cut a release, bump to the next patch version, or delete the tag explicitly first (`git tag -d <tag> && git push origin :refs/tags/<tag>`).
-- **Release notes for TestFlight** are entered separately in App Store Connect (TestFlight tab → build → Test Details → "What to Test"). They are not part of the git commit message. The GitHub Release notes are auto-generated by the script and can be edited afterwards via `gh release edit <tag>`.
+- **GitHub Release body**: include user-facing changes only — skip docs/infra/CI/internal commits. Never include a "🤖 Generated with…" footer. Edit any existing release that doesn't match with `gh release edit <tag>`.
+- **TestFlight "What to Test"** is set via the ASC API (not the GitHub Release body). Fill both en-US and ja for every build.
