@@ -347,7 +347,7 @@ With the bind working, you can run a race.
 ### Race setup
 
 1. Tap the gear icon at the top right → open the Settings sheet.
-2. Adjust race time (default 90 s) and target lap count in the inline **Format** section at the top.
+2. Adjust **Race time** (default 90 s) and **Target lap** in the inline **Format** section at the top.
 3. Close the Settings sheet.
 
 ### Running
