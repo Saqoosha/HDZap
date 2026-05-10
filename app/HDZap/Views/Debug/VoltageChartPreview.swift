@@ -49,10 +49,10 @@ enum VoltageChartPreview {
         }
 
         // The factory always succeeds for these inputs (laps non-empty,
-        // session/target valid, samples chronological). Crash on the
-        // force-unwrap is a deliberate "this preview is broken — fix it
-        // before showing the user" signal rather than silently rendering
-        // an empty record.
+        // session/target valid, samples chronological). The deliberate
+        // `fatalError` is a "this preview is broken — fix it before
+        // showing the user" signal rather than silently rendering an
+        // empty record. DEBUG-only code, won't reach a release build.
         guard let record = RaceRecord.snapshot(
             laps: laps,
             startedAt: startedAt,

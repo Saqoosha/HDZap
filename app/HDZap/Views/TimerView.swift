@@ -532,11 +532,11 @@ struct TimerView: View {
 
     /// Voltage hero + consumed mAh + remaining-percent label, with a
     /// thin progress bar underneath that mirrors the percent value.
-    /// Hidden when neither the dummy generator nor a real BLE notify
-    /// has produced a value, so a fresh boot before the goggle is
-    /// connected doesn't show empty fields. Wired up via `TimelineView`
-    /// while in dummy mode so the numbers drift visibly without any
-    /// view-side state.
+    /// Hidden entirely (paddings included, see body site) when no
+    /// telemetry has arrived since BLE connect. `TimelineView(.periodic)`
+    /// is the live-vs-stale flip clock — voltages themselves come
+    /// directly from `BluetoothManager`'s flight-battery properties,
+    /// re-read each tick.
     /// Threshold for flipping a flight-battery reading from LIVE to
     /// STALE. CRSF Battery sensor telemetry runs at ≤ 0.25 Hz (one
     /// packet every ~4 s) on most ELRS link rates, so a 2-3 s window
@@ -990,8 +990,16 @@ struct TimerView: View {
 
     private func ingestFlightBatteryTelemetry() {
         guard lapTimer.isRunning, !sessionEnded, let started = lapTimer.sessionStartedAt else { return }
-        guard let raw = bluetooth.lastFlightBatteryWire,
-              let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started) else { return }
+        guard let raw = bluetooth.lastFlightBatteryWire else { return }
+        // Anchor `tRace` to the BLE notify-arrival moment rather than
+        // the SwiftUI observer-tick that called us — the iOS observer
+        // tick can run several ms after the notify lands, especially
+        // under main-actor pressure. `lastFlightBatteryReceivedAt`
+        // moves in lockstep with `lastFlightBatteryWire`, so the pair
+        // is always coherent. Falls back to `Date()` for the race-start
+        // path where no notify has landed yet.
+        let now = bluetooth.lastFlightBatteryReceivedAt ?? Date()
+        guard let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started, now: now) else { return }
         if let previous = raceFlightBatterySamples.last,
            previous.voltageDv == sample.voltageDv,
            previous.currentDa == sample.currentDa,

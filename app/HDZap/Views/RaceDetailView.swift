@@ -410,7 +410,14 @@ struct VoltageTrendChart: View {
                             style: StrokeStyle(lineWidth: 1, lineJoin: .round))
                 }
 
-                ForEach(Array(samples.enumerated()), id: \.element.receivedAt) { _, s in
+                // Key by enumeration offset rather than `receivedAt` —
+                // sub-millisecond Date collisions are practically
+                // impossible at CRSF's 0.25 Hz cadence in production,
+                // but the synthetic-record preview can produce exactly-
+                // colliding timestamps via integer-second `addingTimeInterval`,
+                // and SwiftUI silently drops the duplicate dot when ids
+                // collide.
+                ForEach(Array(samples.enumerated()), id: \.offset) { _, s in
                     let isMin = s.voltageVolts == chart.vMin
                     let p = CGPoint(x: chart.x(forTRace: s.tRace),
                                     y: chart.y(forVolts: s.voltageVolts))

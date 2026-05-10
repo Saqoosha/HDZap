@@ -16,6 +16,12 @@ inline portMUX_TYPE g_promisc_msp_mux = portMUX_INITIALIZER_UNLOCKED;
 inline volatile bool g_promisc_msp_staged = false;
 inline int g_promisc_msp_len = 0;
 inline uint8_t g_promisc_msp_buf[kPromiscMspCandidateMaxLen] = {};
+// Counts staged-overwrite events on the promiscuous-MSP single-slot
+// buffer (producer = Wi-Fi promisc cb, consumer = main loop). Mirrors
+// `g_flight_battery_dropped` so a sustained burst arriving faster than
+// the main-loop drain is visible at the serial console rather than
+// silent. main.cpp logs on each new dropped edge.
+inline volatile uint32_t g_promisc_msp_dropped = 0;
 
 inline bool hdzap_telemetry_source_matches(const uint8_t sender[6]) {
     if (!sender) return false;
@@ -80,7 +86,13 @@ inline void hdzap_try_capture_bind_uid(const uint8_t *mac_addr, const uint8_t *d
     portENTER_CRITICAL(&g_sniff_mux);
     memcpy(g_sniff_uid, mac_addr, 6);
     memcpy(g_telemetry_source_uid, mac_addr, 6);
+    // Unicast MAC invariant — applied at every assignment site (per
+    // CLAUDE.md). Both UIDs feed downstream filters that compare
+    // bit-by-bit, so silently letting the multicast bit through here
+    // would also persist via nvs_store::saveTelemetrySourceUid (which
+    // independently rejects non-unicast and would drop the save).
     g_sniff_uid[0] &= ~0x01;
+    g_telemetry_source_uid[0] &= ~0x01;
     g_telemetry_source_configured = true;
     g_telemetry_source_captured = true;
     g_sniff_captured = true;
@@ -89,9 +101,14 @@ inline void hdzap_try_capture_bind_uid(const uint8_t *mac_addr, const uint8_t *d
 
 inline void hdzap_espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data, int len) {
     hdzap_try_capture_bind_uid(mac_addr, data, len);
-    if (len > 0 && data != nullptr && hdzap_telemetry_source_matches(mac_addr)) {
-        flight_battery_on_espnow_payload(data, len);
-    }
+    // Flight-battery decode happens in the promiscuous-RX path only
+    // (see `hdzap_promiscuous_rx_cb` below). Backpack telemetry can
+    // arrive as a broadcast frame too — that fires both the ESP-NOW
+    // recv callback AND the promiscuous capture, so decoding here as
+    // well would double-stage the same sample and inflate
+    // `g_flight_battery_dropped`. The stick is generally not the
+    // backpack's ESP-NOW peer, so the recv callback rarely sees these
+    // anyway.
     // Telemetry debug ride-along: cheap one-byte gate inside when the
     // iOS Backpack Telemetry Debug subview isn't open, so the bind /
     // flight-battery hot path stays untaxed in the common case.
@@ -114,6 +131,12 @@ inline void hdzap_promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     if (copy_len <= 0) return;
     if (copy_len > kPromiscMspCandidateMaxLen) copy_len = kPromiscMspCandidateMaxLen;
     portENTER_CRITICAL(&g_promisc_msp_mux);
+    if (g_promisc_msp_staged) {
+        // Producer arrived again before the main loop drained the
+        // previous candidate. Bump the counter so a sustained burst
+        // shows up at the serial console.
+        g_promisc_msp_dropped++;
+    }
     memcpy(g_promisc_msp_buf, payload + msp_off, copy_len);
     g_promisc_msp_len = copy_len;
     g_promisc_msp_staged = true;

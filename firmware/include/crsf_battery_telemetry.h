@@ -12,19 +12,26 @@
 ///
 /// Diagnostics (g_crsf_*): the parser is on the hot path and runs on every
 /// promiscuous-mode packet, so it can't log per-reject. Instead we keep
-/// per-reason counters that main.cpp samples once a second to surface
-/// "telemetry never appears" failure modes — bad CRC, wrong frame type,
-/// mismatched address, etc. — that would otherwise be invisible.
+/// per-CALL counters that main.cpp samples once a second to surface
+/// "telemetry never appears" failure modes. Each rejected call bumps
+/// exactly one counter (the deepest layer it reached), so the running
+/// ratios are directly readable as "what fraction of input is failing
+/// at each protocol layer".
+///
+/// Outer layer (MSPv2 wrapper): short_msp / no_msp_marker / msp_crc.
+/// Inner layer (CRSF Battery payload): short_crsf / no_crsf_candidate
+/// / frame_type / frame_len / crsf_crc / range.
 
-inline volatile uint32_t g_crsf_rej_short_buf      = 0; // input shorter than minimum
-inline volatile uint32_t g_crsf_rej_no_msp_marker  = 0; // no $X< / wrong fn
-inline volatile uint32_t g_crsf_rej_msp_crc        = 0; // MSPv2 CRC failed
-inline volatile uint32_t g_crsf_rej_addr           = 0; // CRSF address not FC/TX
-inline volatile uint32_t g_crsf_rej_frame_type     = 0; // CRSF frame type != 0x08
-inline volatile uint32_t g_crsf_rej_frame_len      = 0; // length field mismatch
-inline volatile uint32_t g_crsf_rej_crsf_crc       = 0; // CRSF CRC failed
-inline volatile uint32_t g_crsf_rej_range          = 0; // mah/rem out of plausible range
-inline volatile uint32_t g_crsf_accepts            = 0; // successful decodes
+inline volatile uint32_t g_crsf_rej_short_msp          = 0; // outer input < MSPv2 header floor
+inline volatile uint32_t g_crsf_rej_no_msp_marker      = 0; // no $X< with the expected fn code
+inline volatile uint32_t g_crsf_rej_msp_crc            = 0; // MSPv2 CRC failed
+inline volatile uint32_t g_crsf_rej_short_crsf         = 0; // inner input < CRSF Battery floor
+inline volatile uint32_t g_crsf_rej_no_crsf_candidate  = 0; // scanned all offsets, no FC/TX address
+inline volatile uint32_t g_crsf_rej_frame_type         = 0; // CRSF frame type != 0x08
+inline volatile uint32_t g_crsf_rej_frame_len          = 0; // length field/total mismatch
+inline volatile uint32_t g_crsf_rej_crsf_crc           = 0; // CRSF CRC failed
+inline volatile uint32_t g_crsf_rej_range              = 0; // mah/rem out of plausible range
+inline volatile uint32_t g_crsf_accepts                = 0; // successful decodes
 
 static constexpr uint8_t  CRSF_ADDRESS_FLIGHT_CONTROLLER = 0xC8;
 static constexpr uint8_t  CRSF_ADDRESS_RADIO_TRANSMITTER = 0xEA;
@@ -58,45 +65,51 @@ inline bool crsf_battery_address_ok(uint8_t address) {
 }
 
 /// Try to locate a CRSF Battery frame inside arbitrary bytes (e.g. MSP payload).
-/// Counters: a hit in the inner loop (address/type/len/crc/range mismatch)
-/// is per-CANDIDATE, not per-CALL. We bump at the spot we reject so the
-/// running tally describes "what reasons are most common", which is
-/// what's useful for diagnosing "no telemetry" in the field.
+/// Counter discipline: at most one diagnostic counter is bumped per call
+/// (excluding `g_crsf_accepts` on the success path). Per-byte-offset
+/// counts in the inner loop would distort the running ratios so heavily
+/// that the "addr=N" reading dominates regardless of the real failure
+/// mode — see the per-call rationale in the file header.
 inline bool crsf_battery_scan_payload(const uint8_t *buf, int len,
                                       CrsfFlightBatteryDecoded *out) {
     constexpr int kMinBatteryFrameBytes = 12; // address + len + type + 8-byte payload + crc
     if (!out || len < kMinBatteryFrameBytes) {
-        g_crsf_rej_short_buf++;
+        g_crsf_rej_short_crsf++;
         return false;
     }
+    bool saw_addr_candidate = false;
+    // Track the deepest layer reached so a per-call bump still describes
+    // what's structurally going wrong, even when several offsets fail.
+    enum DeepestReason { kNone, kFrameLen, kFrameType, kCrsfCrc, kRange };
+    DeepestReason deepest = kNone;
     for (int off = 0; off <= len - kMinBatteryFrameBytes; ++off) {
         if (!crsf_battery_address_ok(buf[off])) {
-            g_crsf_rej_addr++;
             continue;
         }
+        saw_addr_candidate = true;
         uint8_t frame_len_field = buf[off + 1];
         unsigned total =
             static_cast<unsigned>(frame_len_field) + 2; // sync + len field excluded from field
         if (total < 10 || total > static_cast<unsigned>(len - off)) {
-            g_crsf_rej_frame_len++;
+            if (deepest < kFrameLen) deepest = kFrameLen;
             continue;
         }
 
         uint8_t typ = buf[off + 2];
         if (typ != CRSF_FRAMETYPE_BATTERY_SENSOR) {
-            g_crsf_rej_frame_type++;
+            if (deepest < kFrameType) deepest = kFrameType;
             continue;
         }
 
         constexpr unsigned kBatPayloadLen = 8;
         constexpr unsigned expect_field = kBatPayloadLen + 2; // type + payload + crc
         if (static_cast<unsigned>(frame_len_field) != expect_field) {
-            g_crsf_rej_frame_len++;
+            if (deepest < kFrameLen) deepest = kFrameLen;
             continue;
         }
 
         if (!crsf_battery_crc_ok(buf + off, total)) {
-            g_crsf_rej_crsf_crc++;
+            if (deepest < kCrsfCrc) deepest = kCrsfCrc;
             continue;
         }
 
@@ -112,7 +125,7 @@ inline bool crsf_battery_scan_payload(const uint8_t *buf, int len,
         // -1 is the documented "unknown" sentinel from CRSF; 101 leaves
         // a one-percent slop for FCs that round capacity above 100.
         if (mah > 999999 || rem < -1 || rem > 101) {
-            g_crsf_rej_range++;
+            if (deepest < kRange) deepest = kRange;
             continue;
         }
 
@@ -123,6 +136,17 @@ inline bool crsf_battery_scan_payload(const uint8_t *buf, int len,
         g_crsf_accepts++;
         return true;
     }
+    if (!saw_addr_candidate) {
+        g_crsf_rej_no_crsf_candidate++;
+    } else {
+        switch (deepest) {
+            case kFrameLen:  g_crsf_rej_frame_len++; break;
+            case kFrameType: g_crsf_rej_frame_type++; break;
+            case kCrsfCrc:   g_crsf_rej_crsf_crc++; break;
+            case kRange:     g_crsf_rej_range++; break;
+            case kNone:      g_crsf_rej_no_crsf_candidate++; break;
+        }
+    }
     return false;
 }
 
@@ -130,7 +154,7 @@ inline bool crsf_battery_scan_payload(const uint8_t *buf, int len,
 inline bool crsfp_try_battery_from_any_msp_payload(const uint8_t *buf, int len,
                                                    CrsfFlightBatteryDecoded *out) {
     if (!buf || !out || len < 13) {
-        g_crsf_rej_short_buf++;
+        g_crsf_rej_short_msp++;
         return false;
     }
     bool saw_msp_marker = false;

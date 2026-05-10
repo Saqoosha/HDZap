@@ -41,13 +41,20 @@ struct RaceFlightBatterySample: Codable, Equatable {
     }
 
     /// Firmware v1 notify: `[ver:1][flags:1][volt:2 LE][curr:2 LE][mah:3 LE][rem:1 signed]`
+    /// `Data` subscripts honour `startIndex`, so a future caller passing
+    /// a slice (e.g. `data[2...]`) would index out of bounds with bare
+    /// `data[0]`. Add `startIndex` to every offset so slice-based callers
+    /// work too — present callers always pass `characteristic.value`
+    /// (start = 0), but the defence is essentially free.
     static func decodeFieldsV1(_ data: Data) -> Fields? {
-        guard data.count >= 10, data[0] == 1 else { return nil }
+        guard data.count >= 10 else { return nil }
+        let s = data.startIndex
+        guard data[s] == 1 else { return nil }
         return Fields(
-            voltageDv: Int(Int16(bitPattern: UInt16(data[2]) | (UInt16(data[3]) << 8))),
-            currentDa: Int(Int16(bitPattern: UInt16(data[4]) | (UInt16(data[5]) << 8))),
-            consumedMah: Int(data[6]) | (Int(data[7]) << 8) | (Int(data[8]) << 16),
-            remainingPercent: Int(Int8(bitPattern: data[9]))
+            voltageDv: Int(Int16(bitPattern: UInt16(data[s + 2]) | (UInt16(data[s + 3]) << 8))),
+            currentDa: Int(Int16(bitPattern: UInt16(data[s + 4]) | (UInt16(data[s + 5]) << 8))),
+            consumedMah: Int(data[s + 6]) | (Int(data[s + 7]) << 8) | (Int(data[s + 8]) << 16),
+            remainingPercent: Int(Int8(bitPattern: data[s + 9]))
         )
     }
 

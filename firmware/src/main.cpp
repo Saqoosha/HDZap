@@ -854,15 +854,25 @@ void loop() {
             ble_maybe_notify_flight_battery(fb);
         }
         // Surface flight-battery staging overwrites so a sustained
-        // burst rate isn't silent. iOS doesn't render this yet — once
-        // the main-screen / history view is wired up, replace this
-        // with a dedicated BLE notify channel.
+        // burst rate isn't silent.
         static uint32_t last_fb_dropped_logged = 0;
         uint32_t fb_dropped = g_flight_battery_dropped;
         if (fb_dropped != last_fb_dropped_logged) {
             Serial.printf("Flight battery: staged sample overwrite (dropped=%u)\n",
                           (unsigned)fb_dropped);
             last_fb_dropped_logged = fb_dropped;
+        }
+
+        // Same edge-log discipline for the upstream promiscuous-MSP
+        // candidate buffer — bursts there are upstream of the
+        // flight-battery staging, so they wouldn't show in
+        // `g_flight_battery_dropped`.
+        static uint32_t last_promisc_dropped_logged = 0;
+        uint32_t promisc_dropped = g_promisc_msp_dropped;
+        if (promisc_dropped != last_promisc_dropped_logged) {
+            Serial.printf("Promisc MSP: candidate overwrite (dropped=%u)\n",
+                          (unsigned)promisc_dropped);
+            last_promisc_dropped_logged = promisc_dropped;
         }
 
         // CRSF parser diagnostics. Print a reject-reason summary every
@@ -878,13 +888,14 @@ void loop() {
             uint32_t accepts_now = g_crsf_accepts;
             if (accepts_now == last_crsf_accepts_seen) {
                 Serial.printf(
-                    "CRSF parser: no decode in %us — rejects: short=%u no_msp=%u msp_crc=%u "
-                    "addr=%u type=%u len=%u crsf_crc=%u range=%u\n",
+                    "CRSF parser: no decode in %us — rejects: short_msp=%u no_msp=%u msp_crc=%u "
+                    "short_crsf=%u no_addr=%u type=%u len=%u crsf_crc=%u range=%u\n",
                     (unsigned)(kCrsfSummaryEveryMs / 1000),
-                    (unsigned)g_crsf_rej_short_buf,
+                    (unsigned)g_crsf_rej_short_msp,
                     (unsigned)g_crsf_rej_no_msp_marker,
                     (unsigned)g_crsf_rej_msp_crc,
-                    (unsigned)g_crsf_rej_addr,
+                    (unsigned)g_crsf_rej_short_crsf,
+                    (unsigned)g_crsf_rej_no_crsf_candidate,
                     (unsigned)g_crsf_rej_frame_type,
                     (unsigned)g_crsf_rej_frame_len,
                     (unsigned)g_crsf_rej_crsf_crc,
