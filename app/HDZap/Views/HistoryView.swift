@@ -112,56 +112,56 @@ private struct HistoryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Three columns: Laps · Trend · Best. The trend column flexes
-            // so the chart butts right up against the total time and
-            // stretches across the unused space; only Best is pinned to a
-            // fixed trailing width.
-            HStack(spacing: 8) {
-                Text("Laps")
-                    .monoCap(size: 9, tracking: 2.0, color: EditorialTheme.sub)
-                Text("Trend")
-                    .monoCap(size: 9, tracking: 2.0, color: EditorialTheme.sub)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 4)
-                if record.bestLapTime != nil {
-                    Text("Best")
-                        .monoCap(size: 9, tracking: 2.0, color: EditorialTheme.sub)
-                        .frame(width: Self.bestColumnWidth, alignment: .trailing)
-                }
-            }
-
+            // Three columns: Laps · Trend · Best. Each column owns its
+            // own header so the label sits directly above the data
+            // (the trend chart's leading edge is set by the laps+total
+            // column width, so a flat header HStack would mis-align
+            // "Trend" against the chart). Trend flexes; Best is pinned
+            // to a fixed trailing width.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 3) {
-                        Text("\(record.lapCount)")
-                            .font(.editorialDisplay(28, weight: .light))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Laps")
+                        .monoCap(size: 9, tracking: 2.0, color: EditorialTheme.sub)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text("\(record.lapCount)")
+                                .font(.editorialDisplay(28, weight: .light))
+                                .monospacedDigit()
+                                .tracking(-0.8)
+                                .foregroundStyle(EditorialTheme.ink)
+                            Text("L")
+                                .font(.editorialMono(13, weight: .medium))
+                                .foregroundStyle(EditorialTheme.sub)
+                        }
+                        Text(EditorialFormat.time(record.totalTime, msDigits: 2))
+                            .font(.editorialMono(18, weight: .medium))
                             .monospacedDigit()
-                            .tracking(-0.8)
                             .foregroundStyle(EditorialTheme.ink)
-                        Text("L")
-                            .font(.editorialMono(13, weight: .medium))
-                            .foregroundStyle(EditorialTheme.sub)
                     }
-                    Text(EditorialFormat.time(record.totalTime, msDigits: 2))
-                        .font(.editorialMono(18, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(EditorialTheme.ink)
                 }
 
-                MiniLapTrendChart(laps: record.laps,
-                                  bestIndex: record.bestLapIndex,
-                                  bestColor: accent,
-                                  height: 28)
-                    .frame(maxWidth: .infinity)
-                    .padding(.leading, 4)
-                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Trend")
+                        .monoCap(size: 9, tracking: 2.0, color: EditorialTheme.sub)
+                    MiniLapTrendChart(laps: record.laps,
+                                      bestIndex: record.bestLapIndex,
+                                      bestColor: accent,
+                                      height: 28)
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 4)
 
                 if let best = record.bestLapTime {
-                    Text(EditorialFormat.timeShort(best))
-                        .font(.editorialMono(18, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(accent)
-                        .frame(width: Self.bestColumnWidth, alignment: .trailing)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Text("Best")
+                            .monoCap(size: 9, tracking: 2.0, color: EditorialTheme.sub)
+                        Text(EditorialFormat.timeShort(best))
+                            .font(.editorialMono(18, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(accent)
+                    }
+                    .frame(width: Self.bestColumnWidth, alignment: .trailing)
                 }
             }
 
@@ -208,11 +208,6 @@ private struct MiniLapTrendChart: View {
             }
 
             ZStack(alignment: .topLeading) {
-                Rectangle()
-                    .fill(EditorialTheme.hair)
-                    .frame(height: 0.5)
-                    .offset(y: h - 0.5)
-
                 if times.count >= 2 {
                     Path { path in
                         for (i, t) in times.enumerated() {
