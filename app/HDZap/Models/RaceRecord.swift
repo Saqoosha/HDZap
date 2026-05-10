@@ -27,6 +27,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
     /// an unintended colour.
     let accentHue: Double
     let laps: [LapEntry]
+    /// CRSF flight-pack battery telemetry captured during the race (may be empty).
+    let flightBatterySamples: [RaceFlightBatterySample]
 
     /// Memberwise init is `private` so every code path has to go through
     /// the validating factory or `init(from:)`. Anything else would let a
@@ -37,7 +39,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                  sessionLimit: TimeInterval,
                  targetLapCount: Int,
                  accentHue: Double,
-                 laps: [LapEntry]) {
+                 laps: [LapEntry],
+                 flightBatterySamples: [RaceFlightBatterySample]) {
         self.id = id
         self.startedAt = startedAt
         self.endedAt = endedAt
@@ -45,6 +48,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
         self.targetLapCount = targetLapCount
         self.accentHue = accentHue
         self.laps = laps
+        self.flightBatterySamples = flightBatterySamples
     }
 
     init(from decoder: Decoder) throws {
@@ -56,12 +60,15 @@ struct RaceRecord: Identifiable, Codable, Equatable {
         let targetLapCount = try c.decode(Int.self, forKey: .targetLapCount)
         let accentHue = try c.decode(Double.self, forKey: .accentHue)
         let laps = try c.decode([LapEntry].self, forKey: .laps)
+        let flightBatterySamples = try c.decodeIfPresent([RaceFlightBatterySample].self,
+                                                          forKey: .flightBatterySamples) ?? []
         try Self.validate(startedAt: startedAt,
                           endedAt: endedAt,
                           sessionLimit: sessionLimit,
                           targetLapCount: targetLapCount,
                           accentHue: accentHue,
                           laps: laps,
+                          flightBatterySamples: flightBatterySamples,
                           coding: c)
         self.init(id: id,
                   startedAt: startedAt,
@@ -69,7 +76,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                   sessionLimit: sessionLimit,
                   targetLapCount: targetLapCount,
                   accentHue: Self.normalizedHue(accentHue),
-                  laps: laps)
+                  laps: laps,
+                  flightBatterySamples: flightBatterySamples)
     }
 
     var lapCount: Int { laps.count }
@@ -110,7 +118,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                          endedAt: Date = Date(),
                          sessionLimit: TimeInterval,
                          targetLapCount: Int,
-                         accentHue: Double) -> RaceRecord? {
+                         accentHue: Double,
+                         flightBatterySamples: [RaceFlightBatterySample] = []) -> RaceRecord? {
         let entries = laps.map { LapEntry(id: $0.id, time: $0.time) }
         guard (try? validate(startedAt: startedAt,
                              endedAt: endedAt,
@@ -118,6 +127,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                              targetLapCount: targetLapCount,
                              accentHue: accentHue,
                              laps: entries,
+                             flightBatterySamples: flightBatterySamples,
                              coding: nil)) != nil else {
             return nil
         }
@@ -128,7 +138,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
             sessionLimit: sessionLimit,
             targetLapCount: targetLapCount,
             accentHue: normalizedHue(accentHue),
-            laps: entries
+            laps: entries,
+            flightBatterySamples: flightBatterySamples
         )
     }
 
@@ -144,6 +155,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                                  targetLapCount: Int,
                                  accentHue: Double,
                                  laps: [LapEntry],
+                                 flightBatterySamples: [RaceFlightBatterySample],
                                  coding: KeyedDecodingContainer<CodingKeys>?) throws {
         if endedAt < startedAt {
             try fail("endedAt < startedAt", key: .endedAt, coding: coding)
@@ -170,6 +182,23 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                 try fail("duplicate lap id", key: .laps, coding: coding)
             }
         }
+        var prevTRace: TimeInterval?
+        for s in flightBatterySamples {
+            if !s.tRace.isFinite {
+                try fail("flight battery tRace not finite", key: .flightBatterySamples, coding: coding)
+            }
+            if s.tRace < -0.25 {
+                try fail("flight battery tRace out of range", key: .flightBatterySamples, coding: coding)
+            }
+            let remBounds = (-2)...102
+            if !remBounds.contains(s.remainingPercent) {
+                try fail("flight battery remaining pct out of range", key: .flightBatterySamples, coding: coding)
+            }
+            if let prev = prevTRace, s.tRace + 1e-9 < prev {
+                try fail("flight battery samples not chronological", key: .flightBatterySamples, coding: coding)
+            }
+            prevTRace = s.tRace
+        }
     }
 
     private static func fail(_ reason: String,
@@ -194,6 +223,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id, startedAt, endedAt, sessionLimit, targetLapCount, accentHue, laps
+        case flightBatterySamples
     }
 }
 

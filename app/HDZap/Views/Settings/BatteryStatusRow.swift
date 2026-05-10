@@ -65,3 +65,47 @@ struct BatteryStatusRow: View {
         }
     }
 }
+
+/// Live CRSF Battery (0x08) telemetry from the flight pack, mirrored by
+/// firmware from Backpack ESP-NOW. This is separate from the M5StickS3's
+/// own PMIC battery shown in `BatteryStatusRow`.
+struct FlightBatteryStatusRow: View {
+    @Environment(BluetoothManager.self) private var bluetooth
+
+    var body: some View {
+        HStack {
+            flightBatteryDot
+            VStack(alignment: .leading) {
+                Text("Flight pack").font(.body)
+                Text(flightBatteryCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private var flightBatteryDot: some View {
+        if bluetooth.flightBatteryVoltageDv == nil {
+            Circle().stroke(.secondary, lineWidth: 1).frame(width: 10, height: 10)
+        } else {
+            Circle().fill(.green).frame(width: 10, height: 10)
+        }
+    }
+
+    private var flightBatteryCaption: String {
+        guard let voltageDv = bluetooth.flightBatteryVoltageDv,
+              let currentDa = bluetooth.flightBatteryCurrentDa,
+              let consumedMah = bluetooth.flightBatteryConsumedMah else {
+            return String(localized: "No telemetry yet")
+        }
+
+        let voltage = Double(voltageDv) / 10.0
+        let current = Double(currentDa) / 10.0
+        let remaining = bluetooth.flightBatteryRemainingPercent
+        let remainingText = remaining.map { $0 >= 0 ? "\($0)%" : "—%" } ?? "—%"
+        return String(format: "%.1f V · %.1f A · %d mAh · %@", voltage, current, consumedMah, remainingText)
+    }
+}

@@ -27,7 +27,7 @@ DEVICE_NAME = "HDZeroOSD"
 # CoreBluetooth's per-peripheral cache (without bonding, added/removed
 # characteristics are otherwise invisible until reboot). Match firmware
 # ble_service.h.
-SERVICE_UUID    = "f47ac10b-58cc-4372-a567-0e02b2c3d489"
+SERVICE_UUID    = "f47ac10b-58cc-4372-a567-0e02b2c3d48b"
 UID_CONFIG_UUID = "f47ac10b-58cc-4372-a567-0e02b2c3d481"
 BIND_CMD_UUID   = "f47ac10b-58cc-4372-a567-0e02b2c3d482"
 # Lap Time characteristic (...d483) was retired when iOS took ownership

@@ -7,17 +7,46 @@ import os
 /// returns the user to the list with the row already gone.
 struct RaceDetailView: View {
     let recordID: UUID
+    /// When set, the view renders this record directly instead of
+    /// looking it up in history. Used by the Settings → Debug → Voltage
+    /// chart preview path so the editorial layout can be eyeballed
+    /// without polluting the saved-race history. Toolbar share / delete
+    /// are hidden in this mode (no real persisted record to act on).
+    private let previewRecord: RaceRecord?
     @Environment(RaceHistoryStore.self) private var history
     @Environment(\.dismiss) private var dismiss
 
     @State private var shareItem: ShareItem?
     @State private var lastShareURL: URL?
+    @State private var batteryShareItem: ShareItem?
+    @State private var lastBatteryShareURL: URL?
     @State private var shareError: String?
     @State private var pendingDelete = false
 
-    private var record: RaceRecord? {
-        history.records.first(where: { $0.id == recordID })
+    init(recordID: UUID) {
+        self.recordID = recordID
+        self.previewRecord = nil
     }
+
+    /// Preview-only constructor for the Settings → Debug entry. The
+    /// `recordID` parameter is set to `previewRecord.id` so toolbar
+    /// actions that key off the lookup still target the right object
+    /// shape (they're hidden in preview mode anyway).
+    init(previewRecord: RaceRecord) {
+        self.recordID = previewRecord.id
+        self.previewRecord = previewRecord
+    }
+
+    private var record: RaceRecord? {
+        if let previewRecord { return previewRecord }
+        return history.records.first(where: { $0.id == recordID })
+    }
+
+    /// True when the view was constructed via the preview init — used
+    /// to gate the toolbar (no share/delete on a synthetic record) and
+    /// the auto-dismiss when the record disappears (the synthetic one
+    /// never appears in history, so the dismiss check would always fire).
+    private var isPreview: Bool { previewRecord != nil }
 
     var body: some View {
         Group {
@@ -36,7 +65,13 @@ struct RaceDetailView: View {
         .navigationTitle(navigationTitle)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if record != nil {
+                if let record, !isPreview {
+                    if !record.flightBatterySamples.isEmpty {
+                        Button(action: { shareBatteryCsvAction(record) }) {
+                            Image(systemName: "battery.100percent")
+                        }
+                        .accessibilityLabel("Share flight battery CSV")
+                    }
                     Button(action: shareAction) {
                         Image(systemName: "square.and.arrow.up")
                     }
@@ -50,16 +85,24 @@ struct RaceDetailView: View {
         }
         // Auto-dismiss when the record disappears (swipe-delete from the
         // list while detail is on screen). Driven by `.onChange` instead
-        // of an EmptyView lifecycle hook so it actually fires.
+        // of an EmptyView lifecycle hook so it actually fires. Preview
+        // mode skips this — the synthetic record never lives in history
+        // so the check would always be true.
         .onChange(of: record == nil) { _, isGone in
-            if isGone { dismiss() }
+            if isGone && !isPreview { dismiss() }
         }
         // Defensive cleanup — if the user navigates back while the
         // share sheet is still open, SwiftUI may not deliver the
         // sheet's `onDismiss`, leaving the temp PNG stranded. The
         // helper is idempotent (no-op once `lastShareURL` is nil).
-        .onDisappear { cleanupShareTempFile() }
+        .onDisappear {
+            cleanupShareTempFile()
+            cleanupBatteryCsvTempFile()
+        }
         .sheet(item: $shareItem, onDismiss: cleanupShareTempFile) { item in
+            ShareSheet(url: item.url)
+        }
+        .sheet(item: $batteryShareItem, onDismiss: cleanupBatteryCsvTempFile) { item in
             ShareSheet(url: item.url)
         }
         .alert(
@@ -94,6 +137,10 @@ struct RaceDetailView: View {
     private func content(for record: RaceRecord) -> some View {
         let inputs = renderInputs(for: record)
         ScrollView {
+            // RaceShareCard now owns the whole layout (header → laps →
+            // optional VBAT section → footer). The PNG export uses the
+            // same view, so the share image picks up the chart
+            // automatically when battery samples exist.
             RaceShareCard(
                 laps: inputs.laps,
                 bestLapIndex: record.bestLapIndex,
@@ -101,7 +148,8 @@ struct RaceDetailView: View {
                 accentHue: record.accentHue,
                 targetLapCount: record.targetLapCount,
                 sessionLimit: record.sessionLimit,
-                generatedAt: record.endedAt
+                generatedAt: record.endedAt,
+                flightBatterySamples: record.flightBatterySamples
             )
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
@@ -137,7 +185,8 @@ struct RaceDetailView: View {
                 accentHue: record.accentHue,
                 targetLapCount: record.targetLapCount,
                 sessionLimit: record.sessionLimit,
-                generatedAt: record.endedAt
+                generatedAt: record.endedAt,
+                flightBatterySamples: record.flightBatterySamples
             )
             lastShareURL = url
             shareItem = ShareItem(url: url)
@@ -153,5 +202,277 @@ struct RaceDetailView: View {
         }
     }
 
+    private func cleanupBatteryCsvTempFile() {
+        if let url = lastBatteryShareURL {
+            ShareImageError.cleanupTempFile(at: url, log: Self.log)
+            lastBatteryShareURL = nil
+        }
+    }
+
+    /// Writes `record.flightBatteryCSVText()` to a temp `.csv` and opens the share sheet.
+    private func shareBatteryCsvAction(_ record: RaceRecord) {
+        cleanupBatteryCsvTempFile()
+        let csv = record.flightBatteryCSVText()
+        guard !csv.isEmpty else { return }
+        let base = RaceFormat.detailTitle.string(from: record.startedAt)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let name = "HDZap-battery-\(base).csv"
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let url = dir.appendingPathComponent(name)
+        guard let data = csv.data(using: .utf8) else {
+            shareError = "Couldn't encode battery CSV as UTF-8."
+            return
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+            lastBatteryShareURL = url
+            batteryShareItem = ShareItem(url: url)
+        } catch {
+            shareError = "Couldn't write battery CSV (\(error.localizedDescription))."
+        }
+    }
+
     private static let log = Logger(subsystem: "sh.saqoo.HDZap", category: "RaceDetailView")
+}
+
+// MARK: - RaceFlightBatterySection
+
+/// Editorial flight-pack telemetry block (`VBAT` header + caption row +
+/// trend chart). Shared by `RaceShareCard` (so the PNG export includes
+/// it) and the on-screen `RaceDetailView`. Renders nothing when
+/// `samples` is empty — caller is responsible for the surrounding
+/// padding only when the section is actually shown.
+struct RaceFlightBatterySection: View {
+    let samples: [RaceFlightBatterySample]
+    let lapEndTimes: [TimeInterval]
+    let sessionLimit: TimeInterval
+    let accentHue: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("VBAT").monoCap(size: 9.5, tracking: 2.0)
+                Rectangle()
+                    .fill(EditorialTheme.hair)
+                    .frame(height: 0.5)
+                Text("\(samples.count) samples")
+                    .monoCap(size: 8.5, tracking: 1.5, color: EditorialTheme.dim)
+            }
+
+            captionRow
+
+            VoltageTrendChart(
+                samples: samples,
+                sessionLimit: sessionLimit,
+                lapEndTimes: lapEndTimes
+            )
+            .frame(height: 120)
+            .environment(\.accentHue, accentHue)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var captionRow: some View {
+        let first = samples.first
+        let last = samples.last
+        let vStart = first?.voltageVolts ?? 0
+        let vEnd = last?.voltageVolts ?? 0
+        let vMin = samples.map(\.voltageVolts).min() ?? vEnd
+        return HStack(alignment: .firstTextBaseline, spacing: 22) {
+            captionItem(label: "Start", value: String(format: "%.2f V", vStart))
+            captionItem(label: "Min", value: String(format: "%.2f V", vMin), accent: true)
+            captionItem(label: "End", value: String(format: "%.2f V", vEnd))
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func captionItem(label: String, value: String, accent: Bool = false) -> some View {
+        // Accent only on the MIN entry — same role as the LapTrendChart's
+        // best-lap accent dot. Reads as "this is the value you watch".
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).monoCap(size: 8, tracking: 1.5)
+            Text(value)
+                .font(.editorialMono(13, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(accent
+                                 ? AnyShapeStyle(EditorialTheme.accent(hue: accentHue))
+                                 : AnyShapeStyle(EditorialTheme.ink))
+        }
+    }
+}
+
+// MARK: - VoltageTrendChart
+
+/// Editorial flight-pack voltage trace — race time on X (0 → sessionLimit
+/// with 10-s tick marks matching the live sessionBar), voltage on Y with
+/// auto-padded range. Hand-drawn `Path` so the visual language matches
+/// `LapTrendChartVertical`. Dots at every sample, accent + larger dot at
+/// the min-voltage point (analogous to the best-lap marker in the lap
+/// chart). Extracts a min-voltage label inline at the chart edge so the
+/// reader can locate the dip without cross-referencing the caption row.
+struct VoltageTrendChart: View {
+    let samples: [RaceFlightBatterySample]
+    let sessionLimit: TimeInterval
+    /// Cumulative race time at which each lap ended. Drawn as vertical
+    /// hairlines through the full plot height so the operator can read
+    /// "voltage at lap 3 boundary". Empty array hides the markers
+    /// entirely. Out-of-axis values (last lap straddling the buzzer)
+    /// are clipped by the chart's plot rect.
+    let lapEndTimes: [TimeInterval]
+    @Environment(\.accentHue) private var accentHue: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let chart = chartGeometry(in: geo.size)
+            ZStack(alignment: .topLeading) {
+                // Lap end markers — full-height vertical hairlines so
+                // the voltage at each lap boundary can be read off the
+                // trace. `hairStrong` (18 % ink) so they're more
+                // structural than the per-10-s tick marks below but
+                // still recede behind the data trace itself.
+                ForEach(Array(lapEndTimes.enumerated()), id: \.offset) { _, t in
+                    if t > 0 && t <= chart.xMax {
+                        Rectangle()
+                            .fill(EditorialTheme.hairStrong)
+                            .frame(width: 0.5, height: chart.plotBottom)
+                            .offset(x: chart.x(forTRace: t), y: 0)
+                    }
+                }
+
+                // X axis hairline at the bottom — same hair-strong weight
+                // as the sessionBar progress bar's outer rule.
+                Rectangle()
+                    .fill(EditorialTheme.hairStrong)
+                    .frame(height: 0.5)
+                    .offset(y: chart.plotBottom)
+
+                // 10-s tick marks. Skip 0 and the right edge since the X
+                // labels at the bottom anchor those edges visually. The
+                // upper bound is `xMax` (not sessionLimit) so post-buzzer
+                // FINAL-lap samples still sit under labelled tick marks.
+                ForEach(Array(stride(from: 10, to: Int(chart.xMax), by: 10)), id: \.self) { sec in
+                    Rectangle()
+                        .fill(EditorialTheme.hair)
+                        .frame(width: 0.5, height: 5)
+                        .offset(x: chart.x(forTRace: TimeInterval(sec)),
+                                y: chart.plotBottom - 5)
+                }
+
+                if samples.count >= 2 {
+                    Path { path in
+                        for (i, s) in samples.enumerated() {
+                            let p = CGPoint(x: chart.x(forTRace: s.tRace),
+                                            y: chart.y(forVolts: s.voltageVolts))
+                            if i == 0 {
+                                path.move(to: p)
+                            } else {
+                                path.addLine(to: p)
+                            }
+                        }
+                    }
+                    .stroke(EditorialTheme.ink.opacity(0.7),
+                            style: StrokeStyle(lineWidth: 1, lineJoin: .round))
+                }
+
+                // Key by enumeration offset rather than `receivedAt` —
+                // sub-millisecond Date collisions are practically
+                // impossible at CRSF Battery's typical ~0.25–1 Hz
+                // cadence, but the synthetic-record preview produces
+                // exactly-colliding timestamps via integer-second
+                // `addingTimeInterval`, and SwiftUI silently drops the
+                // duplicate dot when ids collide.
+                ForEach(Array(samples.enumerated()), id: \.offset) { _, s in
+                    let isMin = s.voltageVolts == chart.vMin
+                    let p = CGPoint(x: chart.x(forTRace: s.tRace),
+                                    y: chart.y(forVolts: s.voltageVolts))
+                    Circle()
+                        .fill(isMin ? EditorialTheme.accent(hue: accentHue)
+                                    : EditorialTheme.ink)
+                        .frame(width: isMin ? 7 : 3.5,
+                               height: isMin ? 7 : 3.5)
+                        .overlay(
+                            Circle().stroke(EditorialTheme.paper,
+                                            lineWidth: isMin ? 1.5 : 0.75)
+                        )
+                        .position(x: p.x, y: p.y)
+                }
+
+                // X-axis time labels — 0 / mid / end. The right edge is
+                // `xMax`, which equals `sessionLimit` for the common
+                // case but extends further when a FINAL-lap straddles
+                // the buzzer (last sample at e.g. 92 s on a 90 s race).
+                HStack {
+                    Text("0").monoCap(size: 8, tracking: 1.5)
+                    Spacer()
+                    Text("\(Int(chart.xMax / 2))s").monoCap(size: 8, tracking: 1.5)
+                    Spacer()
+                    Text("\(Int(chart.xMax.rounded()))s").monoCap(size: 8, tracking: 1.5)
+                }
+                .frame(width: geo.size.width)
+                .offset(y: chart.plotBottom + 4)
+            }
+        }
+    }
+
+    /// Cached layout + Y-range maths so the body doesn't recompute three
+    /// times across path / dots / labels.
+    private func chartGeometry(in size: CGSize) -> ChartGeometry {
+        let voltages = samples.map(\.voltageVolts)
+        let rawMin = voltages.min() ?? 0
+        let rawMax = voltages.max() ?? rawMin + 0.5
+        // Pad the Y range so the trace doesn't kiss the chart edges
+        // (otherwise the min dot's accent halo gets clipped). Min span
+        // of 0.5 V keeps a near-flat trace from drawing as a single
+        // pixel-thick line.
+        let span = max(0.5, rawMax - rawMin)
+        let pad = span * 0.10
+        let yMax = rawMax + pad
+        let yMin = rawMin - pad
+        // Reserve 18 pt at the bottom for the X labels.
+        let plotBottom = size.height - 18
+        // Stretch the X axis to the actual data extent when a FINAL-lap
+        // straddles the buzzer — without this, samples at tRace > sessionLimit
+        // would clamp to the right edge and overlap each other (and the
+        // line connecting them collapses to a point). Common case is
+        // xMax == sessionLimit, where the geometry is unchanged.
+        let lastTRace = samples.last?.tRace ?? 0
+        let xMax = max(sessionLimit, lastTRace)
+        return ChartGeometry(
+            size: size,
+            plotBottom: plotBottom,
+            xMax: xMax,
+            yMin: yMin,
+            yMax: yMax,
+            vMin: rawMin
+        )
+    }
+
+    private struct ChartGeometry {
+        let size: CGSize
+        let plotBottom: CGFloat
+        /// Right edge of the X axis in race-relative seconds. Equals
+        /// `sessionLimit` unless the trace contains a sample past the
+        /// buzzer, in which case it equals the last sample's tRace.
+        let xMax: TimeInterval
+        let yMin: Double
+        let yMax: Double
+        /// Raw (un-padded) min voltage, for matching dots against the
+        /// "accent" rule in body. Equality vs the padded yMin would be
+        /// off-by-pad and miss the actual min sample.
+        let vMin: Double
+
+        func x(forTRace tRace: TimeInterval) -> CGFloat {
+            let span = max(0.001, xMax)
+            let frac = max(0, min(1, tRace / span))
+            return CGFloat(frac) * size.width
+        }
+
+        func y(forVolts v: Double) -> CGFloat {
+            let span = max(0.001, yMax - yMin)
+            let frac = max(0, min(1, (yMax - v) / span))
+            return CGFloat(frac) * plotBottom
+        }
+    }
 }
