@@ -20,6 +20,8 @@ struct HistoryView: View {
             .background(EditorialTheme.paper.ignoresSafeArea())
             .navigationTitle("History")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(EditorialTheme.paper, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
