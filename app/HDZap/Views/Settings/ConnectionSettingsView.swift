@@ -72,6 +72,8 @@ struct ConnectionSettingsView: View {
 
                 BatteryStatusRow()
 
+                FlightBatteryStatusRow()
+
                 versionRow
             }
         }

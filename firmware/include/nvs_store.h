@@ -8,6 +8,7 @@
 // Namespace "hdzero", keys:
 //   - "init"   : sentinel, removed before uid writes and rewritten after.
 //   - "uid"    : 6 bytes.
+//   - "teleuid": 6-byte ESP-NOW sender MAC accepted for flight-pack telemetry.
 //   - "slpmin" : single byte, deep-sleep timeout in minutes (0 = disabled).
 //                No sentinel pattern: a single putUChar is one NVS entry,
 //                so it can't be torn at the entry level. The failure mode
@@ -50,6 +51,53 @@ inline bool saveUid(const uint8_t uid[6]) {
     if (uidWritten != 6 || sentinelWritten != 1) {
         Serial.printf("nvs_store: partial save (uid=%u, sentinel=%u)\n",
                       (unsigned)uidWritten, (unsigned)sentinelWritten);
+        return false;
+    }
+    return true;
+}
+
+inline bool saveTelemetrySourceUid(const uint8_t uid[6]) {
+    // Unicast MAC invariant: ESP-NOW sender MACs we accept telemetry
+    // from must have bit 0 of the first byte clear, same rule as the
+    // OSD UID. Reject before persisting so a corrupt RAM value can't
+    // outlive the reboot.
+    if (!uid || (uid[0] & 0x01)) {
+        Serial.println("nvs_store: saveTelemetrySourceUid: rejected non-unicast MAC");
+        return false;
+    }
+    Preferences prefs;
+    if (!prefs.begin("hdzero", false)) return false;
+    size_t written = prefs.putBytes("teleuid", uid, 6);
+    prefs.end();
+    if (written != 6) {
+        Serial.printf("nvs_store: saveTelemetrySourceUid wrote %u bytes (expected 6)\n",
+                      (unsigned)written);
+        return false;
+    }
+    return true;
+}
+
+inline bool loadTelemetrySourceUid(uint8_t uid[6]) {
+    Preferences prefs;
+    if (!prefs.begin("hdzero", true)) return false;
+    bool hasUid = prefs.isKey("teleuid");
+    if (!hasUid) {
+        prefs.end();
+        return false;
+    }
+    size_t read = prefs.getBytes("teleuid", uid, 6);
+    prefs.end();
+    if (read != 6) {
+        Serial.printf("nvs_store: telemetry source read returned %u bytes (expected 6)\n",
+                      (unsigned)read);
+        return false;
+    }
+    // Same unicast-MAC invariant as the save path. Catches a corrupt
+    // NVS entry or a downgrade from a build that didn't enforce the
+    // check on save — better to fall back to "no telemetry source"
+    // than to filter against a bogus broadcast/multicast address.
+    if (uid[0] & 0x01) {
+        Serial.println("nvs_store: telemetry source UID is non-unicast — rejecting");
         return false;
     }
     return true;

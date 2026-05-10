@@ -76,12 +76,15 @@ Operator taps "Start TX UID Capture" in SettingsView
   → CoreBluetooth writes [0x01] to TX Sniff characteristic
   → [BLE air gap]
   → TXSniffCallback.onWrite() sets g_sniff_start_requested = true
-  → Main loop: sniff_start() → esp_now_register_recv_cb(_espnow_recv_cb)
+  → Main loop: sniff_start() → g_sniff_active = true
+    (the unified hdzap_espnow_recv_cb stays registered the whole time;
+     sniff_start/stop only toggle the gate flag, see espnow_recv.h)
 
 Pilot presses Bind on TX Backpack
   → TX Backpack broadcasts ESP-NOW MSP_ELRS_BIND packet (dst: FF:FF:FF:FF:FF:FF)
     (src MAC = TX UID; payload = MSPv2 with function 0x0009)
-  → _espnow_recv_cb fires (WiFi task context):
+  → hdzap_espnow_recv_cb fires (WiFi task context) and calls
+    hdzap_try_capture_bind_uid (gated on g_sniff_active):
       filter: data[0]='$', data[1]='X', data[2]='<', data[4..5]=0x0009
       portENTER_CRITICAL → memcpy src_mac → g_sniff_uid, bit0 cleared, g_sniff_captured=true
   → Main loop detects g_sniff_captured:
@@ -99,10 +102,12 @@ Operator taps "Apply"
 ```
 
 **Key invariants**: TX binding state is unaffected (TX only broadcasts; nothing is written
-to it). The recv callback occupies the single global ESP-NOW recv slot — no other code in
-this project uses `esp_now_register_recv_cb`. `isTXSniffActive` on iOS is local state
-(no firmware echo); it survives BLE auto-reconnects intentionally because the firmware
-recv callback also survives them.
+to it). `espnow_recv.h` owns the single global ESP-NOW recv-callback slot via
+`espnow_recv_attach_cb()` (called from `setup()` and after every ESP-NOW reinit) and fans
+out to bind capture, flight-battery decode, and telemetry-debug capture — no other module
+calls `esp_now_register_recv_cb`. `isTXSniffActive` on iOS is local state (no firmware
+echo); it survives BLE auto-reconnects intentionally because the firmware recv callback
+also survives them.
 
 ### UID Configuration
 
@@ -140,9 +145,15 @@ Mode 3 — New Pairing:
 ```
 main.cpp ──→ nvs_store.h (load/save UID) ──→ Preferences
   ├── ble_service.h (stages data + flags only; main.cpp applies)
-  │     ├── tx_sniff.h (recv_cb registration + sniff state)
+  │     ├── tx_sniff.h (g_sniff_active gate flag, no recv_cb of its own)
   │     │     └→ msp.h (MSP_ELRS_BIND filter constant)
+  │     ├── telemetry_sniff.h (g_telemetry_sniff_active gate + ring)
+  │     ├── flight_battery_telemetry.h (staged sample for main loop)
+  │     │     └→ crsf_battery_telemetry.h (CRSF Battery sensor parser)
   │     └── espnow_link.h (uid_from_bind_phrase helper)
+  ├── espnow_recv.h (owns the unified ESP-NOW recv callback +
+  │                  promiscuous-mode RX hook; fans out to
+  │                  tx_sniff / telemetry_sniff / flight_battery)
   ├── bind.h ──→ msp.h (MSP_ELRS_BIND)
   │             └→ espnow_link.h (broadcast helper)
   ├── osd_text_display.h ──→ osd.h ──→ msp.h (MSP_SET_OSD_ELEM)
@@ -171,13 +182,22 @@ OSDControlCallback.onWrite() →   g_osd_clear_requested / reset_laps → main l
                                  → cancelRender + osd.clear/reset
 
 TXSniffCallback.onWrite()    →   g_sniff_start_requested / g_sniff_stop_requested
-                                 → main loop: sniff_start/stop (register/unregister recv_cb)
+                                 → main loop: sniff_start/stop (toggle g_sniff_active gate)
+
+TelemetryDebugCallback.onWrite() → g_telemetry_start_requested / g_telemetry_stop_requested
+                                 → main loop: telemetry_sniff_start/stop
+                                   (toggle g_telemetry_sniff_active gate + reset ring)
 
 WiFi task (ESP-NOW send cb)  →   g_espnow_sent_ok / g_espnow_sent_fail
                                  → main loop verify step reads delta
 
-WiFi task (ESP-NOW recv cb)  →   g_sniff_uid[6] + g_sniff_captured (guarded by g_sniff_mux)
-                                 → main loop: ble_notify_tx_uid → iOS
+WiFi task (ESP-NOW recv cb)  →   hdzap_espnow_recv_cb (espnow_recv.h) fans out to:
+                                 - hdzap_try_capture_bind_uid → g_sniff_uid[6] + g_sniff_captured
+                                   (guarded by g_sniff_mux) → main loop: ble_notify_tx_uid
+                                 - flight_battery_on_espnow_payload (when sender matches)
+                                   → g_flight_battery_staged_sample → main loop: BLE notify
+                                 - telemetry_sniff::capture_if_active → 20-byte ring record
+                                   → main loop: ble_notify_telemetry_packet (drain one/loop)
 ```
 
 All multi-field producers (UID staging, lap pair, OSD text rows) are guarded by `portENTER_CRITICAL(&g_ble_mux)`
