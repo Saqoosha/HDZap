@@ -1275,7 +1275,11 @@ struct TimerView: View {
             accentHue: accentHue,
             targetLapCount: clampedTargetLapCount,
             sessionLimit: sessionLimit,
-            generatedAt: Date()
+            generatedAt: Date(),
+            flightBatterySamples: raceFlightBatterySamples.sorted {
+                if $0.tRace != $1.tRace { return $0.tRace < $1.tRace }
+                return $0.receivedAt < $1.receivedAt
+            }
         )
     }
 }

@@ -25,12 +25,13 @@ struct RaceShareCard: View {
     let targetLapCount: Int
     let sessionLimit: TimeInterval
     let generatedAt: Date
-    /// When false, the timestamp + "hdzap" wordmark footer is omitted.
-    /// `RaceDetailView` sets this so the on-screen layout can host its
-    /// flight-battery section between the lap table and the footer
-    /// (the footer is then rendered separately at the bottom). PNG
-    /// export and the live post-race view leave it on.
-    var includesFooter: Bool = true
+    /// CRSF flight-pack battery samples captured during the race. Empty
+    /// for races recorded before the telemetry pipeline existed (or any
+    /// race where the bound TX wasn't sending battery telemetry); the
+    /// VBAT section is hidden in that case. Both the on-screen detail
+    /// view and the PNG export use the same view, so the share image
+    /// includes the chart whenever the saved record has samples.
+    var flightBatterySamples: [RaceFlightBatterySample] = []
 
     static let width: CGFloat = 393
 
@@ -52,6 +53,17 @@ struct RaceShareCard: View {
 
     private var totalTime: TimeInterval {
         laps.reduce(0) { $0 + $1.time }
+    }
+
+    /// Cumulative race-time at which each lap ended. Drives the lap-end
+    /// hairlines on the voltage chart. Computed inline so the caller
+    /// doesn't have to thread it through.
+    private var lapEndTimes: [TimeInterval] {
+        var running: TimeInterval = 0
+        return laps.map { lap in
+            running += lap.time
+            return running
+        }
     }
 
     private var clampedTargetLapCount: Int {
@@ -89,12 +101,21 @@ struct RaceShareCard: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 4)
 
-            if includesFooter {
-                RaceShareCardFooter(generatedAt: generatedAt)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 18)
-                    .padding(.bottom, 24)
+            if !flightBatterySamples.isEmpty {
+                RaceFlightBatterySection(
+                    samples: flightBatterySamples,
+                    lapEndTimes: lapEndTimes,
+                    sessionLimit: sessionLimit,
+                    accentHue: accentHue
+                )
+                .padding(.horizontal, 24)
+                .padding(.top, 22)
             }
+
+            RaceShareCardFooter(generatedAt: generatedAt)
+                .padding(.horizontal, 24)
+                .padding(.top, flightBatterySamples.isEmpty ? 18 : 22)
+                .padding(.bottom, 24)
         }
         .frame(width: Self.width)
         .background(EditorialTheme.paper)
@@ -184,7 +205,8 @@ struct RaceShareCard: View {
                             accentHue: Double,
                             targetLapCount: Int,
                             sessionLimit: TimeInterval,
-                            generatedAt: Date) throws -> URL {
+                            generatedAt: Date,
+                            flightBatterySamples: [RaceFlightBatterySample] = []) throws -> URL {
         let card = RaceShareCard(
             laps: laps,
             bestLapIndex: bestLapIndex,
@@ -192,7 +214,8 @@ struct RaceShareCard: View {
             accentHue: accentHue,
             targetLapCount: targetLapCount,
             sessionLimit: sessionLimit,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            flightBatterySamples: flightBatterySamples
         )
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3

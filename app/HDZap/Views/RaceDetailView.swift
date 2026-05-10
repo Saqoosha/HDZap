@@ -136,14 +136,11 @@ struct RaceDetailView: View {
     @ViewBuilder
     private func content(for record: RaceRecord) -> some View {
         let inputs = renderInputs(for: record)
-        let hasBattery = !record.flightBatterySamples.isEmpty
         ScrollView {
-            // Suppress the card's own footer when there's a battery
-            // section to insert between the lap table and the wordmark
-            // — the footer is then re-rendered below the chart so it
-            // anchors the bottom of the screen, not the middle. With
-            // no battery samples, the card's built-in footer stays on
-            // and the layout is identical to before this change.
+            // RaceShareCard now owns the whole layout (header → laps →
+            // optional VBAT section → footer). The PNG export uses the
+            // same view, so the share image picks up the chart
+            // automatically when battery samples exist.
             RaceShareCard(
                 laps: inputs.laps,
                 bestLapIndex: record.bestLapIndex,
@@ -152,32 +149,10 @@ struct RaceDetailView: View {
                 targetLapCount: record.targetLapCount,
                 sessionLimit: record.sessionLimit,
                 generatedAt: record.endedAt,
-                includesFooter: !hasBattery
+                flightBatterySamples: record.flightBatterySamples
             )
             .frame(maxWidth: .infinity)
-            .padding(.top, 12)
-            .padding(.bottom, hasBattery ? 0 : 12)
-
-            if hasBattery {
-                // Constrain the chart + footer to the same fixed
-                // 393-pt card width as RaceShareCard so the chart's
-                // edges line up with the lap table above on screens
-                // wider than the card (e.g. iPhone Air at ~430 pt).
-                // The 24-pt horizontal padding then matches the
-                // card's internal column gutter, not the screen edge.
-                flightBatterySection(record)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 22)
-                    .frame(width: RaceShareCard.width)
-                    .frame(maxWidth: .infinity)
-
-                RaceShareCardFooter(generatedAt: record.endedAt)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 22)
-                    .padding(.bottom, 24)
-                    .frame(width: RaceShareCard.width)
-                    .frame(maxWidth: .infinity)
-            }
+            .padding(.vertical, 12)
         }
         .scrollIndicators(.hidden)
         .environment(\.accentHue, record.accentHue)
@@ -210,7 +185,8 @@ struct RaceDetailView: View {
                 accentHue: record.accentHue,
                 targetLapCount: record.targetLapCount,
                 sessionLimit: record.sessionLimit,
-                generatedAt: record.endedAt
+                generatedAt: record.endedAt,
+                flightBatterySamples: record.flightBatterySamples
             )
             lastShareURL = url
             shareItem = ShareItem(url: url)
@@ -231,85 +207,6 @@ struct RaceDetailView: View {
             ShareImageError.cleanupTempFile(at: url, log: Self.log)
             lastBatteryShareURL = nil
         }
-    }
-
-    @ViewBuilder
-    private func flightBatterySection(_ record: RaceRecord) -> some View {
-        let samples = record.flightBatterySamples
-        VStack(alignment: .leading, spacing: 10) {
-            // Section header — "VBAT" + sample count, mirrors the
-            // editorial caption pattern used in TimerView's masthead.
-            HStack(alignment: .firstTextBaseline) {
-                Text("VBAT").monoCap(size: 9.5, tracking: 2.0)
-                Rectangle()
-                    .fill(EditorialTheme.hair)
-                    .frame(height: 0.5)
-                Text("\(samples.count) samples")
-                    .monoCap(size: 8.5, tracking: 1.5, color: EditorialTheme.dim)
-            }
-
-            voltageCaptionRow(samples: samples)
-
-            VoltageTrendChart(
-                samples: samples,
-                sessionLimit: TimeInterval(record.sessionLimit),
-                lapEndTimes: cumulativeLapEndTimes(record.laps)
-            )
-            .frame(height: 120)
-            .environment(\.accentHue, record.accentHue)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func voltageCaptionRow(samples: [RaceFlightBatterySample]) -> some View {
-        let first = samples.first
-        let last = samples.last
-        let vStart = first?.voltageVolts ?? 0
-        let vEnd = last?.voltageVolts ?? 0
-        let vMin = samples.map(\.voltageVolts).min() ?? vEnd
-        HStack(alignment: .firstTextBaseline, spacing: 22) {
-            captionItem(label: "Start", value: String(format: "%.2f V", vStart))
-            captionItem(label: "Min", value: String(format: "%.2f V", vMin), accent: true)
-            captionItem(label: "End", value: String(format: "%.2f V", vEnd))
-            Spacer(minLength: 0)
-        }
-    }
-
-    @ViewBuilder
-    private func captionItem(label: String, value: String, accent: Bool = false) -> some View {
-        // Accent only on the MIN entry — same role as the LapTrendChart's
-        // best-lap accent dot. Reads as "this is the value you watch".
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).monoCap(size: 8, tracking: 1.5)
-            Text(value)
-                .font(.editorialMono(13, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(accent
-                                 ? AnyShapeStyle(EditorialTheme.accent(hue: previewAccentHue))
-                                 : AnyShapeStyle(EditorialTheme.ink))
-        }
-    }
-
-    /// Cumulative lap end times for the voltage chart's lap-marker
-    /// vertical lines. Each entry is the wall-clock-since-start at
-    /// which lap N ended (= sum of laps[0...N].time). The last entry
-    /// often equals or exceeds sessionLimit when a final lap straddles
-    /// the buzzer; the chart clips off-axis values.
-    private func cumulativeLapEndTimes(_ laps: [RaceRecord.LapEntry]) -> [TimeInterval] {
-        var running: TimeInterval = 0
-        return laps.map { lap in
-            running += lap.time
-            return running
-        }
-    }
-
-    /// The accent hue for caption coloring mirrors the record's own.
-    /// Looked up via the record because `@Environment(\.accentHue)` would
-    /// reach for the parent (Settings) accent when this view is rendered
-    /// from the demo preview entry.
-    private var previewAccentHue: Double {
-        record?.accentHue ?? EditorialTheme.defaultAccentHue
     }
 
     /// Writes `record.flightBatteryCSVText()` to a temp `.csv` and opens the share sheet.
@@ -337,6 +234,73 @@ struct RaceDetailView: View {
     }
 
     private static let log = Logger(subsystem: "sh.saqoo.HDZap", category: "RaceDetailView")
+}
+
+// MARK: - RaceFlightBatterySection
+
+/// Editorial flight-pack telemetry block (`VBAT` header + caption row +
+/// trend chart). Shared by `RaceShareCard` (so the PNG export includes
+/// it) and the on-screen `RaceDetailView`. Renders nothing when
+/// `samples` is empty — caller is responsible for the surrounding
+/// padding only when the section is actually shown.
+struct RaceFlightBatterySection: View {
+    let samples: [RaceFlightBatterySample]
+    let lapEndTimes: [TimeInterval]
+    let sessionLimit: TimeInterval
+    let accentHue: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("VBAT").monoCap(size: 9.5, tracking: 2.0)
+                Rectangle()
+                    .fill(EditorialTheme.hair)
+                    .frame(height: 0.5)
+                Text("\(samples.count) samples")
+                    .monoCap(size: 8.5, tracking: 1.5, color: EditorialTheme.dim)
+            }
+
+            captionRow
+
+            VoltageTrendChart(
+                samples: samples,
+                sessionLimit: sessionLimit,
+                lapEndTimes: lapEndTimes
+            )
+            .frame(height: 120)
+            .environment(\.accentHue, accentHue)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var captionRow: some View {
+        let first = samples.first
+        let last = samples.last
+        let vStart = first?.voltageVolts ?? 0
+        let vEnd = last?.voltageVolts ?? 0
+        let vMin = samples.map(\.voltageVolts).min() ?? vEnd
+        return HStack(alignment: .firstTextBaseline, spacing: 22) {
+            captionItem(label: "Start", value: String(format: "%.2f V", vStart))
+            captionItem(label: "Min", value: String(format: "%.2f V", vMin), accent: true)
+            captionItem(label: "End", value: String(format: "%.2f V", vEnd))
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func captionItem(label: String, value: String, accent: Bool = false) -> some View {
+        // Accent only on the MIN entry — same role as the LapTrendChart's
+        // best-lap accent dot. Reads as "this is the value you watch".
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).monoCap(size: 8, tracking: 1.5)
+            Text(value)
+                .font(.editorialMono(13, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(accent
+                                 ? AnyShapeStyle(EditorialTheme.accent(hue: accentHue))
+                                 : AnyShapeStyle(EditorialTheme.ink))
+        }
+    }
 }
 
 // MARK: - VoltageTrendChart
@@ -369,7 +333,7 @@ struct VoltageTrendChart: View {
                 // structural than the per-10-s tick marks below but
                 // still recede behind the data trace itself.
                 ForEach(Array(lapEndTimes.enumerated()), id: \.offset) { _, t in
-                    if t > 0 && t <= sessionLimit {
+                    if t > 0 && t <= chart.xMax {
                         Rectangle()
                             .fill(EditorialTheme.hairStrong)
                             .frame(width: 0.5, height: chart.plotBottom)
@@ -384,9 +348,11 @@ struct VoltageTrendChart: View {
                     .frame(height: 0.5)
                     .offset(y: chart.plotBottom)
 
-                // 10-s tick marks. Skip 0 and sessionLimit since the X
-                // labels at the bottom anchor those edges visually.
-                ForEach(Array(stride(from: 10, to: Int(sessionLimit), by: 10)), id: \.self) { sec in
+                // 10-s tick marks. Skip 0 and the right edge since the X
+                // labels at the bottom anchor those edges visually. The
+                // upper bound is `xMax` (not sessionLimit) so post-buzzer
+                // FINAL-lap samples still sit under labelled tick marks.
+                ForEach(Array(stride(from: 10, to: Int(chart.xMax), by: 10)), id: \.self) { sec in
                     Rectangle()
                         .fill(EditorialTheme.hair)
                         .frame(width: 0.5, height: 5)
@@ -433,14 +399,16 @@ struct VoltageTrendChart: View {
                         .position(x: p.x, y: p.y)
                 }
 
-                // X-axis time labels — 0 / mid / end. Match the
-                // sessionBar's "0 / N/2 / N" pattern.
+                // X-axis time labels — 0 / mid / end. The right edge is
+                // `xMax`, which equals `sessionLimit` for the common
+                // case but extends further when a FINAL-lap straddles
+                // the buzzer (last sample at e.g. 92 s on a 90 s race).
                 HStack {
                     Text("0").monoCap(size: 8, tracking: 1.5)
                     Spacer()
-                    Text("\(Int(sessionLimit / 2))s").monoCap(size: 8, tracking: 1.5)
+                    Text("\(Int(chart.xMax / 2))s").monoCap(size: 8, tracking: 1.5)
                     Spacer()
-                    Text("\(Int(sessionLimit))s").monoCap(size: 8, tracking: 1.5)
+                    Text("\(Int(chart.xMax.rounded()))s").monoCap(size: 8, tracking: 1.5)
                 }
                 .frame(width: geo.size.width)
                 .offset(y: chart.plotBottom + 4)
@@ -464,10 +432,17 @@ struct VoltageTrendChart: View {
         let yMin = rawMin - pad
         // Reserve 18 pt at the bottom for the X labels.
         let plotBottom = size.height - 18
+        // Stretch the X axis to the actual data extent when a FINAL-lap
+        // straddles the buzzer — without this, samples at tRace > sessionLimit
+        // would clamp to the right edge and overlap each other (and the
+        // line connecting them collapses to a point). Common case is
+        // xMax == sessionLimit, where the geometry is unchanged.
+        let lastTRace = samples.last?.tRace ?? 0
+        let xMax = max(sessionLimit, lastTRace)
         return ChartGeometry(
             size: size,
             plotBottom: plotBottom,
-            sessionLimit: sessionLimit,
+            xMax: xMax,
             yMin: yMin,
             yMax: yMax,
             vMin: rawMin
@@ -477,7 +452,10 @@ struct VoltageTrendChart: View {
     private struct ChartGeometry {
         let size: CGSize
         let plotBottom: CGFloat
-        let sessionLimit: TimeInterval
+        /// Right edge of the X axis in race-relative seconds. Equals
+        /// `sessionLimit` unless the trace contains a sample past the
+        /// buzzer, in which case it equals the last sample's tRace.
+        let xMax: TimeInterval
         let yMin: Double
         let yMax: Double
         /// Raw (un-padded) min voltage, for matching dots against the
@@ -486,7 +464,7 @@ struct VoltageTrendChart: View {
         let vMin: Double
 
         func x(forTRace tRace: TimeInterval) -> CGFloat {
-            let span = max(0.001, sessionLimit)
+            let span = max(0.001, xMax)
             let frac = max(0, min(1, tRace / span))
             return CGFloat(frac) * size.width
         }
