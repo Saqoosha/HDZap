@@ -112,6 +112,9 @@ struct RaceShareCard: View {
                 .padding(.top, 22)
             }
 
+            // Footer sits closer to the lap table when there's no
+            // chart between them; the chart already supplies its own
+            // visual breathing room above the footer hairline.
             RaceShareCardFooter(generatedAt: generatedAt)
                 .padding(.horizontal, 24)
                 .padding(.top, flightBatterySamples.isEmpty ? 18 : 22)
@@ -245,9 +248,8 @@ struct RaceShareCard: View {
 }
 
 /// Timestamp + "hdzap" wordmark caption with a hairline rule above.
-/// Lives at the bottom of `RaceShareCard` (when `includesFooter` is on)
-/// and below the flight-battery chart in `RaceDetailView` (when it's
-/// off, so the chart can sit between the lap table and this footer).
+/// Sits at the bottom of `RaceShareCard`, below the optional
+/// flight-battery section.
 struct RaceShareCardFooter: View {
     let generatedAt: Date
 

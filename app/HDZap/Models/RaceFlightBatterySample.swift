@@ -69,4 +69,22 @@ struct RaceFlightBatterySample: Codable, Equatable {
             remainingPercent: f.remainingPercent
         )
     }
+
+    /// Stable in-race ordering: race time ascending, then receivedAt
+    /// ascending on ties. Single source so the post-race share PNG and
+    /// the persisted detail-view PNG can't desync if the comparator
+    /// later grows a tiebreaker.
+    static func chronologicalLess(_ a: RaceFlightBatterySample,
+                                  _ b: RaceFlightBatterySample) -> Bool {
+        if a.tRace != b.tRace { return a.tRace < b.tRace }
+        return a.receivedAt < b.receivedAt
+    }
+}
+
+extension Sequence where Element == RaceFlightBatterySample {
+    /// Convenience for the canonical chronological order used at every
+    /// post-race save / share site.
+    func sortedChronologically() -> [RaceFlightBatterySample] {
+        sorted(by: RaceFlightBatterySample.chronologicalLess)
+    }
 }

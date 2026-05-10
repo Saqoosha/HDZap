@@ -530,13 +530,6 @@ struct TimerView: View {
 
     // MARK: - Flight battery strip
 
-    /// Voltage hero + consumed mAh + remaining-percent label, with a
-    /// thin progress bar underneath that mirrors the percent value.
-    /// Hidden entirely (paddings included, see body site) when no
-    /// telemetry has arrived since BLE connect. `TimelineView(.periodic)`
-    /// is the live-vs-stale flip clock — voltages themselves come
-    /// directly from `BluetoothManager`'s flight-battery properties,
-    /// re-read each tick.
     /// Threshold for flipping a flight-battery reading from LIVE to
     /// STALE. CRSF Battery sensor telemetry rate depends on the
     /// Betaflight `msp_override_channels` / sensor cadence config —
@@ -547,6 +540,13 @@ struct TimerView: View {
     /// the link really drop?" margin.
     private static let flightBatteryStaleAfter: TimeInterval = 12
 
+    /// Voltage hero + consumed mAh + remaining-percent label, with a
+    /// thin progress bar underneath that mirrors the percent value.
+    /// Hidden entirely (paddings included, see body site) when no
+    /// telemetry has arrived since BLE connect. `TimelineView(.periodic)`
+    /// is the live-vs-stale flip clock — voltages themselves come
+    /// directly from `BluetoothManager`'s flight-battery properties,
+    /// re-read each tick.
     @ViewBuilder
     private var flightBatteryStrip: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -1019,10 +1019,7 @@ struct TimerView: View {
             Self.log.error("saveRaceIfNeeded: sessionEnded but sessionStartedAt is nil")
             return
         }
-        let flightSamplesSorted = raceFlightBatterySamples.sorted {
-            if $0.tRace != $1.tRace { return $0.tRace < $1.tRace }
-            return $0.receivedAt < $1.receivedAt
-        }
+        let flightSamplesSorted = raceFlightBatterySamples.sortedChronologically()
         guard let record = RaceRecord.snapshot(
             laps: lapTimer.laps,
             startedAt: startedAt,
@@ -1276,10 +1273,7 @@ struct TimerView: View {
             targetLapCount: clampedTargetLapCount,
             sessionLimit: sessionLimit,
             generatedAt: Date(),
-            flightBatterySamples: raceFlightBatterySamples.sorted {
-                if $0.tRace != $1.tRace { return $0.tRace < $1.tRace }
-                return $0.receivedAt < $1.receivedAt
-            }
+            flightBatterySamples: raceFlightBatterySamples.sortedChronologically()
         )
     }
 }

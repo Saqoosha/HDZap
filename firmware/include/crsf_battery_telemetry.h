@@ -22,6 +22,7 @@
 /// Inner layer (CRSF Battery payload): short_crsf / no_crsf_candidate
 /// / frame_type / frame_len / crsf_crc / range.
 
+inline volatile uint32_t g_crsf_rej_null_arg           = 0; // programmer bug: caller passed buf=null or out=null
 inline volatile uint32_t g_crsf_rej_short_msp          = 0; // outer input < MSPv2 header floor
 inline volatile uint32_t g_crsf_rej_no_msp_marker      = 0; // no $X< with the expected fn code
 inline volatile uint32_t g_crsf_rej_msp_crc            = 0; // MSPv2 CRC failed
@@ -72,8 +73,15 @@ inline bool crsf_battery_address_ok(uint8_t address) {
 /// mode — see the per-call rationale in the file header.
 inline bool crsf_battery_scan_payload(const uint8_t *buf, int len,
                                       CrsfFlightBatteryDecoded *out) {
+    if (!out) {
+        // Programmer bug — distinct from a too-short input so it
+        // doesn't masquerade as a wire-shape problem in the
+        // diagnostic line.
+        g_crsf_rej_null_arg++;
+        return false;
+    }
     constexpr int kMinBatteryFrameBytes = 12; // address + len + type + 8-byte payload + crc
-    if (!out || len < kMinBatteryFrameBytes) {
+    if (len < kMinBatteryFrameBytes) {
         g_crsf_rej_short_crsf++;
         return false;
     }
@@ -144,6 +152,12 @@ inline bool crsf_battery_scan_payload(const uint8_t *buf, int len,
             case kFrameType: g_crsf_rej_frame_type++; break;
             case kCrsfCrc:   g_crsf_rej_crsf_crc++; break;
             case kRange:     g_crsf_rej_range++; break;
+            // Unreachable: when `saw_addr_candidate` is true the loop
+            // body has at minimum hit the frame-len check, which sets
+            // `deepest` to `kFrameLen` on mismatch. Folded into
+            // no_crsf_candidate as a defensive default rather than a
+            // distinct counter so a future loop refactor that breaks
+            // this invariant is at least counted somewhere.
             case kNone:      g_crsf_rej_no_crsf_candidate++; break;
         }
     }
@@ -153,7 +167,11 @@ inline bool crsf_battery_scan_payload(const uint8_t *buf, int len,
 /// If `buf` holds a plausible MSPv2 packet with Backpack CRSF TLM, extract Battery sensor.
 inline bool crsfp_try_battery_from_any_msp_payload(const uint8_t *buf, int len,
                                                    CrsfFlightBatteryDecoded *out) {
-    if (!buf || !out || len < 13) {
+    if (!buf || !out) {
+        g_crsf_rej_null_arg++;
+        return false;
+    }
+    if (len < 13) {
         g_crsf_rej_short_msp++;
         return false;
     }
