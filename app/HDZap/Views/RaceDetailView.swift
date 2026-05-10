@@ -412,11 +412,11 @@ struct VoltageTrendChart: View {
 
                 // Key by enumeration offset rather than `receivedAt` —
                 // sub-millisecond Date collisions are practically
-                // impossible at CRSF's 0.25 Hz cadence in production,
-                // but the synthetic-record preview can produce exactly-
-                // colliding timestamps via integer-second `addingTimeInterval`,
-                // and SwiftUI silently drops the duplicate dot when ids
-                // collide.
+                // impossible at CRSF Battery's typical ~0.25–1 Hz
+                // cadence, but the synthetic-record preview produces
+                // exactly-colliding timestamps via integer-second
+                // `addingTimeInterval`, and SwiftUI silently drops the
+                // duplicate dot when ids collide.
                 ForEach(Array(samples.enumerated()), id: \.offset) { _, s in
                     let isMin = s.voltageVolts == chart.vMin
                     let p = CGPoint(x: chart.x(forTRace: s.tRace),

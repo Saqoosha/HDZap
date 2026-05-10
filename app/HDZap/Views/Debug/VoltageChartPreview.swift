@@ -9,11 +9,14 @@ import Foundation
 /// Remove the file (and the corresponding entry in
 /// `SettingsView.debugSection`) once the chart design is finalised.
 enum VoltageChartPreview {
-    /// Builds a 90-s race with six laps and ~22 CRSF Battery samples
-    /// (matching real CRSF telemetry's ≤0.25 Hz cadence). Voltage sags
-    /// from ~16.4 V to ~14.1 V with a sin-shaped throttle wobble so the
-    /// chart's min-voltage accent dot is somewhere mid-race rather than
-    /// always on the last sample.
+    /// Builds a 90-s race with six laps and 23 CRSF Battery samples at
+    /// a ~0.25 Hz fixture cadence — toward the lower end of the
+    /// observed Betaflight range (typically ~0.25 Hz on the default
+    /// config, up to ~1 Hz with adjusted sensor rate). Slower cadence
+    /// keeps the dot count modest so the per-sample circles stay
+    /// distinct on screen. Voltage sags from ~16.4 V to ~14.1 V with a
+    /// sin-shaped throttle wobble so the chart's min-voltage accent
+    /// dot is somewhere mid-race rather than always on the last sample.
     static func sampleRecord() -> RaceRecord {
         let now = Date()
         let startedAt = now.addingTimeInterval(-90)
@@ -28,7 +31,7 @@ enum VoltageChartPreview {
         ]
 
         let samples: [RaceFlightBatterySample] = (0..<23).map { i in
-            let t = TimeInterval(i) * 4.0  // ~0.25 Hz, last sample at t=88 < 90 s sessionLimit
+            let t = TimeInterval(i) * 4.0  // ~0.25 Hz fixture (slow end of Betaflight range), last sample at t=88 < 90 s
             let progress = t / 90.0
             // Linear sag with a 0.4 rad/s sin throttle wobble — gives a
             // visible mid-race dip the min-voltage accent dot can land on.

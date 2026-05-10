@@ -538,11 +538,13 @@ struct TimerView: View {
     /// directly from `BluetoothManager`'s flight-battery properties,
     /// re-read each tick.
     /// Threshold for flipping a flight-battery reading from LIVE to
-    /// STALE. CRSF Battery sensor telemetry runs at ≤ 0.25 Hz (one
-    /// packet every ~4 s) on most ELRS link rates, so a 2-3 s window
-    /// would false-flip every cycle. 12 s leaves room for the worst
-    /// observed cadence (one missed packet) before declaring the link
-    /// stale.
+    /// STALE. CRSF Battery sensor telemetry rate depends on the
+    /// Betaflight `msp_override_channels` / sensor cadence config —
+    /// observed values range from ~0.25 Hz (one packet every ~4 s) up
+    /// to ~1 Hz with the higher-rate config. 12 s tolerates one
+    /// missed packet at the slowest end without false-flipping; at
+    /// faster cadences it just gives the operator a generous "did
+    /// the link really drop?" margin.
     private static let flightBatteryStaleAfter: TimeInterval = 12
 
     @ViewBuilder
