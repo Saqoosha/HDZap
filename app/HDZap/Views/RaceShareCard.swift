@@ -9,15 +9,30 @@ import UIKit
 /// card-only header (wordmark substitute) and footer (timestamp + wordmark)
 /// for context.
 ///
-/// Width is fixed at 393pt (iPhone 15 width) so a 3× ImageRenderer scale
-/// yields a 1179px-wide PNG. Lap-table geometry comes from
-/// `LapTableMetrics`; widening the card requires scaling those constants
-/// in proportion or extracting more of the shared layout, otherwise
-/// reverting to the original "too wide" regression. Hero typography
+/// PNG export is locked at 393pt (iPhone 15 width) so a 3× ImageRenderer
+/// scale yields a canonical 1179px-wide image regardless of host device.
+/// On-screen the card stretches to fill the available width via
+/// `.frame(maxWidth: .infinity)` so the detail view sits edge-to-edge
+/// like the live timer instead of leaving extra margin on devices wider
+/// than 393pt (iPhone Pro Max / iPhone Air) or clipping past the right
+/// edge on devices narrower than 393pt (iPhone SE / mini at 375 pt).
+/// The `mode` parameter selects between the two — see `body` below.
+/// Lap-table geometry comes from `LapTableMetrics`; the fixed-width
+/// #/Δ/Trend columns stay constant and the flexible Split column
+/// absorbs the slack when the card stretches or narrows. Hero typography
 /// (64pt display, 22pt ms suffix, monoCap(9)) is currently duplicated in
-/// the live timer's done-block and must stay in sync until promoted to a
-/// shared view.
+/// the live timer's done-block and must stay in sync until promoted to
+/// a shared view.
 struct RaceShareCard: View {
+    /// Layout target. `.screen` fills the available width so the detail
+    /// view goes edge-to-edge; `.pngExport` locks to `Self.width` so the
+    /// rendered PNG geometry matches the iPhone 15 reference layout
+    /// regardless of host device.
+    enum RenderMode {
+        case screen
+        case pngExport
+    }
+
     let laps: [Lap]
     let bestLapIndex: Int?
     let metrics: RaceMetrics?
@@ -25,6 +40,7 @@ struct RaceShareCard: View {
     let targetLapCount: Int
     let sessionLimit: TimeInterval
     let generatedAt: Date
+    var mode: RenderMode = .screen
     /// CRSF flight-pack battery samples captured during the race. Empty
     /// for races recorded before the telemetry pipeline existed (or any
     /// race where the bound TX wasn't sending battery telemetry); the
@@ -77,6 +93,18 @@ struct RaceShareCard: View {
     }
 
     var body: some View {
+        let stack = cardStack
+            .background(EditorialTheme.paper)
+            .environment(\.accentHue, accentHue)
+        switch mode {
+        case .pngExport:
+            stack.frame(width: Self.width)
+        case .screen:
+            stack.frame(maxWidth: .infinity)
+        }
+    }
+
+    private var cardStack: some View {
         VStack(spacing: 0) {
             header
                 .padding(.horizontal, 24)
@@ -97,7 +125,8 @@ struct RaceShareCard: View {
             LapTable(laps: laps,
                      bestLapIndex: bestLapIndex,
                      bestTime: bestTime,
-                     worstTime: worstTime)
+                     worstTime: worstTime,
+                     order: .chronological)
                 .padding(.horizontal, 24)
                 .padding(.top, 4)
 
@@ -120,9 +149,6 @@ struct RaceShareCard: View {
                 .padding(.top, flightBatterySamples.isEmpty ? 18 : 22)
                 .padding(.bottom, 24)
         }
-        .frame(width: Self.width)
-        .background(EditorialTheme.paper)
-        .environment(\.accentHue, accentHue)
     }
 
     // MARK: - Sections
@@ -218,6 +244,7 @@ struct RaceShareCard: View {
             targetLapCount: targetLapCount,
             sessionLimit: sessionLimit,
             generatedAt: generatedAt,
+            mode: .pngExport,
             flightBatterySamples: flightBatterySamples
         )
         let renderer = ImageRenderer(content: card)
