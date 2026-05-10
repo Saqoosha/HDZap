@@ -27,8 +27,8 @@ enum VoltageChartPreview {
             Lap(id: 6, time: 14.22),
         ]
 
-        let samples: [RaceFlightBatterySample] = (0..<24).map { i in
-            let t = TimeInterval(i) * 4.0  // ~0.25 Hz
+        let samples: [RaceFlightBatterySample] = (0..<23).map { i in
+            let t = TimeInterval(i) * 4.0  // ~0.25 Hz, last sample at t=88 < 90 s sessionLimit
             let progress = t / 90.0
             // Linear sag with a 0.4 rad/s sin throttle wobble — gives a
             // visible mid-race dip the min-voltage accent dot can land on.
