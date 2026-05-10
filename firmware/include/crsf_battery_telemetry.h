@@ -25,11 +25,12 @@
 inline volatile uint32_t g_crsf_rej_null_arg           = 0; // programmer bug: caller passed buf=null or out=null
 inline volatile uint32_t g_crsf_rej_short_msp          = 0; // outer input < MSPv2 header floor
 inline volatile uint32_t g_crsf_rej_no_msp_marker      = 0; // no $X< with the expected fn code
+inline volatile uint32_t g_crsf_rej_msp_frame_len      = 0; // MSPv2 frame length doesn't fit in input
 inline volatile uint32_t g_crsf_rej_msp_crc            = 0; // MSPv2 CRC failed
 inline volatile uint32_t g_crsf_rej_short_crsf         = 0; // inner input < CRSF Battery floor
 inline volatile uint32_t g_crsf_rej_no_crsf_candidate  = 0; // scanned all offsets, no FC/TX address
 inline volatile uint32_t g_crsf_rej_frame_type         = 0; // CRSF frame type != 0x08
-inline volatile uint32_t g_crsf_rej_frame_len          = 0; // length field/total mismatch
+inline volatile uint32_t g_crsf_rej_frame_len          = 0; // CRSF length field/total mismatch
 inline volatile uint32_t g_crsf_rej_crsf_crc           = 0; // CRSF CRC failed
 inline volatile uint32_t g_crsf_rej_range              = 0; // mah/rem out of plausible range
 inline volatile uint32_t g_crsf_accepts                = 0; // successful decodes
@@ -165,6 +166,12 @@ inline bool crsf_battery_scan_payload(const uint8_t *buf, int len,
 }
 
 /// If `buf` holds a plausible MSPv2 packet with Backpack CRSF TLM, extract Battery sensor.
+/// Counter discipline mirrors `crsf_battery_scan_payload`: at most one
+/// outer counter is bumped per call, and a `return true` (accept) skips
+/// all outer reject counters. The inner scan's counter discipline is
+/// independent — it bumps once per *call* of the inner, which can fire
+/// multiple times if the buffer holds several wrap candidates that all
+/// fail the inner CRSF scan.
 inline bool crsfp_try_battery_from_any_msp_payload(const uint8_t *buf, int len,
                                                    CrsfFlightBatteryDecoded *out) {
     if (!buf || !out) {
@@ -176,6 +183,8 @@ inline bool crsfp_try_battery_from_any_msp_payload(const uint8_t *buf, int len,
         return false;
     }
     bool saw_msp_marker = false;
+    enum DeepestOuter { kNone, kMspFrameLen, kMspCrc, kReachedInner };
+    DeepestOuter deepest = kNone;
     for (int base = 0; base <= len - 11; ++base) {
         if (buf[base] != '$' || buf[base + 1] != 'X')
             continue;
@@ -191,7 +200,7 @@ inline bool crsfp_try_battery_from_any_msp_payload(const uint8_t *buf, int len,
         int hdr = base + 8;
         long need_long = static_cast<long>(hdr) + static_cast<long>(psize) + 1; // crc
         if (need_long > len || hdr + static_cast<int>(psize) + 1 > len) {
-            g_crsf_rej_frame_len++;
+            if (deepest < kMspFrameLen) deepest = kMspFrameLen;
             continue;
         }
         uint8_t crc_calc = 0;
@@ -201,13 +210,31 @@ inline bool crsfp_try_battery_from_any_msp_payload(const uint8_t *buf, int len,
             crc_calc = crc8_dvb_s2(crc_calc, buf[i]);
         }
         if (crc_calc != buf[crc_end_exclusive]) {
-            g_crsf_rej_msp_crc++;
+            if (deepest < kMspCrc) deepest = kMspCrc;
             continue;
         }
+        if (deepest < kReachedInner) deepest = kReachedInner;
         if (!crsf_battery_scan_payload(buf + hdr, static_cast<int>(psize), out))
             continue;
-        return true;
+        return true;  // inner accept — no outer reject counter
     }
-    if (!saw_msp_marker) g_crsf_rej_no_msp_marker++;
+    if (!saw_msp_marker) {
+        g_crsf_rej_no_msp_marker++;
+    } else {
+        switch (deepest) {
+            case kMspFrameLen:  g_crsf_rej_msp_frame_len++; break;
+            case kMspCrc:       g_crsf_rej_msp_crc++; break;
+            // Reached inner scan but it never returned true — the
+            // inner already bumped its own per-call counter on each
+            // attempt, so the outer stays silent here.
+            case kReachedInner: break;
+            // Unreachable: saw_msp_marker == true requires at least
+            // the frame-len branch to have set `deepest` to a
+            // non-kNone value. Fold defensively into no_msp_marker so
+            // a future loop refactor that breaks the invariant still
+            // surfaces somewhere.
+            case kNone:         g_crsf_rej_no_msp_marker++; break;
+        }
+    }
     return false;
 }

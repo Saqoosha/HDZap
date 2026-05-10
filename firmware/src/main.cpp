@@ -889,11 +889,12 @@ void loop() {
             if (accepts_now == last_crsf_accepts_seen) {
                 Serial.printf(
                     "CRSF parser: no decode in %us — rejects: null=%u short_msp=%u no_msp=%u "
-                    "msp_crc=%u short_crsf=%u no_addr=%u type=%u len=%u crsf_crc=%u range=%u\n",
+                    "msp_len=%u msp_crc=%u short_crsf=%u no_addr=%u type=%u len=%u crsf_crc=%u range=%u\n",
                     (unsigned)(kCrsfSummaryEveryMs / 1000),
                     (unsigned)g_crsf_rej_null_arg,
                     (unsigned)g_crsf_rej_short_msp,
                     (unsigned)g_crsf_rej_no_msp_marker,
+                    (unsigned)g_crsf_rej_msp_frame_len,
                     (unsigned)g_crsf_rej_msp_crc,
                     (unsigned)g_crsf_rej_short_crsf,
                     (unsigned)g_crsf_rej_no_crsf_candidate,
