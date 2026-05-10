@@ -9,15 +9,28 @@ import UIKit
 /// card-only header (wordmark substitute) and footer (timestamp + wordmark)
 /// for context.
 ///
-/// Width is fixed at 393pt (iPhone 15 width) so a 3× ImageRenderer scale
-/// yields a 1179px-wide PNG. Lap-table geometry comes from
-/// `LapTableMetrics`; widening the card requires scaling those constants
-/// in proportion or extracting more of the shared layout, otherwise
-/// reverting to the original "too wide" regression. Hero typography
-/// (64pt display, 22pt ms suffix, monoCap(9)) is currently duplicated in
-/// the live timer's done-block and must stay in sync until promoted to a
-/// shared view.
+/// Width is fixed at 393pt (iPhone 15 width) for the PNG export so a 3×
+/// ImageRenderer scale yields a 1179px-wide PNG. On-screen the card uses
+/// `.frame(maxWidth: 393)` so it shrinks to fit narrower devices (iPhone
+/// SE / mini at 375 pt) instead of clipping past the right edge — the
+/// `mode` parameter selects between the two. Lap-table geometry comes from
+/// `LapTableMetrics`; the fixed-width #/Δ/Trend columns stay constant and
+/// the flexible Split column absorbs the slack when the card narrows.
+/// Widening the PNG export requires scaling those constants in proportion
+/// or extracting more of the shared layout, otherwise reverting to the
+/// original "too wide" regression. Hero typography (64pt display, 22pt ms
+/// suffix, monoCap(9)) is currently duplicated in the live timer's
+/// done-block and must stay in sync until promoted to a shared view.
 struct RaceShareCard: View {
+    /// Layout target. `.screen` shrinks to the available width (capped at
+    /// `Self.width`); `.pngExport` locks to `Self.width` so the rendered
+    /// PNG geometry matches the iPhone 15 reference layout regardless of
+    /// the host device.
+    enum RenderMode {
+        case screen
+        case pngExport
+    }
+
     let laps: [Lap]
     let bestLapIndex: Int?
     let metrics: RaceMetrics?
@@ -25,6 +38,7 @@ struct RaceShareCard: View {
     let targetLapCount: Int
     let sessionLimit: TimeInterval
     let generatedAt: Date
+    var mode: RenderMode = .screen
 
     static let width: CGFloat = 393
 
@@ -88,7 +102,8 @@ struct RaceShareCard: View {
                 .padding(.top, 18)
                 .padding(.bottom, 24)
         }
-        .frame(width: Self.width)
+        .frame(maxWidth: Self.width)
+        .frame(width: mode == .pngExport ? Self.width : nil)
         .background(EditorialTheme.paper)
         .environment(\.accentHue, accentHue)
     }
@@ -198,7 +213,8 @@ struct RaceShareCard: View {
             accentHue: accentHue,
             targetLapCount: targetLapCount,
             sessionLimit: sessionLimit,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            mode: .pngExport
         )
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3
