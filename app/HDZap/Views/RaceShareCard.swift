@@ -16,11 +16,14 @@ import UIKit
 /// `mode` parameter selects between the two. Lap-table geometry comes from
 /// `LapTableMetrics`; the fixed-width #/Δ/Trend columns stay constant and
 /// the flexible Split column absorbs the slack when the card narrows.
-/// Widening the PNG export requires scaling those constants in proportion
-/// or extracting more of the shared layout, otherwise reverting to the
-/// original "too wide" regression. Hero typography (64pt display, 22pt ms
-/// suffix, monoCap(9)) is currently duplicated in the live timer's
-/// done-block and must stay in sync until promoted to a shared view.
+/// Widening the PNG export requires scaling those constants in
+/// proportion or extracting more of the shared layout, otherwise the
+/// exported image reverts to the original wider-than-iPhone-15 PNG
+/// regression (the on-screen path already shrinks below 393 pt for
+/// sub-393pt phones, so the regression cited here is about the export,
+/// not the screen). Hero typography (64pt display, 22pt ms suffix,
+/// monoCap(9)) is currently duplicated in the live timer's done-block
+/// and must stay in sync until promoted to a shared view.
 struct RaceShareCard: View {
     /// Layout target. `.screen` shrinks to the available width (capped at
     /// `Self.width`); `.pngExport` locks to `Self.width` so the rendered
