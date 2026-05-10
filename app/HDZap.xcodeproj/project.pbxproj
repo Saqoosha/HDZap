@@ -13,6 +13,7 @@
 		12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E32709696D474AA71F7C90 /* UIDUtils.swift */; };
 		1A29BAB25C8509DF2CDA8248 /* RaceRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */; };
 		29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67948DF123DC370E6DBE5590 /* Assets.xcassets */; };
+		2F3B59196B2D83DF64D2A1B2 /* VoltageChartPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55C60BEC1000A815758AC4D2 /* VoltageChartPreview.swift */; };
 		3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */; };
 		3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63119602A4C7217E6D0C00A1 /* OKLCH.swift */; };
 		34305017E1FD46A91F2686E9 /* DeviceRenameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */; };
@@ -54,6 +55,7 @@
 		49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingSettingsView.swift; sourceTree = "<group>"; };
 		4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceHistoryStore.swift; sourceTree = "<group>"; };
 		5542F9C8073401F22FD0C70D /* BackpackTelemetryDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackpackTelemetryDebugView.swift; sourceTree = "<group>"; };
+		55C60BEC1000A815758AC4D2 /* VoltageChartPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoltageChartPreview.swift; sourceTree = "<group>"; };
 		5EBC7D297DD8CBEF7C617161 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		612031ED1450E491C5A43621 /* EditorialTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialTheme.swift; sourceTree = "<group>"; };
 		63119602A4C7217E6D0C00A1 /* OKLCH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OKLCH.swift; sourceTree = "<group>"; };
@@ -101,6 +103,7 @@
 				FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */,
 				12757F8C010AFDC40357896D /* RaceShareCard.swift */,
 				D706FE213381CDC8D3EC0893 /* TimerView.swift */,
+				9B4279A0615665DB757B9746 /* Debug */,
 				82F6C797C6916CD57EB49E2C /* Settings */,
 			);
 			path = Views;
@@ -159,6 +162,14 @@
 				66E32709696D474AA71F7C90 /* UIDUtils.swift */,
 			);
 			path = Utils;
+			sourceTree = "<group>";
+		};
+		9B4279A0615665DB757B9746 /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				55C60BEC1000A815758AC4D2 /* VoltageChartPreview.swift */,
+			);
+			path = Debug;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -262,6 +273,7 @@
 				03B99D4D428FE955BCC3B8B4 /* SettingsView.swift in Sources */,
 				CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */,
 				12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */,
+				2F3B59196B2D83DF64D2A1B2 /* VoltageChartPreview.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -29,6 +29,9 @@ struct SettingsView: View {
                 raceSection
                 deviceSection
                 appSection
+                #if DEBUG
+                debugSection
+                #endif
                 aboutSection
             }
             .navigationTitle("Settings")
@@ -203,6 +206,28 @@ struct SettingsView: View {
             }
         }
     }
+
+    #if DEBUG
+    /// Debug-build-only section. Surfaces the orphaned
+    /// `BackpackTelemetryDebugView` and the in-development voltage chart
+    /// preview so layout / wiring can be verified without scaffolding.
+    /// Wrapped in `#if DEBUG` so release builds never ship the entry.
+    @ViewBuilder
+    private var debugSection: some View {
+        Section("Debug") {
+            NavigationLink {
+                BackpackTelemetryDebugView()
+            } label: {
+                Text("Backpack telemetry")
+            }
+            NavigationLink {
+                RaceDetailView(previewRecord: VoltageChartPreview.sampleRecord())
+            } label: {
+                Text("Voltage chart preview")
+            }
+        }
+    }
+    #endif
 
     private var appSection: some View {
         Section("App") {

@@ -25,6 +25,12 @@ struct RaceShareCard: View {
     let targetLapCount: Int
     let sessionLimit: TimeInterval
     let generatedAt: Date
+    /// When false, the timestamp + "hdzap" wordmark footer is omitted.
+    /// `RaceDetailView` sets this so the on-screen layout can host its
+    /// flight-battery section between the lap table and the footer
+    /// (the footer is then rendered separately at the bottom). PNG
+    /// export and the live post-race view leave it on.
+    var includesFooter: Bool = true
 
     static let width: CGFloat = 393
 
@@ -83,10 +89,12 @@ struct RaceShareCard: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 4)
 
-            footer
-                .padding(.horizontal, 24)
-                .padding(.top, 18)
-                .padding(.bottom, 24)
+            if includesFooter {
+                RaceShareCardFooter(generatedAt: generatedAt)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 18)
+                    .padding(.bottom, 24)
+            }
         }
         .frame(width: Self.width)
         .background(EditorialTheme.paper)
@@ -158,21 +166,7 @@ struct RaceShareCard: View {
         }
     }
 
-    private var footer: some View {
-        HStack {
-            Text(Self.timestampFormatter.string(from: generatedAt))
-                .monoCap(size: 8.5, tracking: 1.4, color: EditorialTheme.dim)
-            Spacer()
-            Text("hdzap")
-                .monoCap(size: 8.5, tracking: 1.4, color: EditorialTheme.dim)
-        }
-        .padding(.top, 8)
-        .overlay(alignment: .top) {
-            Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
-        }
-    }
-
-    private static let timestampFormatter: DateFormatter = {
+    fileprivate static let timestampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm"
@@ -225,4 +219,26 @@ struct RaceShareCard: View {
         f.dateFormat = "yyyyMMdd-HHmmss"
         return f
     }()
+}
+
+/// Timestamp + "hdzap" wordmark caption with a hairline rule above.
+/// Lives at the bottom of `RaceShareCard` (when `includesFooter` is on)
+/// and below the flight-battery chart in `RaceDetailView` (when it's
+/// off, so the chart can sit between the lap table and this footer).
+struct RaceShareCardFooter: View {
+    let generatedAt: Date
+
+    var body: some View {
+        HStack {
+            Text(RaceShareCard.timestampFormatter.string(from: generatedAt))
+                .monoCap(size: 8.5, tracking: 1.4, color: EditorialTheme.dim)
+            Spacer()
+            Text("hdzap")
+                .monoCap(size: 8.5, tracking: 1.4, color: EditorialTheme.dim)
+        }
+        .padding(.top, 8)
+        .overlay(alignment: .top) {
+            Rectangle().fill(EditorialTheme.hair).frame(height: 0.5)
+        }
+    }
 }
