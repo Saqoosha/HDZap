@@ -9,26 +9,25 @@ import UIKit
 /// card-only header (wordmark substitute) and footer (timestamp + wordmark)
 /// for context.
 ///
-/// Width is fixed at 393pt (iPhone 15 width) for the PNG export so a 3×
-/// ImageRenderer scale yields a 1179px-wide PNG. On-screen the card uses
-/// `.frame(maxWidth: 393)` so it shrinks to fit narrower devices (iPhone
-/// SE / mini at 375 pt) instead of clipping past the right edge — the
-/// `mode` parameter selects between the two. Lap-table geometry comes from
-/// `LapTableMetrics`; the fixed-width #/Δ/Trend columns stay constant and
-/// the flexible Split column absorbs the slack when the card narrows.
-/// Widening the PNG export requires scaling those constants in
-/// proportion or extracting more of the shared layout, otherwise the
-/// exported image reverts to the original wider-than-iPhone-15 PNG
-/// regression (the on-screen path already shrinks below 393 pt for
-/// sub-393pt phones, so the regression cited here is about the export,
-/// not the screen). Hero typography (64pt display, 22pt ms suffix,
-/// monoCap(9)) is currently duplicated in the live timer's done-block
-/// and must stay in sync until promoted to a shared view.
+/// PNG export is locked at 393pt (iPhone 15 width) so a 3× ImageRenderer
+/// scale yields a canonical 1179px-wide image regardless of host device.
+/// On-screen the card stretches to fill the available width via
+/// `.frame(maxWidth: .infinity)` so the detail view sits edge-to-edge
+/// like the live timer instead of leaving extra margin on devices wider
+/// than 393pt (iPhone Pro Max / iPhone Air) or clipping past the right
+/// edge on devices narrower than 393pt (iPhone SE / mini at 375 pt).
+/// The `mode` parameter selects between the two — see `body` below.
+/// Lap-table geometry comes from `LapTableMetrics`; the fixed-width
+/// #/Δ/Trend columns stay constant and the flexible Split column
+/// absorbs the slack when the card stretches or narrows. Hero typography
+/// (64pt display, 22pt ms suffix, monoCap(9)) is currently duplicated in
+/// the live timer's done-block and must stay in sync until promoted to
+/// a shared view.
 struct RaceShareCard: View {
-    /// Layout target. `.screen` shrinks to the available width (capped at
-    /// `Self.width`); `.pngExport` locks to `Self.width` so the rendered
-    /// PNG geometry matches the iPhone 15 reference layout regardless of
-    /// the host device.
+    /// Layout target. `.screen` fills the available width so the detail
+    /// view goes edge-to-edge; `.pngExport` locks to `Self.width` so the
+    /// rendered PNG geometry matches the iPhone 15 reference layout
+    /// regardless of host device.
     enum RenderMode {
         case screen
         case pngExport
@@ -94,6 +93,18 @@ struct RaceShareCard: View {
     }
 
     var body: some View {
+        let stack = cardStack
+            .background(EditorialTheme.paper)
+            .environment(\.accentHue, accentHue)
+        switch mode {
+        case .pngExport:
+            stack.frame(width: Self.width)
+        case .screen:
+            stack.frame(maxWidth: .infinity)
+        }
+    }
+
+    private var cardStack: some View {
         VStack(spacing: 0) {
             header
                 .padding(.horizontal, 24)
@@ -114,7 +125,8 @@ struct RaceShareCard: View {
             LapTable(laps: laps,
                      bestLapIndex: bestLapIndex,
                      bestTime: bestTime,
-                     worstTime: worstTime)
+                     worstTime: worstTime,
+                     chronological: true)
                 .padding(.horizontal, 24)
                 .padding(.top, 4)
 
@@ -137,10 +149,6 @@ struct RaceShareCard: View {
                 .padding(.top, flightBatterySamples.isEmpty ? 18 : 22)
                 .padding(.bottom, 24)
         }
-        .frame(maxWidth: Self.width)
-        .frame(width: mode == .pngExport ? Self.width : nil)
-        .background(EditorialTheme.paper)
-        .environment(\.accentHue, accentHue)
     }
 
     // MARK: - Sections

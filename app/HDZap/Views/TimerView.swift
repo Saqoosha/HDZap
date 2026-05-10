@@ -1412,7 +1412,6 @@ struct BigTime: View {
                 .padding(.leading, 6)
         }
         .lineLimit(1)
-        .minimumScaleFactor(0.5)
     }
 }
 
@@ -1502,13 +1501,18 @@ struct LapTrendChartVertical: View {
     let bestIdx: Int?
     let worstT: TimeInterval
     let rowHeight: CGFloat
+    /// `false` (default, used by the live timer) keeps newest-at-top so the
+    /// most recent lap sits next to the running clock; `true` (used by the
+    /// post-race history detail and the shared PNG) flips to chronological
+    /// (lap 1 at top) so the trace reads as a race timeline.
+    var chronological: Bool = false
     @Environment(\.accentHue) private var accentHue: Double
 
     var body: some View {
         let totalH = CGFloat(laps.count) * rowHeight
         let span = max(0.001, worstT * 1.05)
-        // Newest first to align with the lap rows order.
-        let ordered = Array(laps.enumerated().reversed())
+        let enumerated = Array(laps.enumerated())
+        let ordered = chronological ? enumerated : Array(enumerated.reversed())
 
         GeometryReader { geo in
             let w = geo.size.width
@@ -1599,6 +1603,13 @@ struct LapTable: View {
     let bestLapIndex: Int?
     let bestTime: TimeInterval?
     let worstTime: TimeInterval?
+    /// `false` (default, used by the live timer) puts newest laps at the
+    /// top so the most recent split sits next to the running clock; `true`
+    /// (used by the post-race history detail and the shared PNG) flips
+    /// to chronological (lap 1 at top) so the readout reads as a race
+    /// timeline. Threaded into `LapTrendChartVertical` so the trend dots
+    /// stay row-aligned in either order.
+    var chronological: Bool = false
 
     var body: some View {
         if laps.isEmpty {
@@ -1609,7 +1620,9 @@ struct LapTable: View {
         } else {
             HStack(alignment: .top, spacing: LapTableMetrics.bodySpacing) {
                 VStack(spacing: 0) {
-                    ForEach(Array(laps.enumerated().reversed()), id: \.element.id) { realIdx, lap in
+                    let enumerated = Array(laps.enumerated())
+                    let ordered = chronological ? enumerated : Array(enumerated.reversed())
+                    ForEach(ordered, id: \.element.id) { realIdx, lap in
                         let isBest = realIdx == bestLapIndex
                         let delta = (bestTime ?? 0) > 0 ? lap.time - (bestTime ?? 0) : 0
                         EditorialLapRow(lap: lap, isBest: isBest, delta: delta,
@@ -1622,7 +1635,8 @@ struct LapTable: View {
                     laps: laps,
                     bestIdx: bestLapIndex,
                     worstT: worstTime ?? 0,
-                    rowHeight: LapTableMetrics.rowHeight
+                    rowHeight: LapTableMetrics.rowHeight,
+                    chronological: chronological
                 )
                 .frame(width: LapTableMetrics.trendColumnWidth)
             }
