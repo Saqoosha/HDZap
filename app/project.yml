@@ -8,15 +8,19 @@ options:
 settings:
   base:
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "5"
+    CURRENT_PROJECT_VERSION: "7"
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: VCFY2GFR89
     CODE_SIGN_STYLE: Automatic
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    TARGETED_DEVICE_FAMILY: "1"
 targets:
   HDZap:
     type: application
     platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"
     sources:
       - HDZap
     info:
