@@ -40,6 +40,8 @@ struct TimerView: View {
     /// FINAL-lap save — couldn't insert the same race twice. Cleared on
     /// RESET.
     @State private var savedRaceID: UUID?
+    /// CRSF flight-pack battery samples for the in-memory session.
+    @State private var raceFlightBatterySamples: [RaceFlightBatterySample] = []
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
     /// lap consumes the remaining window. Cleared on START and RESET.
@@ -119,9 +121,22 @@ struct TimerView: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
+                        // Padding is applied INSIDE the strip's visible
+                        // branch so the NO TX hide also removes the
+                        // top/bottom margin — otherwise an empty 32-pt
+                        // band would sit between the masthead and the
+                        // sessionBar with nothing in it.
+                        // The bottom margin between the strip and the
+                        // sessionBar is owned by the sessionBar's top
+                        // padding (20 pt) rather than the strip's
+                        // bottom padding so that when the strip hides,
+                        // the sessionBar still keeps a comfortable
+                        // breathing distance from the masthead.
+                        flightBatteryStrip
+
                         sessionBar
                             .padding(.horizontal, 24)
-                            .padding(.top, 6)
+                            .padding(.top, 20)
 
                         timerBlock
                             .padding(.horizontal, 24)
@@ -287,6 +302,15 @@ struct TimerView: View {
             pushOSDBuffer(osdLayout.snapshot, semanticRaws: [
                 RaceMetrics.timeLeftRaw(remainingSec: remaining), "", "", "",
             ])
+            // Capture the current flight-battery reading at race start
+            // even when the firmware's change-gate has nothing to push:
+            // a steady voltage between flight-pack hot-plug and the
+            // race-start tap would otherwise leave the saved race with
+            // zero samples until something on the pack changes.
+            ingestFlightBatteryTelemetry()
+        }
+        .onChange(of: bluetooth.flightBatteryNotifyRevision) { _, _ in
+            ingestFlightBatteryTelemetry()
         }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
@@ -502,6 +526,152 @@ struct TimerView: View {
                 Text("\(raceSessionLimit)").monoCap(size: 8.5, tracking: 1.5)
             }
         }
+    }
+
+    // MARK: - Flight battery strip
+
+    /// Threshold for flipping a flight-battery reading from LIVE to
+    /// STALE. CRSF Battery sensor telemetry rate depends on the
+    /// Betaflight `msp_override_channels` / sensor cadence config —
+    /// observed values range from ~0.25 Hz (one packet every ~4 s) up
+    /// to ~1 Hz with the higher-rate config. 12 s tolerates one
+    /// missed packet at the slowest end without false-flipping; at
+    /// faster cadences it just gives the operator a generous "did
+    /// the link really drop?" margin.
+    private static let flightBatteryStaleAfter: TimeInterval = 12
+
+    /// Voltage hero + consumed mAh + remaining-percent label, with a
+    /// thin progress bar underneath that mirrors the percent value.
+    /// Hidden entirely (paddings included, see body site) when no
+    /// telemetry has arrived since BLE connect. `TimelineView(.periodic)`
+    /// is the live-vs-stale flip clock — voltages themselves come
+    /// directly from `BluetoothManager`'s flight-battery properties,
+    /// re-read each tick.
+    @ViewBuilder
+    private var flightBatteryStrip: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            let status = flightBatteryStatus(at: ctx.date)
+            // NO TX → strip is hidden entirely (including paddings, see
+            // body site). The user wanted no visual placeholder when
+            // the radio's LUA telemetry switch is off or the TX is
+            // unbound; the strip just disappears until the first
+            // packet lands.
+            if status != .noTx, let r = flightBatteryReading(at: ctx.date) {
+                VStack(spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        flightBatteryStatusDot(status)
+                            .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                        Text("VBAT").monoCap(size: 8.5, tracking: 1.5)
+                        Text(String(format: "%.1f V", r.volts))
+                            .font(.editorialMono(15, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(EditorialTheme.ink)
+                        Text("·").foregroundStyle(EditorialTheme.dim)
+                        Text("\(r.mah) mAh")
+                            .font(.editorialMono(11))
+                            .monospacedDigit()
+                            .foregroundStyle(EditorialTheme.sub)
+                        Spacer(minLength: 8)
+                        if let pct = r.pct {
+                            Text("\(pct)%")
+                                .font(.editorialMono(11))
+                                .monospacedDigit()
+                                .foregroundStyle(EditorialTheme.sub)
+                        }
+                    }
+                    flightBatteryProgressBar(percent: r.pct)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 18)
+                // Bottom gap is owned by `sessionBar.padding(.top, 20)`
+                // at the body site so that the gap survives this
+                // strip's NO TX hide.
+            } else {
+                EmptyView()
+            }
+        }
+    }
+
+    /// Two visible states for the flight-battery strip (NO TX hides
+    /// the strip entirely, see `flightBatteryStrip`):
+    /// - `.live` — a packet decoded within the last
+    ///   `flightBatteryStaleAfter` seconds
+    /// - `.stale` — packets used to flow but the link has gone quiet.
+    ///   Causes: TX powered off, out of range, LUA toggle flipped
+    ///   mid-flight
+    /// - `.noTx` — never seen a packet since BLE connect (LUA telemetry
+    ///   off, or no source bound). Strip is hidden in this state.
+    private enum FlightBatteryStatus {
+        case live, stale, noTx
+
+        var color: Color {
+            switch self {
+            case .live: return Color(red: 0.18, green: 0.56, blue: 0.30)  // editorial green
+            case .stale: return Color(red: 0.78, green: 0.50, blue: 0.18) // editorial amber
+            case .noTx: return EditorialTheme.dim
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func flightBatteryStatusDot(_ status: FlightBatteryStatus) -> some View {
+        Circle()
+            .fill(status.color)
+            .frame(width: 7, height: 7)
+    }
+
+    private func flightBatteryStatus(at now: Date) -> FlightBatteryStatus {
+        guard let last = bluetooth.lastFlightBatteryReceivedAt else { return .noTx }
+        return now.timeIntervalSince(last) < Self.flightBatteryStaleAfter ? .live : .stale
+    }
+
+    /// 3pt-tall track + ink fill, mirroring the editorial language of
+    /// the sessionBar progress without the hairline overlays. Hidden
+    /// when remaining-% is unknown (CRSF wire reports −1 in that case)
+    /// so the strip never lies about a 0% state. Linear animation on
+    /// `pct` so the bar visibly moves with each 1 Hz timeline tick.
+    @ViewBuilder
+    private func flightBatteryProgressBar(percent: Int?) -> some View {
+        if let pct = percent {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(EditorialTheme.hair)
+                    Rectangle()
+                        .fill(EditorialTheme.ink)
+                        .frame(width: max(0, geo.size.width * Double(pct) / 100))
+                        .animation(.linear(duration: 0.4), value: pct)
+                }
+            }
+            .frame(height: 3)
+        } else {
+            EmptyView()
+        }
+    }
+
+    private struct FlightBatteryReading {
+        let volts: Double
+        let amps: Double
+        let mah: Int
+        /// `nil` when remaining is unknown (CRSF wire reports −1 in that
+        /// case; iOS surfaces it as nil so the UI can hide the field
+        /// instead of showing a misleading "−1%").
+        let pct: Int?
+    }
+
+    private func flightBatteryReading(at now: Date) -> FlightBatteryReading? {
+        guard let voltageDv = bluetooth.flightBatteryVoltageDv,
+              let currentDa = bluetooth.flightBatteryCurrentDa,
+              let consumedMah = bluetooth.flightBatteryConsumedMah else {
+            return nil
+        }
+        let pct = bluetooth.flightBatteryRemainingPercent
+        return FlightBatteryReading(
+            volts: Double(voltageDv) / 10.0,
+            amps: Double(currentDa) / 10.0,
+            mah: consumedMah,
+            pct: (pct.map { $0 >= 0 } ?? false) ? pct : nil
+        )
     }
 
     // MARK: - Timer block
@@ -762,6 +932,7 @@ struct TimerView: View {
             // restore it.
             readyShown = false
             lapTimer.start()
+            raceFlightBatterySamples.removeAll()
             // Audio cue for the start of the race; also warms the audio
             // session so the first lap announcement doesn't pay the
             // setActive(true) round-trip.
@@ -815,7 +986,28 @@ struct TimerView: View {
             lastLapWasFinal = false
             readyShown = false
             savedRaceID = nil
+            raceFlightBatterySamples.removeAll()
         }
+    }
+
+    private func ingestFlightBatteryTelemetry() {
+        guard lapTimer.isRunning, !sessionEnded, let started = lapTimer.sessionStartedAt else { return }
+        guard let raw = bluetooth.lastFlightBatteryWire else { return }
+        // Anchor `tRace` to the BLE notify-arrival moment rather than
+        // the SwiftUI observer-tick that called us — the iOS observer
+        // tick can run several ms after the notify lands, especially
+        // under main-actor pressure. `lastFlightBatteryReceivedAt`
+        // moves in lockstep with `lastFlightBatteryWire`, so the pair
+        // is always coherent. Falls back to `Date()` for the race-start
+        // path where no notify has landed yet.
+        let now = bluetooth.lastFlightBatteryReceivedAt ?? Date()
+        guard let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started, now: now) else { return }
+        if let previous = raceFlightBatterySamples.last,
+           previous.voltageDv == sample.voltageDv,
+           previous.currentDa == sample.currentDa,
+           previous.consumedMah == sample.consumedMah,
+           previous.remainingPercent == sample.remainingPercent { return }
+        raceFlightBatterySamples.append(sample)
     }
 
     private func saveRaceIfNeeded() {
@@ -827,12 +1019,14 @@ struct TimerView: View {
             Self.log.error("saveRaceIfNeeded: sessionEnded but sessionStartedAt is nil")
             return
         }
+        let flightSamplesSorted = raceFlightBatterySamples.sortedChronologically()
         guard let record = RaceRecord.snapshot(
             laps: lapTimer.laps,
             startedAt: startedAt,
             sessionLimit: sessionLimit,
             targetLapCount: clampedTargetLapCount,
-            accentHue: accentHue
+            accentHue: accentHue,
+            flightBatterySamples: flightSamplesSorted
         ) else {
             // Empty / invalid sessions (timeUp without ever lapping) are
             // legitimately skipped, but log so the same skip doesn't
@@ -1078,7 +1272,8 @@ struct TimerView: View {
             accentHue: accentHue,
             targetLapCount: clampedTargetLapCount,
             sessionLimit: sessionLimit,
-            generatedAt: Date()
+            generatedAt: Date(),
+            flightBatterySamples: raceFlightBatterySamples.sortedChronologically()
         )
     }
 }
@@ -1217,7 +1412,16 @@ struct BigTime: View {
                 .padding(.leading, 6)
         }
         .lineLimit(1)
-        .minimumScaleFactor(0.5)
+        // 0.9 (not the prior 0.5) is deliberate: SwiftUI was firing the
+        // scale on this firstTextBaseline HStack with mixed font sizes
+        // (64pt + 22pt) even when the proposed width comfortably exceeded
+        // the natural width — verified on device with a colored debug
+        // background where BigTime rendered at ~50 % of nominal in the
+        // share card's doneBlock. Keeping a token safety net at 0.9 means
+        // the fallback only kicks in for real >10 % overflow (none in the
+        // current `[60, 180]`s session-limit envelope) instead of phantom
+        // shrinking the hero digits below the LAPS hero number's size.
+        .minimumScaleFactor(0.9)
     }
 }
 
@@ -1299,21 +1503,28 @@ struct EditorialLapRow: View {
 
 // MARK: - LapTrendChartVertical
 
-/// Vertical trend chart aligned to the right of the lap-row table.
-/// One dot per lap, positioned at the same y as its row (newest at top).
-/// X scales lap time from 0 (left = fast) to slowest * 1.05 (right = slow).
+/// Vertical trend chart aligned to the right of the lap-row table. One
+/// dot per lap, positioned at the same y as its row — see `order` for
+/// row sequencing. X scales lap time from 0 (left = fast) to
+/// slowest * 1.05 (right = slow).
 struct LapTrendChartVertical: View {
     let laps: [Lap]
     let bestIdx: Int?
     let worstT: TimeInterval
     let rowHeight: CGFloat
+    /// Row direction. Defaults to `.newestFirst` (live timer); pass
+    /// `.chronological` from the post-race history detail / shared PNG so
+    /// the trend dots stay aligned with whatever ordering the lap-row
+    /// table picks. See `LapOrder` for the rationale behind each value.
+    var order: LapOrder = .newestFirst
     @Environment(\.accentHue) private var accentHue: Double
 
     var body: some View {
         let totalH = CGFloat(laps.count) * rowHeight
         let span = max(0.001, worstT * 1.05)
-        // Newest first to align with the lap rows order.
-        let ordered = Array(laps.enumerated().reversed())
+        let ordered = order == .chronological
+            ? Array(laps.enumerated())
+            : Array(laps.enumerated().reversed())
 
         GeometryReader { geo in
             let w = geo.size.width
@@ -1399,11 +1610,27 @@ struct LapTableHeader: View {
     }
 }
 
+/// Direction the lap rows (and the matching trend dots) read in. The two
+/// modes are load-bearing UX decisions, not display preference: live
+/// timing wants the most recent split next to the running clock so the
+/// driver's eye doesn't have to track down a moving list; the post-race
+/// history detail and the shared PNG are read as a race timeline so lap
+/// 1 belongs at the top.
+enum LapOrder {
+    /// Live-timer default: newest lap at the top, oldest at the bottom.
+    case newestFirst
+    /// Post-race / share / history: lap 1 at the top, latest at the bottom.
+    case chronological
+}
+
 struct LapTable: View {
     let laps: [Lap]
     let bestLapIndex: Int?
     let bestTime: TimeInterval?
     let worstTime: TimeInterval?
+    /// Threaded into `LapTrendChartVertical` so the trend dots stay
+    /// row-aligned in either order.
+    var order: LapOrder = .newestFirst
 
     var body: some View {
         if laps.isEmpty {
@@ -1414,7 +1641,10 @@ struct LapTable: View {
         } else {
             HStack(alignment: .top, spacing: LapTableMetrics.bodySpacing) {
                 VStack(spacing: 0) {
-                    ForEach(Array(laps.enumerated().reversed()), id: \.element.id) { realIdx, lap in
+                    let ordered = order == .chronological
+                        ? Array(laps.enumerated())
+                        : Array(laps.enumerated().reversed())
+                    ForEach(ordered, id: \.element.id) { realIdx, lap in
                         let isBest = realIdx == bestLapIndex
                         let delta = (bestTime ?? 0) > 0 ? lap.time - (bestTime ?? 0) : 0
                         EditorialLapRow(lap: lap, isBest: isBest, delta: delta,
@@ -1427,7 +1657,8 @@ struct LapTable: View {
                     laps: laps,
                     bestIdx: bestLapIndex,
                     worstT: worstTime ?? 0,
-                    rowHeight: LapTableMetrics.rowHeight
+                    rowHeight: LapTableMetrics.rowHeight,
+                    order: order
                 )
                 .frame(width: LapTableMetrics.trendColumnWidth)
             }

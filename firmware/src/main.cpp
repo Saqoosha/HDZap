@@ -8,6 +8,7 @@
 #include "osd_text_display.h"
 #include "nvs_store.h"
 #include "ble_service.h" // includes tx_sniff.h transitively
+#include "espnow_recv.h"
 #include "battery_monitor.h"
 #include "power_log.h"
 
@@ -118,6 +119,9 @@ static constexpr uint32_t RENDER_STAGING_MS       = 40;
 //     just power, they want it responsive
 //   - g_sniff_active or g_sniff_start_requested — sleep would silently
 //     drop bind packets in flight (or lose the staged start request)
+//   - telemetry_sniff::g_telemetry_sniff_active or _start_requested —
+//     same reasoning: an iOS-driven backpack-telemetry debug session
+//     would silently die mid-stream
 //   - g_render_state != IDLE — mid-OSD-render, finish the cycle first
 //   - g_sleep_minutes_changed — pending config update goes first; see
 //     the consumer block immediately above the gate
@@ -150,6 +154,14 @@ static constexpr uint64_t WAKE_GPIO_MASK = BIT64(11) | BIT64(12);
 // not yet measured at the JST connector).
 static constexpr uint32_t IDLE_TIMEOUT_MS = 30000;
 static uint32_t g_last_activity_ms = 0;
+
+// File-scope rather than function-static because `telemetry_sniff_start()`
+// zeroes `g_telemetry_dropped` for the new session, so a lingering
+// function-local last-logged value would emit a misleading
+// "ring overflow (dropped=0 total=...)" line on the first drain after
+// every restart. The start handler in `loop()` resets this in lockstep
+// with the dropped counter.
+static uint16_t g_last_telemetry_dropped_logged = 0;
 
 static void markActivity() {
     g_last_activity_ms = millis();
@@ -230,6 +242,7 @@ static void applyStagedUid() {
         // apply to the freshly-committed UID.
         stickDisplay.clearMessage();
         if (wasRadioDown) Serial.println("ESP-NOW recovered");
+        espnow_recv_attach_cb();
     }
     // Push the new UID to iOS over BLE notify. Without this, the iOS
     // status frame is only refreshed on connect/disconnect, so a UID
@@ -240,21 +253,16 @@ static void applyStagedUid() {
 }
 
 void setup() {
-    // Issue #5 phase 2 redux: drop CPU clock from the 240 MHz default
-    // to 80 MHz. Bluedroid's documented minimum is 80 MHz; below that
-    // BLE becomes unstable. The CPU dynamic-power portion scales
-    // linearly with frequency so this is a few-mA win on top of static
-    // BLE/ESP-NOW radio draw — biggest under load, smaller at idle.
-    // Ordering relative to Serial.begin() doesn't matter on ESP32-S3
-    // (UART divisor is APB-derived and APB stays at 80 MHz regardless
-    // of CPU clock) and is irrelevant for USB CDC, but kept early
-    // anyway so any peripheral that captures the clock at init sees
-    // the post-scaling value.
-    bool cpuOk = setCpuFrequencyMhz(80);
+    // USB-CDC consoles must enumerate before bursts of println — keep this
+    // ahead of BLE/WiFi spam so boot traces are capturable during LCD issues.
+    Serial.begin(115200);
+    delay(700);
+
+    Serial.println("\n=== HDZero OSD Lap Timer ===");
+    Serial.printf("[boot] CPU MHz before LCD = %u\n", (unsigned)getCpuFrequencyMhz());
 
     stickDisplay.begin();
     batteryMonitor.begin();
-    Serial.begin(115200);
     // Wake-cause check needs to land before the splash hold so a
     // deep-sleep wake (operator pressing BtnA/BtnB to resume mid-race)
     // can skip the splash window entirely and bring the UI up
@@ -269,28 +277,7 @@ void setup() {
     if (!fromDeepSleep) {
         stickDisplay.showSplash(FIRMWARE_VERSION);
     }
-    // 500 ms wait for USB CDC enumeration before the first println.
-    // Runs concurrently with the splash hold below; the two delays
-    // overlap on cold boot so total wall-clock from showSplash to
-    // showStatus is ~max(500, 700) ms = 700 ms, not 1200.
-    delay(500);
-    Serial.println("\n=== HDZero OSD Lap Timer ===");
     Serial.printf("Firmware: %s\n", FIRMWARE_VERSION);
-    if (!fromDeepSleep) {
-        // Cold-boot only: hold the splash long enough to read after
-        // the CDC delay above. 200 ms more on top of the 500 ms wait
-        // = 700 ms total visibility, which testing showed is the
-        // sweet spot for a glance.
-        delay(200);
-    }
-    {
-        unsigned actual = (unsigned)getCpuFrequencyMhz();
-        if (!cpuOk || actual != 80) {
-            Serial.printf("CPU: setCpuFrequencyMhz(80) FAILED — running at %u MHz\n", actual);
-        } else {
-            Serial.printf("CPU: %u MHz\n", actual);
-        }
-    }
 
     // Surface the wake cause so an operator can tell a power-on-reset
     // from a button-wake on serial. The cause was already read above
@@ -308,13 +295,26 @@ void setup() {
     // (presumably battery-only) session before we start writing to it.
     // Operator workflow: unplug → run on battery for hours → plug back in
     // → boot prints the trail before continuing the next session.
+    // `/power.csv` mounts here; dumping is deferred until the tail of setup()
+    // so an idle USB CDC link can't block forever before BLE + ESP-NOW +
+    // the first LCD paint.
     powerLog.begin();
-    powerLog.dumpToSerial();
 
     if (!nvs_store::loadUid(g_uid)) {
         esp_read_mac(g_uid, ESP_MAC_WIFI_STA);
         g_uid_is_default = true;
         Serial.println("No saved UID, using MAC");
+    }
+
+    {
+        uint8_t telemetrySource[6];
+        if (nvs_store::loadTelemetrySourceUid(telemetrySource)) {
+            portENTER_CRITICAL(&g_sniff_mux);
+            memcpy(g_telemetry_source_uid, telemetrySource, sizeof(g_telemetry_source_uid));
+            g_telemetry_source_configured = true;
+            g_telemetry_source_captured = false;
+            portEXIT_CRITICAL(&g_sniff_mux);
+        }
     }
 
     {
@@ -330,6 +330,14 @@ void setup() {
 
     Serial.printf("UID: %02X:%02X:%02X:%02X:%02X:%02X\n",
                   g_uid[0], g_uid[1], g_uid[2], g_uid[3], g_uid[4], g_uid[5]);
+    if (g_telemetry_source_configured) {
+        Serial.printf("Telemetry source: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      g_telemetry_source_uid[0], g_telemetry_source_uid[1],
+                      g_telemetry_source_uid[2], g_telemetry_source_uid[3],
+                      g_telemetry_source_uid[4], g_telemetry_source_uid[5]);
+    } else {
+        Serial.println("Telemetry source: not configured");
+    }
 
     espnow_ready = espnow_init(g_uid);
     if (!espnow_ready) {
@@ -338,6 +346,7 @@ void setup() {
         stickDisplay.showMessage("ESPNOW FAIL (BLE only)", stickDisplay.colorErr());
     } else {
         Serial.println("ESP-NOW initialized");
+        espnow_recv_attach_cb();
     }
 
     osd.begin(g_uid);
@@ -355,6 +364,23 @@ void setup() {
     // Boot counts as activity; without this the panel could sleep before
     // the operator has had a chance to interact at all.
     g_last_activity_ms = millis();
+
+    bool cpuOk = setCpuFrequencyMhz(80);
+    unsigned hzAfter = (unsigned)getCpuFrequencyMhz();
+    if (!cpuOk || hzAfter != 80) {
+        Serial.printf("CPU: setCpuFrequencyMhz(80) FAILED — running at %u MHz\n", hzAfter);
+    } else {
+        Serial.printf("[boot] CPU scaled to %u MHz for BLE/idle savings\n", hzAfter);
+    }
+#if defined(M5STICKS3)
+    delay(5);
+#endif
+    stickDisplay.showStatus(g_uid, false, espnow_ready, g_uid_is_default);
+    Serial.println("[boot] setup complete");
+
+    // After LCD + radios: safe to blast historical CSV — if USB TX backs up,
+    // the operator still sees a usable stick.
+    powerLog.dumpToSerial();
 }
 
 void loop() {
@@ -724,6 +750,9 @@ void loop() {
     // --- TX sniff handling -------------------------------------------
     // Start/stop driven by iOS; capture relayed to iOS via BLE notify so
     // the operator can apply the caught UID as the new goggle target.
+    // tx_sniff and telemetry_sniff coexist on the unified ESP-NOW recv
+    // callback (espnow_recv.h) — both can run concurrently without
+    // fighting for the recv-callback slot.
     if (g_sniff_start_requested) {
         g_sniff_start_requested = false;
         if (sniff_start()) {
@@ -740,13 +769,143 @@ void loop() {
 
     if (g_sniff_captured) {
         uint8_t uid[6];
+        uint8_t telemetrySource[6];
+        bool telemetrySourceCaptured = false;
         portENTER_CRITICAL(&g_sniff_mux);
         memcpy(uid, g_sniff_uid, 6);
+        memcpy(telemetrySource, g_telemetry_source_uid, 6);
+        telemetrySourceCaptured = g_telemetry_source_captured;
+        g_telemetry_source_captured = false;
         g_sniff_captured = false;
         portEXIT_CRITICAL(&g_sniff_mux);
         Serial.printf("TX UID captured: %02X:%02X:%02X:%02X:%02X:%02X\n",
                       uid[0], uid[1], uid[2], uid[3], uid[4], uid[5]);
+        if (telemetrySourceCaptured) {
+            if (nvs_store::saveTelemetrySourceUid(telemetrySource)) {
+                Serial.printf("Telemetry source captured: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                              telemetrySource[0], telemetrySource[1], telemetrySource[2],
+                              telemetrySource[3], telemetrySource[4], telemetrySource[5]);
+            } else {
+                Serial.println("Telemetry source save failed");
+            }
+        }
         ble_notify_tx_uid(uid);
+    }
+
+    // --- Telemetry debug sniff handling ------------------------------
+    // Start/stop driven by iOS Backpack Telemetry Debug subview. Each
+    // captured ESP-NOW packet is shipped to iOS as a 20-byte record
+    // (telemetry_sniff::RECORD_SIZE / layout in telemetry_sniff.h).
+    // Coexists with TX sniff on the unified recv callback — no preempt
+    // needed.
+    if (telemetry_sniff::g_telemetry_start_requested) {
+        telemetry_sniff::g_telemetry_start_requested = false;
+        if (telemetry_sniff::telemetry_sniff_start()) {
+            // telemetry_sniff_start zeroes g_telemetry_dropped for the
+            // new session — keep our last-logged mirror in sync so the
+            // first drain doesn't log a phantom "dropped=0" against a
+            // stale prior session's high-water mark.
+            g_last_telemetry_dropped_logged = 0;
+            Serial.println("Telemetry sniff: started");
+        }
+    }
+
+    if (telemetry_sniff::g_telemetry_stop_requested) {
+        telemetry_sniff::g_telemetry_stop_requested = false;
+        if (telemetry_sniff::telemetry_sniff_stop()) {
+            Serial.println("Telemetry sniff: stopped");
+        }
+    }
+
+    // Drain one telemetry record per loop iteration. With the main loop
+    // delay(10) below this caps notify rate at ~100 packets/sec — well
+    // under what BLE can sustain at our 30-50 ms negotiated connection
+    // interval, but enough headroom for the ELRS telemetry rate (CRSF
+    // telemetry typically ≤ 50 Hz). Sustained ring overflow is logged
+    // here on each transition to a higher dropped count so the operator
+    // sees evidence in serial even though iOS doesn't surface it yet.
+    if (telemetry_sniff::g_telemetry_sniff_active) {
+        uint8_t record[telemetry_sniff::RECORD_SIZE];
+        uint16_t dropped = 0;
+        uint32_t total = 0;
+        if (telemetry_sniff::telemetry_pop(record, dropped, total)) {
+            ble_notify_telemetry_packet(record);
+        }
+        if (dropped != g_last_telemetry_dropped_logged) {
+            Serial.printf("Telemetry sniff: ring overflow (dropped=%u total=%u)\n",
+                          (unsigned)dropped, (unsigned)total);
+            g_last_telemetry_dropped_logged = dropped;
+        }
+    }
+
+    // Flight-pack CRSF Battery (MSP 0x0011 wrapped by Backpack). Promiscuous
+    // RX only stages candidate bytes; parsing + BLE notification stays here.
+    {
+        uint8_t promiscCandidate[kPromiscMspCandidateMaxLen];
+        int promiscCandidateLen = 0;
+        if (hdzap_consume_promisc_msp_candidate(promiscCandidate,
+                                                sizeof(promiscCandidate),
+                                                &promiscCandidateLen)) {
+            flight_battery_on_espnow_payload(promiscCandidate, promiscCandidateLen);
+        }
+
+        FlightBatterySampleRaw fb{};
+        if (flight_battery_consume_if_staged(&fb)) {
+            ble_maybe_notify_flight_battery(fb);
+        }
+        // Surface flight-battery staging overwrites so a sustained
+        // burst rate isn't silent.
+        static uint32_t last_fb_dropped_logged = 0;
+        uint32_t fb_dropped = g_flight_battery_dropped;
+        if (fb_dropped != last_fb_dropped_logged) {
+            Serial.printf("Flight battery: staged sample overwrite (dropped=%u)\n",
+                          (unsigned)fb_dropped);
+            last_fb_dropped_logged = fb_dropped;
+        }
+
+        // Same edge-log discipline for the upstream promiscuous-MSP
+        // candidate buffer — bursts there are upstream of the
+        // flight-battery staging, so they wouldn't show in
+        // `g_flight_battery_dropped`.
+        static uint32_t last_promisc_dropped_logged = 0;
+        uint32_t promisc_dropped = g_promisc_msp_dropped;
+        if (promisc_dropped != last_promisc_dropped_logged) {
+            Serial.printf("Promisc MSP: candidate overwrite (dropped=%u)\n",
+                          (unsigned)promisc_dropped);
+            last_promisc_dropped_logged = promisc_dropped;
+        }
+
+        // CRSF parser diagnostics. Print a reject-reason summary every
+        // 30 s when a telemetry source is configured but no battery
+        // frame has decoded since the last summary — turns "no flight
+        // telemetry" from a silent failure into a clue at the serial
+        // console (bad CRC vs wrong frame type vs none-of-the-above).
+        static uint32_t last_crsf_summary_ms = 0;
+        static uint32_t last_crsf_accepts_seen = 0;
+        constexpr uint32_t kCrsfSummaryEveryMs = 30 * 1000;
+        if (g_telemetry_source_configured &&
+            millis() - last_crsf_summary_ms >= kCrsfSummaryEveryMs) {
+            uint32_t accepts_now = g_crsf_accepts;
+            if (accepts_now == last_crsf_accepts_seen) {
+                Serial.printf(
+                    "CRSF parser: no decode in %us — rejects: null=%u short_msp=%u no_msp=%u "
+                    "msp_len=%u msp_crc=%u short_crsf=%u no_addr=%u type=%u len=%u crsf_crc=%u range=%u\n",
+                    (unsigned)(kCrsfSummaryEveryMs / 1000),
+                    (unsigned)g_crsf_rej_null_arg,
+                    (unsigned)g_crsf_rej_short_msp,
+                    (unsigned)g_crsf_rej_no_msp_marker,
+                    (unsigned)g_crsf_rej_msp_frame_len,
+                    (unsigned)g_crsf_rej_msp_crc,
+                    (unsigned)g_crsf_rej_short_crsf,
+                    (unsigned)g_crsf_rej_no_crsf_candidate,
+                    (unsigned)g_crsf_rej_frame_type,
+                    (unsigned)g_crsf_rej_frame_len,
+                    (unsigned)g_crsf_rej_crsf_crc,
+                    (unsigned)g_crsf_rej_range);
+            }
+            last_crsf_accepts_seen = accepts_now;
+            last_crsf_summary_ms = millis();
+        }
     }
 
     if (g_osd_reset_laps_requested) {
@@ -856,6 +1015,8 @@ void loop() {
         !batteryMonitor.charging() &&
         !g_sniff_active &&
         !g_sniff_start_requested &&
+        !telemetry_sniff::g_telemetry_sniff_active &&
+        !telemetry_sniff::g_telemetry_start_requested &&
         g_render_state == RenderState::IDLE) {
         Serial.println("Deep sleep — wake on BtnA/BtnB press");
         // USB CDC Serial.flush() only drains the FreeRTOS-side queue, not
