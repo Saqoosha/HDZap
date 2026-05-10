@@ -71,23 +71,111 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
+      # Per-side firmware build cache. The key shape is:
+      #   fw-<os>-<side>-v1-<hashFiles>-<tag>
+      # where <side>=main|develop keeps the two branches' caches isolated,
+      # `v1` is a manual bump knob to force a global rebuild, and the two
+      # dynamic components are:
+      #   1. hashFiles(src/<side>/firmware/**, src/<side>/.github/workflows/flasher.yml)
+      #      — firmware source OR build glue changes invalidate the cache
+      #      without operator intervention. The workflow path is per-side
+      #      because each branch is checked out under src/<side>/, never
+      #      at the workspace root, so a top-level glob would match zero
+      #      files and silently contribute nothing to the hash.
+      #   2. Latest reachable tag (`git describe --tags --abbrev=0`) — when
+      #      scripts/release.sh re-runs main CI right after pushing the new
+      #      tag (release flow step 9), the tag becomes visible, the key
+      #      changes, the cache misses, and `pio run` re-bakes the freshly
+      #      pushed `vX.Y.Z` into FIRMWARE_VERSION via inject_version.py.
+      #      Without this, the post-tag rerun would silently hit cache and
+      #      ship a binary stamped against the previous tag (cosmetic on
+      #      /flash/ — iOS only compares the leading major component — but
+      #      worth the cache-bust).
+      # Docs-only pushes share both dynamic components and hit cache.
+      #
+      # Restore + Save are split (instead of `actions/cache@v5`) so the save
+      # step can be gated on build success — a `pio run` killed mid-link
+      # by `cancel-in-progress: true` (line 27) leaves a partial `.pio/build`
+      # that would otherwise be saved and silently reused on the next run
+      # with the same key.
+      #
+      # boot_app0.bin lives inside the PlatformIO Arduino-ESP32 framework
+      # package and is fetched only when `pio run` actually executes. The
+      # build step copies it into .pio/build/m5stick-s3/ so the firmware
+      # cache carries it; without that, a firmware-cache hit + a
+      # PlatformIO-cache miss (independent eviction lifecycles) would leave
+      # the staging step unable to find boot_app0.bin.
+      - name: Resolve firmware tag (main)
+        id: fw-tag-main
+        run: echo "tag=$(git -C src/main describe --tags --abbrev=0 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore firmware build cache (main)
+        id: cache-fw-main
+        uses: actions/cache/restore@v5
+        with:
+          path: src/main/firmware/.pio/build
+          key: fw-${{ runner.os }}-main-v1-${{ hashFiles('src/main/firmware/**', 'src/main/.github/workflows/flasher.yml') }}-${{ steps.fw-tag-main.outputs.tag }}
+
       - name: Build firmware (main)
+        id: build-fw-main
+        if: steps.cache-fw-main.outputs.cache-hit != 'true'
         working-directory: src/main/firmware
-        run: pio run -e m5stick-s3
-
-      - name: Build firmware (develop)
-        working-directory: src/develop/firmware
-        run: pio run -e m5stick-s3
-
-      - name: Stage + verify firmware bins
         run: |
           set -euo pipefail
+          pio run -e m5stick-s3
           BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin -print -quit)
           if [ -z "$BOOT_APP0" ]; then
             echo "boot_app0.bin not found in PlatformIO Arduino-ESP32 framework" >&2
             exit 1
           fi
+          cp "$BOOT_APP0" .pio/build/m5stick-s3/boot_app0.bin
 
+      - name: Save firmware build cache (main)
+        if: steps.cache-fw-main.outputs.cache-hit != 'true' && steps.build-fw-main.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: src/main/firmware/.pio/build
+          key: ${{ steps.cache-fw-main.outputs.cache-primary-key }}
+
+      - name: Resolve firmware tag (develop)
+        id: fw-tag-develop
+        run: echo "tag=$(git -C src/develop describe --tags --abbrev=0 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore firmware build cache (develop)
+        id: cache-fw-develop
+        uses: actions/cache/restore@v5
+        with:
+          path: src/develop/firmware/.pio/build
+          key: fw-${{ runner.os }}-develop-v1-${{ hashFiles('src/develop/firmware/**', 'src/develop/.github/workflows/flasher.yml') }}-${{ steps.fw-tag-develop.outputs.tag }}
+
+      - name: Build firmware (develop)
+        id: build-fw-develop
+        if: steps.cache-fw-develop.outputs.cache-hit != 'true'
+        working-directory: src/develop/firmware
+        run: |
+          set -euo pipefail
+          pio run -e m5stick-s3
+          BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin -print -quit)
+          if [ -z "$BOOT_APP0" ]; then
+            echo "boot_app0.bin not found in PlatformIO Arduino-ESP32 framework" >&2
+            exit 1
+          fi
+          cp "$BOOT_APP0" .pio/build/m5stick-s3/boot_app0.bin
+
+      - name: Save firmware build cache (develop)
+        if: steps.cache-fw-develop.outputs.cache-hit != 'true' && steps.build-fw-develop.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: src/develop/firmware/.pio/build
+          key: ${{ steps.cache-fw-develop.outputs.cache-primary-key }}
+
+      - name: Stage + verify firmware bins
+        run: |
+          set -euo pipefail
+          # boot_app0.bin is copied into each side's .pio/build/m5stick-s3/
+          # by the build step, so it rides along in the firmware cache and
+          # is available even when the PlatformIO framework cache has been
+          # evicted.
           stage_side() {
             local side="$1"
             local out="src/${side}/docs/flash/firmware"
@@ -96,7 +184,7 @@ jobs:
             cp "$build/bootloader.bin" "$out/bootloader.bin"
             cp "$build/partitions.bin" "$out/partitions.bin"
             cp "$build/firmware.bin"   "$out/hdzap.bin"
-            cp "$BOOT_APP0"            "$out/boot_app0.bin"
+            cp "$build/boot_app0.bin"  "$out/boot_app0.bin"
 
             (cd "$out" && \
               for f in bootloader.bin partitions.bin boot_app0.bin hdzap.bin; do
