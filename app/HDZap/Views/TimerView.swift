@@ -1412,6 +1412,16 @@ struct BigTime: View {
                 .padding(.leading, 6)
         }
         .lineLimit(1)
+        // 0.9 (not the prior 0.5) is deliberate: SwiftUI was firing the
+        // scale on this firstTextBaseline HStack with mixed font sizes
+        // (64pt + 22pt) even when the proposed width comfortably exceeded
+        // the natural width — verified on device with a colored debug
+        // background where BigTime rendered at ~50 % of nominal in the
+        // share card's doneBlock. Keeping a token safety net at 0.9 means
+        // the fallback only kicks in for real >10 % overflow (none in the
+        // current `[60, 180]`s session-limit envelope) instead of phantom
+        // shrinking the hero digits below the LAPS hero number's size.
+        .minimumScaleFactor(0.9)
     }
 }
 
@@ -1493,26 +1503,28 @@ struct EditorialLapRow: View {
 
 // MARK: - LapTrendChartVertical
 
-/// Vertical trend chart aligned to the right of the lap-row table.
-/// One dot per lap, positioned at the same y as its row (newest at top).
-/// X scales lap time from 0 (left = fast) to slowest * 1.05 (right = slow).
+/// Vertical trend chart aligned to the right of the lap-row table. One
+/// dot per lap, positioned at the same y as its row — see `order` for
+/// row sequencing. X scales lap time from 0 (left = fast) to
+/// slowest * 1.05 (right = slow).
 struct LapTrendChartVertical: View {
     let laps: [Lap]
     let bestIdx: Int?
     let worstT: TimeInterval
     let rowHeight: CGFloat
-    /// `false` (default, used by the live timer) keeps newest-at-top so the
-    /// most recent lap sits next to the running clock; `true` (used by the
-    /// post-race history detail and the shared PNG) flips to chronological
-    /// (lap 1 at top) so the trace reads as a race timeline.
-    var chronological: Bool = false
+    /// Row direction. Defaults to `.newestFirst` (live timer); pass
+    /// `.chronological` from the post-race history detail / shared PNG so
+    /// the trend dots stay aligned with whatever ordering the lap-row
+    /// table picks. See `LapOrder` for the rationale behind each value.
+    var order: LapOrder = .newestFirst
     @Environment(\.accentHue) private var accentHue: Double
 
     var body: some View {
         let totalH = CGFloat(laps.count) * rowHeight
         let span = max(0.001, worstT * 1.05)
-        let enumerated = Array(laps.enumerated())
-        let ordered = chronological ? enumerated : Array(enumerated.reversed())
+        let ordered = order == .chronological
+            ? Array(laps.enumerated())
+            : Array(laps.enumerated().reversed())
 
         GeometryReader { geo in
             let w = geo.size.width
@@ -1598,18 +1610,27 @@ struct LapTableHeader: View {
     }
 }
 
+/// Direction the lap rows (and the matching trend dots) read in. The two
+/// modes are load-bearing UX decisions, not display preference: live
+/// timing wants the most recent split next to the running clock so the
+/// driver's eye doesn't have to track down a moving list; the post-race
+/// history detail and the shared PNG are read as a race timeline so lap
+/// 1 belongs at the top.
+enum LapOrder {
+    /// Live-timer default: newest lap at the top, oldest at the bottom.
+    case newestFirst
+    /// Post-race / share / history: lap 1 at the top, latest at the bottom.
+    case chronological
+}
+
 struct LapTable: View {
     let laps: [Lap]
     let bestLapIndex: Int?
     let bestTime: TimeInterval?
     let worstTime: TimeInterval?
-    /// `false` (default, used by the live timer) puts newest laps at the
-    /// top so the most recent split sits next to the running clock; `true`
-    /// (used by the post-race history detail and the shared PNG) flips
-    /// to chronological (lap 1 at top) so the readout reads as a race
-    /// timeline. Threaded into `LapTrendChartVertical` so the trend dots
-    /// stay row-aligned in either order.
-    var chronological: Bool = false
+    /// Threaded into `LapTrendChartVertical` so the trend dots stay
+    /// row-aligned in either order.
+    var order: LapOrder = .newestFirst
 
     var body: some View {
         if laps.isEmpty {
@@ -1620,8 +1641,9 @@ struct LapTable: View {
         } else {
             HStack(alignment: .top, spacing: LapTableMetrics.bodySpacing) {
                 VStack(spacing: 0) {
-                    let enumerated = Array(laps.enumerated())
-                    let ordered = chronological ? enumerated : Array(enumerated.reversed())
+                    let ordered = order == .chronological
+                        ? Array(laps.enumerated())
+                        : Array(laps.enumerated().reversed())
                     ForEach(ordered, id: \.element.id) { realIdx, lap in
                         let isBest = realIdx == bestLapIndex
                         let delta = (bestTime ?? 0) > 0 ? lap.time - (bestTime ?? 0) : 0
@@ -1636,7 +1658,7 @@ struct LapTable: View {
                     bestIdx: bestLapIndex,
                     worstT: worstTime ?? 0,
                     rowHeight: LapTableMetrics.rowHeight,
-                    chronological: chronological
+                    order: order
                 )
                 .frame(width: LapTableMetrics.trendColumnWidth)
             }

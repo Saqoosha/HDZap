@@ -126,7 +126,7 @@ struct RaceShareCard: View {
                      bestLapIndex: bestLapIndex,
                      bestTime: bestTime,
                      worstTime: worstTime,
-                     chronological: true)
+                     order: .chronological)
                 .padding(.horizontal, 24)
                 .padding(.top, 4)
 
