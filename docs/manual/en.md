@@ -18,11 +18,12 @@
 4. [Installing the iPhone app](#4-installing-the-iphone-app)
 5. [Pairing the M5StickS3 with the iPhone (Bluetooth)](#5-pairing-the-m5sticks3-with-the-iphone-bluetooth)
 6. [Binding to the HDZero Goggle](#6-binding-to-the-hdzero-goggle)
-7. [Running a race](#7-running-a-race)
-8. [After the race](#8-after-the-race)
-9. [Settings reference](#9-settings-reference)
-10. [Troubleshooting](#10-troubleshooting)
-11. [Appendix](#11-appendix)
+7. [Flight battery telemetry](#7-flight-battery-telemetry)
+8. [Running a race](#8-running-a-race)
+9. [After the race](#9-after-the-race)
+10. [Settings reference](#10-settings-reference)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Appendix](#12-appendix)
 
 ---
 
@@ -55,7 +56,7 @@ The system has three components:
 
 ### Glossary at a glance
 
-These terms come up throughout the manual. Full definitions are in the [Appendix](#11-appendix).
+These terms come up throughout the manual. Full definitions are in the [Appendix](#12-appendix).
 
 | Term | One-line description |
 |---|---|
@@ -177,7 +178,7 @@ Connect the iPhone to the M5StickS3 over Bluetooth.
 
 6. On a successful connection:
    - A green dot appears in the **Connected** section with the device name and a Disconnect button
-   - The battery percentage and charging icon show up below the name
+   - The battery percentage, charging icon, and a **Version** row (app + firmware) appear below the name
    - The M5StickS3's LCD also shows the connected state
 
 You now have a working link between the iPhone and the M5StickS3. Next: bind to the Goggle.
@@ -214,10 +215,10 @@ For the M5StickS3 to push OSD commands to the Goggle, **both must share the same
 
 ```mermaid
 flowchart TD
-    A[Bind phrase set on the<br/>ELRS Backpack firmware?] -- Yes --> B[6.1 Use a known<br/>bind phrase]
+    A[Bind phrase set on the<br/>ELRS Backpack firmware?] -- Yes --> B[6.4 Use a known<br/>bind phrase]
     A -- No --> C[Have you ever bound the<br/>radio to the Goggle?]
     C -- Yes --> D[6.2 TX UID Capture]
-    C -- No --> E[6.4 New Pairing]
+    C -- No --> E[6.1 New Pairing]
 ```
 
 > 📝 **6.3 Manual UID** is also listed below, but **the current official Goggle firmware has a bug** that effectively prevents reading the UID from the Goggle menu. That path isn't in the flowchart above. Only people who can work around the bug should use [6.3](#63-manual-uid-advanced).
@@ -231,18 +232,25 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 
 ---
 
-### 6.1 Use a known bind phrase
+### 6.1 New Pairing
 
-**For:** people who have **flashed an ELRS Backpack firmware with a baked-in bind phrase using ExpressLRS Configurator** and remember (or have written down) that phrase.
+**For:** brand-new Goggles, or people who want to start from a clean slate with just the M5StickS3 and the Goggle.
+
+> ⚠️ **This overwrites the Goggle's existing binding.** Any prior radio↔Goggle pairing is lost (you'd have to bind the radio again afterwards).
 
 #### Steps
 
-1. App Settings sheet → **Device** → **Goggle pairing**.
-2. Set the segmented control to **Bind Phrase**.
-3. Type the same bind phrase that was flashed onto the ELRS Backpack into the text field.
-4. Tap **Apply UID**.
-5. Wait for the status banner to step through `Switching pairing…` → `Verifying…` → `Pairing works` 🎉
-6. **Smoke test:** Settings → **Device** → **OSD layout** — opening the screen auto-pushes a live preview to the Goggle. If you see it, the bind worked 🎉
+1. **Put the Goggle into bind mode:**
+   1. Open the Goggle menu → **ELRS**
+   2. Set **Backpack** to **On**
+   3. Select **Bind** → **Click to start**
+   4. The Goggle is now waiting for a bind broadcast.
+2. App Settings sheet → **Device** → **Goggle pairing**.
+3. Set the segmented control to **New Pairing**.
+4. Tap **Pair with new goggle**. The M5StickS3 broadcasts a bind packet.
+5. The Goggle accepts and the binding is complete.
+6. The status banner should step through `Verifying…` → `Pairing works`.
+7. **Smoke test:** Settings → **Device** → **OSD layout** — the page auto-pushes a live preview to the Goggle. Anything visible there means it worked.
 
 ---
 
@@ -279,24 +287,18 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 
 ---
 
-### 6.4 New Pairing
+### 6.4 Use a known bind phrase
 
-**For:** brand-new Goggles, or people who want to start from a clean slate with just the M5StickS3 and the Goggle.
-
-> ⚠️ **This overwrites the Goggle's existing binding.** Any prior radio↔Goggle pairing is lost (you'd have to bind the radio again afterwards).
+**For:** people who have flashed **both** the **TX backpack** and the **Goggle's ELRS Backpack** with firmware that has the same bind phrase baked in via ExpressLRS Configurator, and remember (or have written down) that phrase.
 
 #### Steps
 
-1. **Put the Goggle into bind mode:**
-   1. Turn **Backpack On** in the Goggle menu
-   2. Go to **ELRS → Bind**
-   3. The Goggle is now waiting for a bind broadcast.
-2. App Settings sheet → **Device** → **Goggle pairing**.
-3. Set the segmented control to **New Pairing**.
-4. Tap **Pair with new goggle**. The M5StickS3 broadcasts a bind packet.
-5. The Goggle accepts and the binding is complete.
-6. The status banner should step through `Verifying…` → `Pairing works`.
-7. **Smoke test:** Settings → **Device** → **OSD layout** — the page auto-pushes a live preview to the Goggle. Anything visible there means it worked.
+1. App Settings sheet → **Device** → **Goggle pairing**.
+2. Set the segmented control to **Bind Phrase**.
+3. Type the same bind phrase that was flashed onto the ELRS Backpack into the text field.
+4. Tap **Apply UID**.
+5. Wait for the status banner to step through `Switching pairing…` → `Verifying…` → `Pairing works` 🎉
+6. **Smoke test:** Settings → **Device** → **OSD layout** — opening the screen auto-pushes a live preview to the Goggle. If you see it, the bind worked 🎉
 
 ---
 
@@ -327,7 +329,43 @@ You can also tap **Restore previous goggle** on the Goggle pairing screen at any
 
 ---
 
-## 7. Running a race
+## 7. Flight battery telemetry
+
+When the M5StickS3 is receiving CRSF Battery telemetry from the pilot's transmitter, HDZap shows live battery data on the **main timer screen** and records it for post-race review.
+
+### Live VBAT strip (main screen)
+
+A strip appears above the session progress bar showing:
+
+- **Status dot**: green = live data arriving, amber = signal gone stale (TX powered off, out of range, or telemetry disabled on the TX), hidden = no data yet
+- **Voltage** (V)
+- **Consumed mAh**
+- **Remaining %** + progress bar (hidden when the transmitter reports the value as unknown)
+
+The strip disappears entirely when no telemetry has arrived since the device last connected — it never shows a placeholder.
+
+### Post-race (history detail screen)
+
+After the race, opening the detail from the history list shows a **VBAT** section with:
+
+- **Start / Min / End** voltage labels and sample count
+- Voltage trend chart over race time with lap-boundary markers
+
+The share card image also includes the VBAT chart when samples are present. To export the raw data (voltage, current, consumed mAh, remaining %) as a CSV, tap the **battery icon** in the top-right toolbar of the detail screen.
+
+### Requirements for VBAT data
+
+All three of the following must be in place:
+
+1. **ELRS Backpack telemetry enabled** on the transmitter: in the ExpressLRS Lua script on EdgeTX, go to **Backpack → Telemetry** and set it to **ESPNOW**.
+2. **TX and Goggle are paired** — the TX's bind broadcast is how HDZap learns the TX's identity.
+3. **TX UID Capture has been performed at least once** (the [6.2 TX UID Capture](#62-tx-uid-capture-goggle-already-bound-to-a-radio) path). This captures the TX's sender MAC and saves it to the M5StickS3's flash. Once saved it survives reboots — you only need to repeat it if you erase the M5StickS3's flash ("Erase everything" in the Web Flasher).
+
+> ⚠️ Binding via [new pairing (6.1)](#61-new-pairing) or [bind phrase (6.4)](#64-use-a-known-bind-phrase) does **not** set the TX sender filter. If you used one of those paths, run TX UID Capture once (while keeping your existing goggle pairing) to enable flight battery recording.
+
+---
+
+## 8. Running a race
 
 With the bind working, you can run a race.
 
@@ -396,7 +434,7 @@ What each field means:
 
 ---
 
-## 8. After the race
+## 9. After the race
 
 ### Sharing
 
@@ -408,11 +446,12 @@ The card includes:
 - Total time
 - Pace, average lap, best lap
 - Lap table
+- **VBAT voltage chart** (only when flight battery telemetry was recorded — see [Chapter 7](#7-flight-battery-telemetry))
 
 ### History
 
 1. Tap the **clock icon** at the top right of the main screen → the history sheet opens.
-2. Past races are listed newest first.
+2. Past races are listed newest first. Each row shows **laps, total time, a lap-trend sparkline, and best lap**.
 3. Tap a row to open the detail screen (same layout as the result card).
 
 ### Deleting
@@ -422,7 +461,7 @@ The card includes:
 
 ---
 
-## 9. Settings reference
+## 10. Settings reference
 
 ### Format
 
@@ -479,7 +518,7 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### M5StickS3
 
@@ -508,7 +547,7 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 ---
 
-## 11. Appendix
+## 12. Appendix
 
 ### Glossary
 
