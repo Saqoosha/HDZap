@@ -113,7 +113,8 @@ struct OSDLayoutConfig: Equatable {
 
     /// True iff `order` is a valid permutation of `0..<rowCount`. Used
     /// as the invariant gate before persisting / accepting a new order
-    /// so `displayOrder.filter { rows[$0].visible }` never out-of-bounds.
+    /// so `bufferLayout()` can safely use each entry as a `rows[]`
+    /// subscript when emitting the visible block.
     static func isValidPermutation(_ order: [Int]) -> Bool {
         order.count == rowCount && Set(order) == Set(0..<rowCount)
     }
