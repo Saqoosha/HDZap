@@ -56,6 +56,15 @@ struct OSDLayoutConfig: Equatable {
     /// callers can subscript with the OSD row index 0..3.
     var rows: [OSDRowConfig]
 
+    /// User-controlled top-to-bottom display order. A permutation of
+    /// `0..<rowCount` where each entry is a semantic row ID (0=Time,
+    /// 1=Lap, 2=Pace, 3=Diff). `displayOrder[0]` is the topmost row of
+    /// the visible block on the goggle. Default `[0, 1, 2, 3]` matches
+    /// the prior fixed semantic order. Reordering does NOT touch the
+    /// `rows[semanticId]` subscript — semantic ID stays the row's
+    /// stable identity; only its grid position changes.
+    var displayOrder: [Int]
+
     /// Number of rows the user has flagged as visible (0…rowCount).
     var visibleCount: Int {
         rows.lazy.filter(\.visible).count
@@ -94,7 +103,20 @@ struct OSDLayoutConfig: Equatable {
     static let `default` = OSDLayoutConfig(
         firstVisibleRow: defaultFirstVisibleRow(visibleCount: rowCount),
         alignment: .center,
-        rows: Array(repeating: .default, count: rowCount))
+        rows: Array(repeating: .default, count: rowCount),
+        displayOrder: defaultDisplayOrder)
+
+    /// Identity permutation `[0, 1, 2, 3]` — Time, Lap, Pace, Diff from
+    /// top to bottom. Used as the default when no persisted order exists
+    /// and as the fallback when an invalid permutation is detected.
+    static let defaultDisplayOrder: [Int] = Array(0..<rowCount)
+
+    /// True iff `order` is a valid permutation of `0..<rowCount`. Used
+    /// as the invariant gate before persisting / accepting a new order
+    /// so `displayOrder.filter { rows[$0].visible }` never out-of-bounds.
+    static func isValidPermutation(_ order: [Int]) -> Bool {
+        order.count == rowCount && Set(order) == Set(0..<rowCount)
+    }
 
     /// Bottom-anchored default for the given visible count: places the
     /// last visible row at the bottom edge of the goggle grid (row 17).
@@ -155,9 +177,18 @@ struct OSDLayoutConfig: Equatable {
     /// fill the trailing slots, top-anchored layouts fill the leading
     /// slots. Hidden rows never reserve their own slot — they get folded
     /// into the surrounding blanks (the "skip empty rows" rule).
+    ///
+    /// Visible rows are emitted in `displayOrder` (top-to-bottom) so the
+    /// user's chosen permutation drives which semantic row lands in each
+    /// firmware slot. A malformed `displayOrder` falls back to the
+    /// identity order to keep render safe; the settings store rejects
+    /// invalid permutations at the source so this path is defensive only.
     func bufferLayout() -> [Int?] {
         var slots: [Int?] = Array(repeating: nil, count: Self.rowCount)
-        let visibleSemantics = rows.indices.filter { rows[$0].visible }
+        let order = Self.isValidPermutation(displayOrder)
+            ? displayOrder
+            : Self.defaultDisplayOrder
+        let visibleSemantics = order.filter { rows[$0].visible }
         guard !visibleSemantics.isEmpty else { return slots }
         let firstVisSlot = firstVisibleRow - bufferTopRow
         for (offset, semantic) in visibleSemantics.enumerated() {
@@ -206,6 +237,11 @@ struct OSDLayoutConfig: Equatable {
     /// `firstVisibleRow` is re-clamped to the all-visible range so a
     /// bottom-anchored vis=1 user still ends up with a sensible
     /// position when the block stretches back to 4 rows.
+    ///
+    /// `displayOrder` is preserved — reordering does not hide
+    /// information, so the user's chosen top-to-bottom permutation
+    /// applies to Ready and Result frames the same way it applies to
+    /// the in-race state.
     var allVisible: OSDLayoutConfig {
         let allOn = Array(repeating: OSDRowConfig(visible: true),
                           count: Self.rowCount)
@@ -213,7 +249,8 @@ struct OSDLayoutConfig: Equatable {
                                                 visibleCount: Self.rowCount)
         return OSDLayoutConfig(firstVisibleRow: safeTop,
                                alignment: alignment,
-                               rows: allOn)
+                               rows: allOn,
+                               displayOrder: displayOrder)
     }
 }
 
@@ -226,15 +263,18 @@ struct OSDLayoutConfig: Equatable {
 final class OSDLayoutSettings {
     /// Storage keys are versioned so the model can evolve without
     /// crashing on stale UserDefaults shapes left over from earlier
-    /// builds. v3 reframes the position knob from "top of 4-row block"
-    /// to "top of visible block" (visible rows are now packed; hidden
-    /// rows don't reserve grid space). v2 values aren't migrated —
-    /// both v1 and v2 only ever shipped on a draft / TestFlight beta
-    /// branch, and the semantics shifted enough that auto-migrating
-    /// would silently move the pilot's OSD position.
-    static let firstVisibleRowKey = "osdLayout.firstVisibleRow.v3"
-    static let alignmentKey = "osdLayout.alignment.v3"
-    static let rowsKey = "osdLayout.rows.v3"
+    /// builds. v4 introduces `displayOrder` (user-controlled
+    /// top-to-bottom row permutation); all sibling keys bump to v4 in
+    /// the same revision so a fresh install lays down a coherent set.
+    /// v3 keys are not migrated — v3 only shipped on develop /
+    /// TestFlight beta builds, and synthesising a default permutation
+    /// during migration is messier than a clean fresh-default reset.
+    /// v1 and v2 had separate "no migration" reasons (semantic shift of
+    /// the position knob).
+    static let firstVisibleRowKey = "osdLayout.firstVisibleRow.v4"
+    static let alignmentKey = "osdLayout.alignment.v4"
+    static let rowsKey = "osdLayout.rows.v4"
+    static let displayOrderKey = "osdLayout.displayOrder.v4"
 
     var firstVisibleRow: Int {
         didSet {
@@ -295,6 +335,26 @@ final class OSDLayoutSettings {
         }
     }
 
+    /// User-controlled top-to-bottom display order. Bound to the
+    /// settings view's `.onMove` so dropping a row commits to
+    /// UserDefaults immediately. Non-permutation assignments (wrong
+    /// count, duplicates, out-of-range IDs) are rejected by reverting
+    /// to `oldValue` — the invariant is load-bearing for `bufferLayout`
+    /// where each entry is used as a `rows[]` subscript.
+    var displayOrder: [Int] {
+        didSet {
+            if !OSDLayoutConfig.isValidPermutation(displayOrder) {
+                displayOrder = oldValue
+                return
+            }
+            if oldValue != displayOrder {
+                if let data = try? JSONEncoder().encode(displayOrder) {
+                    UserDefaults.standard.set(data, forKey: Self.displayOrderKey)
+                }
+            }
+        }
+    }
+
     /// Number of visible rows; exposed for views that need to size the
     /// slider's range without rebuilding a full snapshot.
     var visibleCount: Int {
@@ -320,12 +380,21 @@ final class OSDLayoutSettings {
         let fallback = OSDLayoutConfig.defaultFirstVisibleRow(visibleCount: visCount)
         self.firstVisibleRow = OSDLayoutConfig.clampFirstVisibleRow(savedY ?? fallback,
                                                                     visibleCount: visCount)
+
+        if let data = UserDefaults.standard.data(forKey: Self.displayOrderKey),
+           let decoded = try? JSONDecoder().decode([Int].self, from: data),
+           OSDLayoutConfig.isValidPermutation(decoded) {
+            self.displayOrder = decoded
+        } else {
+            self.displayOrder = OSDLayoutConfig.defaultDisplayOrder
+        }
     }
 
     var snapshot: OSDLayoutConfig {
         OSDLayoutConfig(firstVisibleRow: firstVisibleRow,
                         alignment: alignment,
-                        rows: rows)
+                        rows: rows,
+                        displayOrder: displayOrder)
     }
 
     func resetToDefaults() {
@@ -333,5 +402,6 @@ final class OSDLayoutSettings {
         alignment = .center
         firstVisibleRow = OSDLayoutConfig.defaultFirstVisibleRow(
             visibleCount: OSDLayoutConfig.rowCount)
+        displayOrder = OSDLayoutConfig.defaultDisplayOrder
     }
 }

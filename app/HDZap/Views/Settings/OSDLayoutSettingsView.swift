@@ -41,6 +41,13 @@ struct OSDLayoutSettingsView: View {
             visibilitySection(layout: layout)
             actionsSection(layout: layout)
         }
+        // Always-active EditMode keeps drag handles visible on the
+        // Show-rows section so the reorder affordance is discoverable.
+        // Other sections (preview, position, alignment, actions) hold
+        // controls that work fine inside an active-EditMode List —
+        // drag handles only appear on rows whose ForEach declares
+        // `.onMove`, so non-reorderable rows render unchanged.
+        .environment(\.editMode, .constant(.active))
         .navigationTitle("OSD Layout")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -75,6 +82,7 @@ struct OSDLayoutSettingsView: View {
         .onChange(of: layout.firstVisibleRow) { _, _ in schedulePush() }
         .onChange(of: layout.alignment) { _, _ in schedulePush() }
         .onChange(of: layout.rows) { _, _ in schedulePush() }
+        .onChange(of: layout.displayOrder) { _, _ in schedulePush() }
         .onChange(of: bluetooth.isReady) { _, ready in
             // Newly-connected mid-session: replay the layout char + the
             // preview rows so the operator's stored layout takes effect
@@ -185,22 +193,36 @@ struct OSDLayoutSettingsView: View {
     }
 
     private func visibilitySection(layout: OSDLayoutSettings) -> some View {
+        // ForEach iterates `displayOrder` (an array of semantic IDs)
+        // so SwiftUI tracks each row by its stable semantic identity
+        // through reorders. Each row's content addresses `rows[semantic]`
+        // for visibility — `displayOrder` permutes the on-screen and
+        // on-goggle position, not the per-row config identity.
         Section {
-            ForEach(0..<OSDLayoutConfig.rowCount, id: \.self) { idx in
+            ForEach(layout.displayOrder, id: \.self) { semanticId in
                 let visibleBinding = Binding<Bool>(
-                    get: { layout.rows[idx].visible },
+                    get: { layout.rows[semanticId].visible },
                     set: {
                         var rows = layout.rows
-                        rows[idx].visible = $0
+                        rows[semanticId].visible = $0
                         layout.rows = rows
                     }
                 )
-                Toggle(OSDLayoutConfig.rowDisplayName(at: idx), isOn: visibleBinding)
+                Toggle(OSDLayoutConfig.rowDisplayName(at: semanticId),
+                       isOn: visibleBinding)
+            }
+            .onMove { from, to in
+                // Drop commits to displayOrder immediately — the model's
+                // didSet rejects non-permutations and writes valid ones
+                // to UserDefaults, so no explicit save step is needed.
+                var next = layout.displayOrder
+                next.move(fromOffsets: from, toOffset: to)
+                layout.displayOrder = next
             }
         } header: {
             Text("Show rows")
         } footer: {
-            Text("Hidden rows are skipped on the goggle — visible rows close up the gap so the block stays compact.")
+            Text("Drag to reorder. Hidden rows are skipped on the goggle — visible rows close up the gap so the block stays compact.")
                 .font(.caption2)
         }
     }
@@ -352,7 +374,11 @@ struct OSDLayoutSettingsView: View {
         let alignChanged = lastPushed?.alignment != snapshot.alignment
         let rowsChanged = lastPushed?.rows != snapshot.rows
         let topChanged = lastPushed?.firstVisibleRow != snapshot.firstVisibleRow
-        if !force && !yChanged && !alignChanged && !rowsChanged && !topChanged { return }
+        // Reorder-only changes don't touch yOffset / rows / firstVisibleRow,
+        // but they reshape the firmware buffer assignment via bufferLayout,
+        // so the buffer rows still need a re-push.
+        let orderChanged = lastPushed?.displayOrder != snapshot.displayOrder
+        if !force && !yChanged && !alignChanged && !rowsChanged && !topChanged && !orderChanged { return }
 
         // Track per-write success so `lastPushed` only advances when the
         // goggle actually got the new state. Otherwise a transient BLE
