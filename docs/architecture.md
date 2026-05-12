@@ -245,7 +245,9 @@ HDZeroLapTimerApp
               │     │     └── Restore previous goggle
               │     └── "OSD layout" row → OSDLayoutSettingsView
               │           ├── live preview + position slider + alignment
-              │           ├── per-row show/hide (Time/Lap/Pace/Diff)
+              │           ├── per-row show/hide + drag-to-reorder
+              │           │     (Time/Lap/Pace/Diff — stable semantic IDs;
+              │           │      displayOrder permutation persists in UserDefaults)
               │           ├── Send Test OSD + Clear OSD + Reset layout
               │           └── pushes layout char + buffer rows on debounce
               ├── "App" Section

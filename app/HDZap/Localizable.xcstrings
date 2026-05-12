@@ -1285,13 +1285,13 @@
         }
       }
     },
-    "Hidden rows are skipped on the goggle — visible rows close up the gap so the block stays compact." : {
+    "Drag to reorder. Hidden rows are skipped on the goggle — visible rows close up the gap so the block stays compact." : {
       "comment" : "OSD layout editor Show-rows section footer.",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "非表示の行はゴーグル側で詰められ、表示する行だけがまとまって表示されます。"
+            "value" : "ドラッグで順序を変更できます。非表示の行はゴーグル側で詰められ、表示する行だけがまとまって表示されます。"
           }
         }
       }
