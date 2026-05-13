@@ -179,7 +179,7 @@ struct PairingSettingsView: View {
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.body.monospaced())
-                Text("Decimal matches what HDZero goggles and the M5Stick LCD show; hex matches MAC tools.")
+                Text("Decimal matches what the goggle and the M5Stick LCD show; hex matches MAC tools.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 if !manualUIDText.isEmpty {
@@ -506,7 +506,7 @@ struct PairingSettingsView: View {
         switch bluetooth.lastTestResult {
         case .ok:
             pairingPhase = .success
-            // Verify probe leaves "HDZERO TEST" at row 0 col 0 of the
+            // Verify probe leaves "HDZAP TEST" at row 0 col 0 of the
             // goggle OSD; clear it now so the operator doesn't have to
             // hunt for the Clear OSD button after every successful pair.
             // Fire-and-forget — failure surfaces via lastError but isn't

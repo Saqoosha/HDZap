@@ -26,7 +26,7 @@ targets:
     info:
       path: HDZap/Info.plist
       properties:
-        NSBluetoothAlwaysUsageDescription: "Connect to HDZero OSD bridge device via Bluetooth"
+        NSBluetoothAlwaysUsageDescription: "Connect to the OSD bridge device via Bluetooth"
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes:
           - bluetooth-central

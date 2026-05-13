@@ -141,7 +141,7 @@ inline uint8_t loadSleepMinutes() {
 // for; a longer name would get truncated or pushed entirely out of the
 // scan response, leaving iOS scan results showing "Unknown".
 inline constexpr size_t kDeviceNameMaxLen = 20;
-inline constexpr const char* kDeviceNameDefault = "HDZeroOSD";
+inline constexpr const char* kDeviceNameDefault = "HDZapBridge";
 // Compile-time proof that the default itself satisfies the cap, so a
 // future kDeviceNameDefault change that exceeds kDeviceNameMaxLen fails
 // the build instead of silently truncating in saveDeviceName / the

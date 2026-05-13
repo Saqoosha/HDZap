@@ -8,6 +8,10 @@
   <strong>English</strong> ・ <a href="https://saqoosha.github.io/HDZap/ja/">日本語</a>
 </p>
 
+> **Need help?** Email [a@saqoo.sh](mailto:a@saqoo.sh) or open an issue on [GitHub Issues](https://github.com/Saqoosha/HDZap/issues). Common problems are covered in [§11 Troubleshooting](#11-troubleshooting) below.
+>
+> **Disclaimer.** HDZap is an independent, third-party tool created by an individual developer. HDZero, ExpressLRS, and M5Stack are trademarks of their respective owners. HDZap is not affiliated with, endorsed by, or sponsored by any of these projects or companies. Product names referenced in this manual are used solely to describe hardware compatibility.
+
 ---
 
 ## Table of Contents
@@ -174,7 +178,7 @@ Connect the iPhone to the M5StickS3 over Bluetooth.
 2. Open the HDZap app on the iPhone, then tap the **gear icon (⚙️)** in the top right to open the Settings sheet.
 3. Under the **Device** section tap **M5StickS3** to drill into the connection screen.
 4. Tap **Scan**. Nearby M5StickS3 devices appear under **Other devices**.
-5. Tap **Connect** next to the device named **HDZeroOSD** (or whatever name you previously gave it — see [Renaming the M5StickS3](#renaming-the-m5sticks3-optional) below).
+5. Tap **Connect** next to the device named **HDZapBridge** (or whatever name you previously gave it — see [Renaming the M5StickS3](#renaming-the-m5sticks3-optional) below).
 
 6. On a successful connection:
    - A green dot appears in the **Connected** section with the device name and a Disconnect button
@@ -185,14 +189,14 @@ You now have a working link between the iPhone and the M5StickS3. Next: bind to 
 
 ### Renaming the M5StickS3 (optional)
 
-If you have several M5StickS3 units, the default `HDZeroOSD` name makes them hard to tell apart. While connected:
+If you have several M5StickS3 units, the default `HDZapBridge` name makes them hard to tell apart. While connected:
 
 1. Settings → **Device** → **M5StickS3**.
 2. Tap **Bluetooth name**.
 3. Type the new name (UTF-8, up to 20 bytes — most emoji count as 4+ bytes, ZWJ-joined or flag-pair emoji more) and tap **Save**.
 4. The M5StickS3 reboots once (about 3 seconds). The iPhone reconnects automatically; the new name appears on the M5StickS3's LCD UID band and in the iOS connected section.
 
-> 💡 The new name is persisted to flash memory, so it survives power cycles. To restore the default, save `HDZeroOSD`.
+> 💡 The new name is persisted to flash memory, so it survives power cycles. To restore the default, save `HDZapBridge`.
 
 ### When things go wrong
 

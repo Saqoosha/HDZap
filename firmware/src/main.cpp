@@ -258,7 +258,7 @@ void setup() {
     Serial.begin(115200);
     delay(700);
 
-    Serial.println("\n=== HDZero OSD Lap Timer ===");
+    Serial.println("\n=== HDZap OSD Lap Timer ===");
     Serial.printf("[boot] CPU MHz before LCD = %u\n", (unsigned)getCpuFrequencyMhz());
 
     stickDisplay.begin();
@@ -715,7 +715,7 @@ void loop() {
         } else {
             uint32_t failBefore = g_espnow_sent_fail;
             bool queued = osd.clear()
-                       && osd.writeString(0, 0, "HDZERO TEST")
+                       && osd.writeString(0, 0, "HDZAP TEST")
                        && osd.draw();
             if (!queued) {
                 stickDisplay.showMessage("TEST QUEUE FAIL", stickDisplay.colorErr());

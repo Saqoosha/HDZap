@@ -321,12 +321,12 @@
         }
       }
     },
-    "Decimal matches what HDZero goggles and the M5Stick LCD show; hex matches MAC tools." : {
+    "Decimal matches what the goggle and the M5Stick LCD show; hex matches MAC tools." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "10 進数は HDZero ゴーグルと M5Stick LCD の表示に対応し、16 進数は MAC ツールに対応します。"
+            "value" : "10 進数はゴーグルと M5Stick LCD の表示に対応し、16 進数は MAC ツールに対応します。"
           }
         }
       }
