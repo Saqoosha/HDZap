@@ -194,11 +194,39 @@
       return true;
     }
 
+    // Images load asynchronously after the initial scroll, pushing the target
+    // anchor down — re-align until the user scrolls manually.
+    let userScrolledManually = false;
+    let suppressManualScrollUntil = 0;
+    const markManualScroll = () => {
+      if (performance.now() < suppressManualScrollUntil) return;
+      userScrolledManually = true;
+    };
+    const SCROLL_KEYS = new Set([
+      'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ',
+    ]);
+    window.addEventListener('wheel', markManualScroll, { passive: true });
+    window.addEventListener('touchmove', markManualScroll, { passive: true });
+    window.addEventListener('keydown', (e) => {
+      if (SCROLL_KEYS.has(e.key)) markManualScroll();
+    });
+
+    // Used for hash navigation entry points only — reflows must call
+    // scrollToHash() directly so they never clobber a manual-scroll flag.
+    function navigateToHash(hash = location.hash) {
+      if (!scrollToHash(hash)) return false;
+      userScrolledManually = false;
+      // Absorb trailing inertia / touchmove that continues firing for a
+      // beat after the click or hashchange that triggered this navigation.
+      suppressManualScrollUntil = performance.now() + 100;
+      return true;
+    }
+
     target.addEventListener('click', (e) => {
       const link = e.target.closest('a[href^="#"]');
       if (link) {
         const hash = link.getAttribute('href');
-        if (hash && hash !== '#' && scrollToHash(hash)) {
+        if (hash && hash !== '#' && navigateToHash(hash)) {
           e.preventDefault();
           if (location.hash !== hash) history.pushState(null, '', hash);
         }
@@ -223,8 +251,25 @@
 
     await mermaid.run({ querySelector: '.mermaid' });
 
-    scrollToHash();
-    window.addEventListener('hashchange', () => scrollToHash());
+    navigateToHash();
+    window.addEventListener('hashchange', () => navigateToHash());
+
+    // Coalesce per-image reflows so multiple <img> loads in one frame trigger
+    // at most one scrollIntoView (otherwise rapid sequential loads cause jank).
+    let reflowScheduled = false;
+    const reflow = () => {
+      if (userScrolledManually || reflowScheduled) return;
+      reflowScheduled = true;
+      requestAnimationFrame(() => {
+        reflowScheduled = false;
+        if (!userScrolledManually) scrollToHash();
+      });
+    };
+    target.querySelectorAll('img').forEach(img => {
+      if (img.complete) return;
+      img.addEventListener('load', reflow, { once: true });
+      img.addEventListener('error', reflow, { once: true });
+    });
   } catch (e) {
     document.getElementById('loading').textContent =
       `Failed to load index.md: ${e.message}`;
