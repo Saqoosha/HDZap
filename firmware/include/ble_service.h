@@ -503,8 +503,8 @@ inline void _ble_gap_diag_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_p
 // source is `nvs_store::loadDeviceName`, which always returns the
 // resolved name including its first-boot fallback. A literal default
 // here would silently mask a setup() refactor that drops the load
-// step and start the device advertising as "HDZeroOSD" regardless of
-// the user's saved rename.
+// step and start the device advertising as the compile-time default
+// (`kDeviceNameDefault`) regardless of the user's saved rename.
 inline void ble_init(const char *device_name) {
     BLEDevice::init(device_name);
     BLEDevice::setCustomGapHandler(_ble_gap_diag_handler);

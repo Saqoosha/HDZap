@@ -12,8 +12,15 @@
 ///                                   printed as comma-separated decimals
 ///                                   (matches what HDZero goggles show).
 ///   [60  .. 61)    hairline rule
-///   [64  .. 110)   Lap band       — caption row + lap number + time.
-///                                   Hijacked by TEST / BIND verdicts.
+///   [64  .. 110)   Lap band       — 4-row mirror of the iOS-formatted
+///                                   goggle OSD text (TIME / LAP / PACE
+///                                   / DIFF). Per-row alignment is
+///                                   inferred from the iOS padding so
+///                                   left / center / right layouts on
+///                                   the goggle are reflected here too.
+///                                   Empty until iOS pushes the first
+///                                   row; hijacked by TEST / BIND
+///                                   verdicts during their 3 s window.
 ///   [110 .. 111)   hairline rule
 ///   [113 .. 135)   Strip          — RADIO indicator (left) + sticky message
 ///                                   slot (right). Persists across redraws.
@@ -141,17 +148,45 @@ public:
         drawUidBand();
     }
 
-    void showLap(uint8_t num, uint32_t ms) {
-        m_haveLap = true;
-        m_lapNum = num;
-        m_lapMs = ms;
-        m_lapFlashUntilMs = millis() + 1000;
-        // Capture the UID-redraw need before clearTakeover wipes the
-        // takeover kind — otherwise we can't tell the band still owes
-        // a paint after a bind takeover was short-circuited by this lap.
-        bool needsUidRedraw = (m_takeoverKind == TakeoverKind::Bind);
-        clearTakeover();
-        if (needsUidRedraw) drawUidBand();
+    /// Mirror the iOS-formatted goggle-OSD rows into the lap band.
+    /// The buffer update is unconditional; rendering defers to an
+    /// in-flight TEST/BIND takeover via `drawLapBand()`'s existing
+    /// takeover check, so a 1 Hz TIME LEFT tick can't clobber a 3 s
+    /// verdict. iOS owns the full lap pipeline since PR #13, making
+    /// this the only path by which lap data lands on the M5 LCD now.
+    //
+    // Parameter dimensions are literal `[4][51]` because C++
+    // member-function parameter lists aren't a complete-class context
+    // — `kMirrorRow*` constants below can't be referenced here. C++
+    // array-to-pointer decay enforces the inner `[51]` at call sites
+    // but silently drops the outer `[4]`, so main.cpp adds paired
+    // `static_assert(OSDTextDisplay::ROW_COUNT == 4)` and
+    // `OSDTextDisplay::ROW_TEXT_MAX == 50` to pin both dims at
+    // compile time.
+    void showOsdMirror(const char rows[4][51], uint8_t dirty) {
+        // Mask off bits beyond kMirrorRowCount so a future caller that
+        // passes high bits doesn't trip `m_haveOsdMirror = true` and
+        // an empty repaint without any actual row update.
+        dirty &= (uint8_t)((1u << kMirrorRowCount) - 1u);
+        if (dirty == 0) return;
+        for (uint8_t i = 0; i < kMirrorRowCount; i++) {
+            if (dirty & (uint8_t)(1u << i)) {
+                strncpy(m_osdRows[i], rows[i], kMirrorRowMax);
+                m_osdRows[i][kMirrorRowMax] = 0;
+            }
+        }
+        m_haveOsdMirror = true;
+        drawLapBand();
+    }
+
+    /// Drop the mirror to the blank-canvas idle state. Wired to
+    /// OSD-clear and lap-reset paths in main.cpp so the M5 LCD tracks
+    /// the goggle's fresh-slate intent instead of holding the prior
+    /// race's text.
+    void clearOsdMirror() {
+        if (!m_haveOsdMirror) return;
+        m_haveOsdMirror = false;
+        for (uint8_t i = 0; i < kMirrorRowCount; i++) m_osdRows[i][0] = 0;
         drawLapBand();
     }
 
@@ -216,17 +251,12 @@ public:
 
     void update() {
         M5.update();
-        // While asleep, skip update()'s own time-driven repaints
-        // (lap-flash and takeover expiry). External show*() callers
-        // still write to GRAM behind the dark panel; wakePanel() does
-        // a full repaint so those are eventually overdrawn.
+        // While asleep, skip update()'s own time-driven repaint
+        // (takeover expiry). External show*() callers still write to
+        // GRAM behind the dark panel; wakePanel() does a full repaint
+        // so those are eventually overdrawn.
         if (m_panelAsleep) return;
         uint32_t now = millis();
-
-        if (m_lapFlashUntilMs && now >= m_lapFlashUntilMs) {
-            m_lapFlashUntilMs = 0;
-            drawLapBand();
-        }
 
         if (m_takeoverUntilMs && now >= m_takeoverUntilMs) {
             // clearTakeover drops m_bindActive when wasBind, so the
@@ -291,6 +321,14 @@ private:
     static constexpr int kStripY      = 113;
     static constexpr int kStripH      = 22;
     static constexpr uint32_t kTakeoverMs = 3000;
+    // Mirror buffer sized to match OSDTextDisplay's ROW_COUNT/ROW_TEXT_MAX
+    // without taking a header dependency on osd_text_display.h (which would
+    // pull osd.h + ESP-NOW into the LCD module). main.cpp passes the same
+    // `rows[OSDTextDisplay::ROW_COUNT][OSDTextDisplay::ROW_TEXT_MAX + 1]`
+    // buffer, so a future ROW_TEXT_MAX bump that misses this constant
+    // fails the showOsdMirror() call-site dimension match at compile time.
+    static constexpr uint8_t kMirrorRowCount = 4;
+    static constexpr uint8_t kMirrorRowMax   = 50;
 
     int m_w = 240, m_h = 135;
 
@@ -318,10 +356,11 @@ private:
     // ~50 px on top of the right-side battery + BLE widgets.
     char m_deviceName[nvs_store::kDeviceNameMaxLen + 1] = {};
 
-    bool m_haveLap = false;
-    uint8_t m_lapNum = 0;
-    uint32_t m_lapMs = 0;
-    uint32_t m_lapFlashUntilMs = 0;
+    // iOS-driven OSD-text mirror. Populated by `showOsdMirror`,
+    // cleared by `clearOsdMirror`. While set, `drawLapBand` renders
+    // these 4 rows; otherwise the band stays blank.
+    bool m_haveOsdMirror = false;
+    char m_osdRows[kMirrorRowCount][kMirrorRowMax + 1] = {};
 
     TakeoverKind m_takeoverKind = TakeoverKind::None;
     bool m_takeoverOk = false;
@@ -358,10 +397,12 @@ private:
 
     void clearTakeover() {
         // m_bindActive is owned by the bind takeover lifecycle. Dropping
-        // it here means showStatus / showLap / update() expiry all
-        // reliably repaint the UID band white on the next draw —
-        // otherwise an interrupted bind (lap arrives mid-takeover, BLE
-        // reconnects mid-takeover) could strand the band yellow forever.
+        // it here means showStatus / update() expiry both reliably
+        // repaint the UID band white on the next draw — otherwise an
+        // interrupted bind (BLE reconnects mid-takeover) could strand
+        // the band yellow forever. showOsdMirror intentionally does NOT
+        // call clearTakeover so a 1 Hz TIME LEFT tick can't clobber a
+        // 3 s bind verdict; the natural expiry path covers cleanup.
         if (m_takeoverKind == TakeoverKind::Bind) m_bindActive = false;
         m_takeoverKind = TakeoverKind::None;
         m_takeoverOk = false;
@@ -559,54 +600,15 @@ private:
             return;
         }
 
-        M5.Display.setTextSize(1);
-        M5.Display.setTextColor(m_colSub, TFT_BLACK);
-        M5.Display.setCursor(6, kLapBandY + 4);
-        M5.Display.print("LAST LAP");
-        int timeLabelW = M5.Display.textWidth("TIME");
-        M5.Display.setCursor(m_w - 6 - timeLabelW, kLapBandY + 4);
-        M5.Display.print("TIME");
-
-        // Lap number and time share the same dim/ink rule: dim if no lap
-        // yet OR either link is down. The lap *value* survived as past
-        // data either way; the dim treatment communicates "you can't
-        // trust this to be reaching the goggle right now."
-        bool flashing = m_haveLap && m_lapFlashUntilMs && millis() < m_lapFlashUntilMs;
-        bool linksUp = m_bleConnected && m_radioReady;
-        uint16_t lapCol;
-        if (!m_haveLap)     lapCol = m_colDim;
-        else if (flashing)  lapCol = m_colAccent;
-        else if (!linksUp)  lapCol = m_colDim;
-        else                lapCol = m_colInk;
-
-        M5.Display.setTextColor(lapCol, TFT_BLACK);
-        M5.Display.setTextSize(3); // 18×24
-        char numBuf[8];
-        if (m_haveLap) snprintf(numBuf, sizeof(numBuf), "%02u", m_lapNum);
-        else           snprintf(numBuf, sizeof(numBuf), "--");
-        M5.Display.setCursor(6, kLapBandY + 16);
-        M5.Display.print(numBuf);
-
-        uint16_t timeCol = (m_haveLap && linksUp) ? m_colInk : m_colDim;
-        M5.Display.setTextColor(timeCol, TFT_BLACK);
-        M5.Display.setTextSize(2); // 12×16
-        char timeBuf[16];
-        if (m_haveLap) {
-            uint32_t s = m_lapMs / 1000;
-            uint32_t m = s / 60;
-            s %= 60;
-            uint32_t milli = m_lapMs % 1000;
-            snprintf(timeBuf, sizeof(timeBuf), "%02lu:%02lu.%03lu",
-                     (unsigned long)m, (unsigned long)s, (unsigned long)milli);
-        } else {
-            snprintf(timeBuf, sizeof(timeBuf), "--:--.---");
+        if (m_haveOsdMirror) {
+            drawOsdMirror();
+            return;
         }
-        int timeW = M5.Display.textWidth(timeBuf);
-        M5.Display.setCursor(m_w - 6 - timeW, kLapBandY + 20);
-        M5.Display.print(timeBuf);
 
-        M5.Display.setTextSize(1);
-        M5.Display.setTextColor(m_colInk, TFT_BLACK);
+        // No mirror, no takeover: the band stays blank. iOS owns lap
+        // data and pushes it as OSD text the moment a race is active,
+        // so the placeholder served no purpose other than implying a
+        // structured lap UI the firmware no longer participates in.
     }
 
     void drawTakeover() {
@@ -645,6 +647,77 @@ private:
 
         M5.Display.setTextSize(1);
         M5.Display.setTextColor(m_colInk, TFT_BLACK);
+    }
+
+    // Renders the iOS-mirrored OSD rows. Per-row x is recovered from
+    // iOS padOSD's leading/trailing space placement; see inline. Color
+    // dims when either link is down so the operator can see at a
+    // glance whether the goggle is in sync. Hidden semantic rows
+    // (50-space padding from iOS) are skipped so the band doesn't get
+    // an empty stripe.
+    void drawOsdMirror() {
+        M5.Display.setFont(&fonts::Font0);
+        M5.Display.setTextSize(1);
+        // A 50-char trimmed row at Font0 (6 px/char) is 300 px, well
+        // past m_w=240. With the class-default text wrap enabled, a
+        // long line would bleed into the next mirror row or past the
+        // band's bottom edge into the hairline. Mirror drawUidBand /
+        // showSplash and force wrap off for the duration of the band
+        // paint, restoring the default at the end.
+        M5.Display.setTextWrap(false);
+        bool linksUp = m_bleConnected && m_radioReady;
+        M5.Display.setTextColor(linksUp ? m_colInk : m_colDim, TFT_BLACK);
+
+        // Font0 is 8 px tall; 11 px row pitch × 4 rows = 44 px fits
+        // inside kLapBandH=46 with 1 px top and bottom margin.
+        constexpr int kRowH = 11;
+        constexpr int kEdgeMargin = 2;
+        for (uint8_t i = 0; i < kMirrorRowCount; i++) {
+            const char *src = m_osdRows[i];
+            size_t total = strlen(src);
+            size_t lead = 0;
+            while (lead < total && src[lead] == ' ') lead++;
+            if (lead == total) continue;  // all-space, hidden row
+            size_t trail = 0;
+            while (trail < total - lead && src[total - 1 - trail] == ' ') trail++;
+            char buf[kMirrorRowMax + 1];
+            size_t len = total - lead - trail;
+            // `len` is bounded by `total` and `total ≤ kMirrorRowMax`
+            // is enforced structurally: showOsdMirror's strncpy +
+            // explicit terminator caps each m_osdRows[i] at
+            // kMirrorRowMax bytes, and main.cpp's static_asserts pin
+            // kMirrorRowMax to the wire-format upper bound. No runtime
+            // clamp needed.
+            memcpy(buf, src + lead, len);
+            buf[len] = 0;
+            int w = M5.Display.textWidth(buf);
+            // iOS padOSD produces:
+            //   left  → text+spaces:  lead=0,        trail=padding
+            //   right → spaces+text:  lead=padding,  trail=0
+            //   center→ split spaces: lead=padding/2, trail=padding-lead
+            //                         (so |trail-lead| ≤ 1; trail==1
+            //                         when padding==1, with lead==0)
+            // Center with padding==1 and left with text.count==49 both
+            // produce (lead=0, trail=1) — indistinguishable from the
+            // mirror's side. Tie-break to center (matches iOS center
+            // intent; legitimate left with that exact length renders
+            // ~1 char to the right of intent, visually still leading-
+            // edge biased). Mirror reasoning for right.
+            int x;
+            if (lead == 0 && trail >= 2) {
+                x = kEdgeMargin;                       // unambiguous left
+            } else if (trail == 0 && lead >= 1) {
+                x = m_w - kEdgeMargin - w;             // right (center never has trail==0,lead>0)
+            } else {
+                x = (m_w - w) / 2;                     // center (incl. padding≤1 ambiguous)
+            }
+            if (x < kEdgeMargin) x = kEdgeMargin;
+            M5.Display.setCursor(x, kLapBandY + 1 + (int)i * kRowH);
+            M5.Display.print(buf);
+        }
+        // Restore the class-invariant default so unrelated callers
+        // (e.g. drawStrip, drawUidBand) don't inherit a non-wrap state.
+        M5.Display.setTextWrap(true);
     }
 
     void drawStrip() {

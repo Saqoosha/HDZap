@@ -174,7 +174,36 @@
       if (!h.id) h.id = slugify(h.textContent);
     });
 
+    function hashTargetId(hash) {
+      if (!hash || hash === '#') return '';
+      const raw = hash.slice(1);
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+
+    function scrollToHash(hash = location.hash) {
+      const id = hashTargetId(hash);
+      if (!id) return false;
+      const el = document.getElementById(id);
+      if (!el) return false;
+      el.scrollIntoView({ block: 'start' });
+      return true;
+    }
+
     target.addEventListener('click', (e) => {
+      const link = e.target.closest('a[href^="#"]');
+      if (link) {
+        const hash = link.getAttribute('href');
+        if (hash && hash !== '#' && scrollToHash(hash)) {
+          e.preventDefault();
+          if (location.hash !== hash) history.pushState(null, '', hash);
+        }
+        return;
+      }
+
       const btn = e.target.closest('.copy-link-btn');
       if (!btn || !btn.dataset.clipboard || !navigator.clipboard) return;
       navigator.clipboard.writeText(btn.dataset.clipboard).then(() => {
@@ -193,10 +222,8 @@
 
     await mermaid.run({ querySelector: '.mermaid' });
 
-    if (location.hash) {
-      const el = document.querySelector(location.hash);
-      if (el) el.scrollIntoView();
-    }
+    scrollToHash();
+    window.addEventListener('hashchange', () => scrollToHash());
   } catch (e) {
     document.getElementById('loading').textContent =
       `Failed to load index.md: ${e.message}`;
