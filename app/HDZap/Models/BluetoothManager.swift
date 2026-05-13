@@ -916,10 +916,10 @@ extension BluetoothManager: CBCentralManagerDelegate {
             discoveredDevices.append(peripheral)
         }
         // Local name lives in the firmware's scan response — capture it
-        // so the discovered-devices row can show "HDZeroOSD" instead of
-        // "Unknown" before the first connect. Only update on a real
-        // change so the @Observable storage doesn't churn the UI on
-        // every duplicate scan tick.
+        // so the discovered-devices row can show "HDZapBridge" (or the
+        // operator-chosen rename) instead of "Unknown" before the first
+        // connect. Only update on a real change so the @Observable
+        // storage doesn't churn the UI on every duplicate scan tick.
         if let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String,
            advertisedNames[peripheral.identifier] != name {
             advertisedNames[peripheral.identifier] = name

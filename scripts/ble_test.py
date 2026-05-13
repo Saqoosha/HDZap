@@ -21,7 +21,7 @@ import hashlib
 
 from bleak import BleakClient, BleakScanner
 
-DEVICE_NAME = "HDZeroOSD"
+DEVICE_NAME = "HDZapBridge"
 
 # Service UUID is bumped on every GATT shape change to defeat iOS
 # CoreBluetooth's per-peripheral cache (without bonding, added/removed
@@ -94,7 +94,7 @@ async def cmd_status(client):
 async def cmd_test(client):
     print("Sending OSD test (osdControl <- 0x03)...")
     await client.write_gatt_char(OSD_CTRL_UUID, bytes([OSD_CMD_TEST]), response=True)
-    print("Sent. Watch the goggle for 'HDZERO TEST' and the M5Stick LCD strip for TEST OK / TEST LOST.")
+    print("Sent. Watch the goggle for 'HDZAP TEST' and the M5Stick LCD strip for TEST OK / TEST LOST.")
 
 
 async def cmd_clear(client):

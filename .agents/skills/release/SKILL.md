@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a new HDZap release — bump the iOS marketing/build version on the develop branch, build and upload the iOS app to TestFlight, promote develop → main via a release PR, deploy the Web Flasher firmware + end-user manual to production GitHub Pages, tag the released commit as v<X.Y.Z>, and publish a GitHub Release. Also handles **build-only releases** (CURRENT_PROJECT_VERSION bump only, no MARKETING_VERSION change) when the operator needs to ship to existing TestFlight beta testers without triggering a fresh beta-review approval cycle. Use when the user says "release", "ship it", "cut a release", "new version", "promote develop to main", "TestFlight build", "bump version", "tag a release", "v1.0.x", "build-only release", "ship without bumping version", or otherwise asks to release HDZap.
+description: Cut a new HDZap release — bump the iOS marketing/build version on the develop branch, build and upload the iOS app to TestFlight, promote develop → main via a release PR, deploy the Web Flasher firmware + end-user manual to production GitHub Pages, tag the released commit as v<X.Y.Z>, and publish a GitHub Release. Also handles **build-only releases** (CURRENT_PROJECT_VERSION bump only, no MARKETING_VERSION change) when the operator needs to ship to existing TestFlight beta testers without triggering a fresh beta-review approval cycle. Use when the user says "release", "cut a release", "new version", "promote develop to main", "TestFlight build", "bump version", "tag a release", "v1.0.x", "build-only release", "ship without bumping version", or otherwise asks to release HDZap. (Do not trigger on generic "ship it" — that belongs to the `/ship-it` PR workflow skill.)
 ---
 
 # Release HDZap
@@ -104,7 +104,7 @@ The re-run picks up the new tag and rebuilds + redeploys, so the production Web 
 
 ### 5. Tell the user where to find the build
 
-```
+```text
 TestFlight processes the new build in 5–30 min. Once VALID, internal testers
 in the "Internal Testers" group can install via the TestFlight app.
 ```
@@ -163,15 +163,15 @@ Use this variant when the operator wants the develop tip to reach existing TestF
      -configuration Release \
      -archivePath build/archives/HDZap.xcarchive \
      -allowProvisioningUpdates \
-     DEVELOPMENT_TEAM=VCFY2GFR89 \
+     DEVELOPMENT_TEAM=<TEAM_ID> \
      archive
    ```
 
 4. **Upload to TestFlight** (irreversible). `upload-testflight.sh` has `<KEY_ID>` / `<ISSUER_ID>` placeholders — pass real values via env vars:
 
    ```bash
-   ASC_API_KEY_ID=76DV838N2N \
-   ASC_API_ISSUER_ID=69a6de6e-6653-47e3-e053-5b8c7c11a4d1 \
+   ASC_API_KEY_ID=<KEY_ID> \
+   ASC_API_ISSUER_ID=<ISSUER_ID> \
    ./scripts/upload-testflight.sh
    ```
 
@@ -184,7 +184,7 @@ Use this variant when the operator wants the develop tip to reach existing TestF
    build can ship to existing beta testers without a fresh beta-review
    approval cycle.
 
-   Co-Authored-By: Codex <model> <noreply@anthropic.com>"
+   Co-Authored-By: Claude <model name> <noreply@anthropic.com>"
    jj bookmark set develop -r @
    jj git push --bookmark develop
    ```
