@@ -4,7 +4,7 @@ import CoreBluetooth
 enum OSDCommand: UInt8 {
     case clear = 0x01
     case resetLaps = 0x02
-    /// Debug-only: fire a single test message ("HDZERO TEST") at the
+    /// Debug-only: fire a single test message ("HDZAP TEST") at the
     /// goggle OSD to verify ESP-NOW delivery end-to-end without having
     /// to start the timer and record a lap.
     case testOSD = 0x03
@@ -436,7 +436,7 @@ class BluetoothManager: NSObject {
             lastError = "Bluetooth is off. Enable it in Control Center."
             return
         case .unauthorized:
-            lastError = "Bluetooth permission denied. Open Settings → HDZero → Bluetooth."
+            lastError = "Bluetooth permission denied. Open Settings → HDZap → Bluetooth."
             return
         case .unsupported:
             lastError = "This device doesn't support Bluetooth LE."
@@ -900,7 +900,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
         case .poweredOff:
             lastError = "Bluetooth turned off mid-session. Laps are not reaching the goggle — enable Bluetooth and tap Scan."
         case .unauthorized:
-            lastError = "Bluetooth permission revoked. Re-grant in Settings → HDZero → Bluetooth."
+            lastError = "Bluetooth permission revoked. Re-grant in Settings → HDZap → Bluetooth."
         case .resetting:
             lastError = "Bluetooth stack resetting. Wait a moment, then tap Scan."
         case .unsupported:

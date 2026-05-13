@@ -8,6 +8,10 @@
   <a href="https://saqoosha.github.io/HDZap/">English</a> ・ <strong>日本語</strong>
 </p>
 
+> **サポート.** 質問・バグ報告・要望は [a@saqoo.sh](mailto:a@saqoo.sh) または [GitHub Issues](https://github.com/Saqoosha/HDZap/issues) までお願いします。よくある問題は下の [§11 トラブルシューティング](#11-トラブルシューティング) を参照してください。
+>
+> **免責事項.** HDZap は個人開発者による独立した第三者ツールです。HDZero、ExpressLRS、M5Stack はそれぞれの権利者の商標であり、HDZap はこれらのプロジェクト・企業と提携・後援・推薦関係にはありません。本マニュアル中で参照する製品名は、ハードウェアの互換性を説明する目的でのみ使用しています。
+
 ---
 
 ## 目次

@@ -8,6 +8,10 @@
   <strong>English</strong> ・ <a href="https://saqoosha.github.io/HDZap/ja/">日本語</a>
 </p>
 
+> **Need help?** Email [a@saqoo.sh](mailto:a@saqoo.sh) or open an issue on [GitHub Issues](https://github.com/Saqoosha/HDZap/issues). Common problems are covered in [§11 Troubleshooting](#11-troubleshooting) below.
+>
+> **Disclaimer.** HDZap is an independent, third-party tool created by an individual developer. HDZero, ExpressLRS, and M5Stack are trademarks of their respective owners. HDZap is not affiliated with, endorsed by, or sponsored by any of these projects or companies. Product names referenced in this manual are used solely to describe hardware compatibility.
+
 ---
 
 ## Table of Contents
