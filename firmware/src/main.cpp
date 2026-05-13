@@ -24,6 +24,19 @@ static_assert(OSDTextDisplay::ROW_COUNT == OSD_TEXT_ROW_COUNT,
               "OSD text row count mismatch between ble_service.h and osd_text_display.h");
 static_assert(OSDTextDisplay::ROW_TEXT_MAX == OSD_TEXT_ROW_MAX,
               "OSD text row max length mismatch between ble_service.h and osd_text_display.h");
+// stick_display.h's `showOsdMirror(const char rows[4][51], uint8_t)`
+// hard-codes the outer/inner row dimensions because C++ member-function
+// parameter lists can't reference later-declared class constants. The
+// inner `[51]` is enforced at call sites by C++'s array-to-pointer
+// decay (the inner dim survives, the outer doesn't), but the outer
+// `[4]` decays away silently — a future `ROW_COUNT` bump would let
+// callers pass `char[5][51]` and the mirror would drop the extra row
+// without complaint. Pin both dims to the OSDTextDisplay source of
+// truth so any drift fails the build here instead.
+static_assert(OSDTextDisplay::ROW_COUNT == 4,
+              "StickDisplay::showOsdMirror outer dim ([4]) must match OSDTextDisplay::ROW_COUNT");
+static_assert(OSDTextDisplay::ROW_TEXT_MAX == 50,
+              "StickDisplay::showOsdMirror inner dim ([51]) must match OSDTextDisplay::ROW_TEXT_MAX + 1");
 
 uint8_t g_uid[6] = {};
 // True only when the displayed UID came from the MAC fallback in
@@ -562,16 +575,18 @@ void loop() {
             // WAITING_ACK window would otherwise lose its bit when the
             // pending verify finally clears m_dirty on success.
             osdTextDisplay.setDirtyRows(dirty, rows);
+            // Mirror onto the M5 LCD lap band. Stage-time (not
+            // goggle-dispatch success) so the M5 stays reactive when
+            // ESP-NOW is down; drawOsdMirror dims the text to signal
+            // that the goggle may not be in sync.
+            stickDisplay.showOsdMirror(rows, dirty);
             if (!espnow_ready) {
                 stickDisplay.showMessage("ESPNOW DOWN", stickDisplay.colorErr());
             } else {
                 stickDisplay.clearMessage();
             }
-            // OSD text dirty rows are the new "lap arrived from iOS"
-            // signal after PR #13 collapsed the firmware lap pipeline
-            // into iOS-driven OSD text. Treat them as operator activity
-            // for the same reason we'd wake on the old g_lap_received
-            // edge: the operator is actively running a session.
+            // Treat OSD-text edges as operator activity — the operator
+            // is actively running a session.
             markActivity();
         }
     }
@@ -687,6 +702,21 @@ void loop() {
         // first. The next OSD-text frame will re-arm requestRender()
         // naturally.
         cancelRender();
+        // Drop the staged OSD text alongside the goggle clear. Without
+        // this, the IDLE+hasDirty catch-up trigger (or a later
+        // setBaseRow() that re-marks all 4 rows dirty) would re-dispatch
+        // the cached pre-clear rows on top of the now-empty goggle, so
+        // the operator's clear gets silently undone the moment ESP-NOW
+        // comes back up or the layout shifts.
+        osdTextDisplay.clear();
+        // Drop the M5 LCD mirror back to the blank-canvas idle state so
+        // the lap band reflects the goggle's fresh-slate intent. Done
+        // unconditionally (even on the ESPNOW DOWN / CLEAR FAIL branches)
+        // — the operator asked for clear; honoring it locally is correct
+        // regardless of whether the goggle-side clear succeeded. The
+        // strip message (CLEAR: ESPNOW DOWN / CLEAR FAIL / OSD CLEARED)
+        // surfaces the asymmetry to the operator.
+        stickDisplay.clearOsdMirror();
         if (!espnow_ready) {
             stickDisplay.showMessage("CLEAR: ESPNOW DOWN", stickDisplay.colorOrange());
         } else if (!(osd.clear() && osd.draw())) {
@@ -915,6 +945,7 @@ void loop() {
         // cycle before clearing.
         cancelRender();
         osdTextDisplay.clear();
+        stickDisplay.clearOsdMirror();
         if (!espnow_ready) {
             Serial.println("Laps reset (local only; ESP-NOW down)");
             stickDisplay.showMessage("RESET: ESPNOW DOWN", stickDisplay.colorOrange());
