@@ -14,12 +14,15 @@ struct TimerView: View {
     @Environment(LapAnnouncer.self) private var announcer
     @Environment(RaceHistoryStore.self) private var history
     @Environment(OSDLayoutSettings.self) private var osdLayout
+    @Environment(WatchBridge.self) private var watchBridge
     @AppStorage(RaceMetrics.targetLapCountStorageKey) private var targetLapCount
         = RaceMetrics.defaultTargetLapCount
     @AppStorage(RaceMetrics.raceSessionLimitStorageKey) private var raceSessionLimit: Int
         = RaceMetrics.defaultSessionLimit
     @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled
         = LapAnnouncerDefaults.defaultEnabled
+    @AppStorage(WatchHapticsDefaults.enabledKey) private var watchHapticsEnabled
+        = WatchHapticsDefaults.defaultEnabled
     @Environment(\.accentHue) private var accentHue: Double
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
     private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }
@@ -328,6 +331,49 @@ struct TimerView: View {
         .sensoryFeedback(trigger: lapTimer.isRunning) { old, new in
             (!old && new) ? .impact(weight: .heavy) : nil
         }
+        // Apple Watch state mirror. The watch derives the live remaining
+        // time locally from a single snapshot, so we only need to publish
+        // on race-state transitions and on the inputs that change the
+        // countdown deadlines (sessionLimit, lapCount, hapticsEnabled
+        // toggle). Snapshot publishes are independent of `bluetooth.isReady`
+        // — the Apple Watch path doesn't go through the goggle bridge.
+        .onAppear { publishWatchSnapshot() }
+        .onChange(of: lapTimer.isRunning) { _, _ in publishWatchSnapshot() }
+        .onChange(of: lapTimer.laps.count) { _, _ in publishWatchSnapshot() }
+        .onChange(of: sessionEnded) { _, _ in publishWatchSnapshot() }
+        .onChange(of: raceSessionLimit) { _, _ in publishWatchSnapshot() }
+        .onChange(of: targetLapCount) { _, _ in publishWatchSnapshot() }
+        .onChange(of: watchHapticsEnabled) { _, _ in publishWatchSnapshot() }
+    }
+
+    // MARK: - Apple Watch snapshot
+
+    /// Derive a `RaceSnapshot` from the current `lapTimer` + AppStorage
+    /// state and hand it to the bridge. Phase mapping mirrors the same
+    /// `sessionEnded` / `isRunning` / pre-race logic the iOS UI uses, so
+    /// the watch can never disagree with the phone about whether the
+    /// race is live, paused, or done.
+    private func publishWatchSnapshot() {
+        let phase: RaceSnapshot.Phase
+        if sessionEnded {
+            phase = .ended
+        } else if lapTimer.isRunning {
+            phase = .running
+        } else if lapTimer.elapsedTime > 0 || !lapTimer.laps.isEmpty {
+            phase = .paused
+        } else {
+            phase = .idle
+        }
+        let snapshot = RaceSnapshot(
+            phase: phase,
+            elapsedAtPublish: lapTimer.elapsedTime,
+            publishedAt: Date(),
+            sessionLimit: sessionLimit,
+            targetLapCount: clampedTargetLapCount,
+            lapCount: lapTimer.laps.count,
+            hapticsEnabled: watchHapticsEnabled
+        )
+        watchBridge.publish(snapshot)
     }
 
     // MARK: - Masthead

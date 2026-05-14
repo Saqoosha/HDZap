@@ -7,6 +7,7 @@ struct HDZapApp: App {
     @State private var lapAnnouncer = LapAnnouncer()
     @State private var raceHistory = RaceHistoryStore()
     @State private var osdLayout = OSDLayoutSettings()
+    @State private var watchBridge = WatchBridge()
 
     init() {
         UserDefaults.standard.register(defaults: [
@@ -19,6 +20,7 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.rateKey: Double(LapAnnouncerDefaults.defaultRate),
             LapAnnouncerDefaults.pitchKey: Double(LapAnnouncerDefaults.defaultPitch),
             LapAnnouncerDefaults.voiceIdentifierKey: LapAnnouncerDefaults.defaultVoiceIdentifier,
+            WatchHapticsDefaults.enabledKey: WatchHapticsDefaults.defaultEnabled,
         ])
         #if DEBUG
         _oklchSanityCheck()
@@ -33,6 +35,7 @@ struct HDZapApp: App {
                 .environment(lapAnnouncer)
                 .environment(raceHistory)
                 .environment(osdLayout)
+                .environment(watchBridge)
         }
     }
 }

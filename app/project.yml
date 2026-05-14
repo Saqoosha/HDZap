@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: sh.saqoo
   deploymentTarget:
     iOS: "18.0"
+    watchOS: "11.0"
   xcodeVersion: "16.4"
   developmentLanguage: en
 settings:
@@ -13,7 +14,6 @@ settings:
     DEVELOPMENT_TEAM: VCFY2GFR89
     CODE_SIGN_STYLE: Automatic
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-    TARGETED_DEVICE_FAMILY: "1"
 targets:
   HDZap:
     type: application
@@ -23,6 +23,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
     sources:
       - HDZap
+      - HDZapShared
+    dependencies:
+      - target: HDZapWatch
+        embed: true
     info:
       path: HDZap/Info.plist
       properties:
@@ -35,3 +39,34 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIRequiresFullScreen: YES
         UILaunchScreen: {}
+
+  HDZapWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - HDZapWatch
+      - HDZapShared
+    info:
+      path: HDZapWatch/Info.plist
+      properties:
+        CFBundleDisplayName: HDZap
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: YES
+        WKCompanionAppBundleIdentifier: sh.saqoo.HDZap
+        WKBackgroundModes:
+          - workout-processing
+        NSHealthShareUsageDescription: "HDZap uses a workout session to keep the race timer responsive so countdown haptics fire on time."
+        NSHealthUpdateUsageDescription: "HDZap uses a workout session to keep the race timer responsive so countdown haptics fire on time."
+    settings:
+      base:
+        # ASSETCATALOG_COMPILER_APPICON_NAME inherits the iOS-side default,
+        # which doesn't exist in the watch asset catalog yet — clear it
+        # so the build doesn't fail looking for a watch app icon set.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        TARGETED_DEVICE_FAMILY: "4"
+        WATCHOS_DEPLOYMENT_TARGET: "11.0"
+        # Companion-app pairing rule: watch bundle id MUST be the iPhone
+        # app's bundle id with `.watchkitapp` appended. Apple has enforced
+        # this since the WatchKit-extension split was retired in watchOS 9.
+        PRODUCT_BUNDLE_IDENTIFIER: sh.saqoo.HDZap.watchkitapp
