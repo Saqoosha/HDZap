@@ -121,6 +121,7 @@
 		E48C631CA51BB0A3E899833E /* AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsView.swift; sourceTree = "<group>"; };
 		E6ACFF44D27BA66D4B32E55F /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceRecord.swift; sourceTree = "<group>"; };
+		F97CFFCF38AA96371E7F6E8E /* HDZapWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HDZapWatch.entitlements; sourceTree = "<group>"; };
 		FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -180,6 +181,7 @@
 		52381E618C342956FC00562A /* HDZapWatch */ = {
 			isa = PBXGroup;
 			children = (
+				F97CFFCF38AA96371E7F6E8E /* HDZapWatch.entitlements */,
 				0E9E29C1D9B0D66F129E9851 /* HDZapWatchApp.swift */,
 				4CA65BC0D6ED3AEB37009004 /* Info.plist */,
 				7B0ABEF11BC0BA8BD5166577 /* Services */,
@@ -595,6 +597,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = HDZapWatch/HDZapWatch.entitlements;
 				INFOPLIST_FILE = HDZapWatch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = sh.saqoo.HDZap.watchkitapp;
 				SDKROOT = watchos;
@@ -608,6 +611,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = HDZapWatch/HDZapWatch.entitlements;
 				INFOPLIST_FILE = HDZapWatch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = sh.saqoo.HDZap.watchkitapp;
 				SDKROOT = watchos;

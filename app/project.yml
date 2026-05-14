@@ -46,6 +46,15 @@ targets:
     sources:
       - HDZapWatch
       - HDZapShared
+    entitlements:
+      path: HDZapWatch/HDZapWatch.entitlements
+      properties:
+        # HKWorkoutSession requires this entitlement. Without it the
+        # device install fails with "Could not install at this time."
+        # even when the bundle is signed and the provisioning profile
+        # is valid. The iPhone target does NOT need this — it's
+        # watch-only.
+        com.apple.developer.healthkit: true
     info:
       path: HDZapWatch/Info.plist
       properties:
