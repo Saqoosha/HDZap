@@ -337,13 +337,20 @@ struct TimerView: View {
         // countdown deadlines (sessionLimit, lapCount, hapticsEnabled
         // toggle). Snapshot publishes are independent of `bluetooth.isReady`
         // — the Apple Watch path doesn't go through the goggle bridge.
-        .onAppear { publishWatchSnapshot() }
-        .onChange(of: lapTimer.isRunning) { _, _ in publishWatchSnapshot() }
-        .onChange(of: lapTimer.laps.count) { _, _ in publishWatchSnapshot() }
-        .onChange(of: sessionEnded) { _, _ in publishWatchSnapshot() }
-        .onChange(of: raceSessionLimit) { _, _ in publishWatchSnapshot() }
-        .onChange(of: targetLapCount) { _, _ in publishWatchSnapshot() }
-        .onChange(of: watchHapticsEnabled) { _, _ in publishWatchSnapshot() }
+        //
+        // Extracted into a dedicated modifier because piling six more
+        // `.onChange` calls onto the main `body` chain trips Swift's
+        // "unable to type-check this expression in reasonable time" —
+        // each modifier compounds the inferred generic type.
+        .modifier(PublishWatchSnapshotModifier(
+            isRunning: lapTimer.isRunning,
+            lapCount: lapTimer.laps.count,
+            sessionEnded: sessionEnded,
+            raceSessionLimit: raceSessionLimit,
+            targetLapCount: targetLapCount,
+            watchHapticsEnabled: watchHapticsEnabled,
+            publish: publishWatchSnapshot
+        ))
     }
 
     // MARK: - Apple Watch snapshot
@@ -374,6 +381,32 @@ struct TimerView: View {
             hapticsEnabled: watchHapticsEnabled
         )
         watchBridge.publish(snapshot)
+    }
+
+    /// Owns the six `.onChange` triggers + `.onAppear` that drive
+    /// `publishWatchSnapshot`. Pulled out of the main `body` so the
+    /// outer view's modifier chain stays small enough for Swift to
+    /// type-check in reasonable time — the same chain inlined into
+    /// `body` tripped the compiler's exponential generic inference.
+    private struct PublishWatchSnapshotModifier: ViewModifier {
+        let isRunning: Bool
+        let lapCount: Int
+        let sessionEnded: Bool
+        let raceSessionLimit: Int
+        let targetLapCount: Int
+        let watchHapticsEnabled: Bool
+        let publish: () -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .onAppear { publish() }
+                .onChange(of: isRunning) { _, _ in publish() }
+                .onChange(of: lapCount) { _, _ in publish() }
+                .onChange(of: sessionEnded) { _, _ in publish() }
+                .onChange(of: raceSessionLimit) { _, _ in publish() }
+                .onChange(of: targetLapCount) { _, _ in publish() }
+                .onChange(of: watchHapticsEnabled) { _, _ in publish() }
+        }
     }
 
     // MARK: - Masthead
