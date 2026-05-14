@@ -195,16 +195,6 @@
     }
 
     target.addEventListener('click', (e) => {
-      const link = e.target.closest('a[href^="#"]');
-      if (link) {
-        const hash = link.getAttribute('href');
-        if (hash && hash !== '#' && scrollToHash(hash)) {
-          e.preventDefault();
-          if (location.hash !== hash) history.pushState(null, '', hash);
-        }
-        return;
-      }
-
       const btn = e.target.closest('.copy-link-btn');
       if (!btn || !btn.dataset.clipboard || !navigator.clipboard) return;
       navigator.clipboard.writeText(btn.dataset.clipboard).then(() => {
@@ -223,8 +213,9 @@
 
     await mermaid.run({ querySelector: '.mermaid' });
 
+    // Initial hash navigation only — browser handles in-page anchor clicks and
+    // back/forward natively once heading IDs are in the DOM.
     scrollToHash();
-    window.addEventListener('hashchange', () => scrollToHash());
   } catch (e) {
     document.getElementById('loading').textContent =
       `Failed to load index.md: ${e.message}`;
