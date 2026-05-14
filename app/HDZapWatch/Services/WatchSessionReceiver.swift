@@ -49,8 +49,12 @@ final class WatchSessionReceiver: NSObject {
             let decoded = try RaceSnapshotWire.decode(context)
             switch decoded {
             case .snapshot(let snapshot):
-                guard snapshot.schemaVersion == RaceSnapshot.currentSchemaVersion else {
-                    log.warning("\(source): schema mismatch (\(snapshot.schemaVersion) vs \(RaceSnapshot.currentSchemaVersion)) — dropping")
+                // Accept any snapshot at-or-below our schema version —
+                // Codable's tolerance for missing keys handles older
+                // payloads. Drop *higher* versions so a forward-rolled
+                // iPhone doesn't feed us a shape we can't trust.
+                guard snapshot.schemaVersion <= RaceSnapshot.currentSchemaVersion else {
+                    log.warning("\(source): future schema (\(snapshot.schemaVersion) > \(RaceSnapshot.currentSchemaVersion)) — dropping")
                     return
                 }
                 onSnapshot(snapshot)

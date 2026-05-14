@@ -11,7 +11,15 @@ private let log = Logger(subsystem: "sh.saqoo.HDZap.watchkitapp", category: "Wor
 /// We don't collect health samples — the workout is purely a runtime
 /// keepalive. `discardWorkout()` on stop keeps the user's Health log
 /// clean of zero-content entries.
+///
+/// Marked `@Observable` so SwiftUI's dependency tracker sees `isActive`
+/// and `lastError` reads through `RaceCoordinator`'s computed-property
+/// forwards. Without this, view redraws on workout-state changes only
+/// happen by accident (via the 4 Hz cosmetic tick on `RaceFaceView`),
+/// and any code path that drops the tick would silently break the
+/// "ARMED" indicator.
 @MainActor
+@Observable
 final class WorkoutKeepalive: NSObject {
     private let store = HKHealthStore()
     private var session: HKWorkoutSession?
@@ -32,6 +40,10 @@ final class WorkoutKeepalive: NSObject {
         }
         do {
             try await store.requestAuthorization(toShare: [HKObjectType.workoutType()], read: [])
+            // Clear a stale lastError so a one-time transient failure
+            // doesn't keep the Settings status red after the user has
+            // since granted access in the Health app.
+            lastError = nil
         } catch {
             log.error("auth failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
@@ -60,17 +72,46 @@ final class WorkoutKeepalive: NSObject {
 
             let now = Date()
             s.startActivity(with: now)
-            b.beginCollection(withStart: now) { ok, err in
-                if let err {
-                    log.error("beginCollection failed: \(err.localizedDescription)")
-                }
-                _ = ok
-            }
-
+            // Stash references *before* the async beginCollection so a
+            // rapid stop() that arrives before the completion can find
+            // them and tear down cleanly.
             session = s
             builder = b
-            isActive = true
-            log.info("workout started")
+            b.beginCollection(withStart: now) { [weak self] ok, err in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if let err {
+                        log.error("beginCollection failed: \(err.localizedDescription)")
+                        self.lastError = err.localizedDescription
+                        // Roll back: end the session so HealthKit
+                        // doesn't believe we have an active workout.
+                        // `isActive` stays false — never claimed it.
+                        s.end()
+                        self.session = nil
+                        self.builder = nil
+                        return
+                    }
+                    if !ok {
+                        log.error("beginCollection ok=false with no error — treating as failure")
+                        self.lastError = "Workout collection did not start"
+                        s.end()
+                        self.session = nil
+                        self.builder = nil
+                        return
+                    }
+                    // Only flip ARMED once HealthKit confirms collection
+                    // is live. Earlier we set this unconditionally before
+                    // the callback fired and a beginCollection failure
+                    // would leave the UI claiming ARMED while the watch
+                    // was actually back in low-power.
+                    self.isActive = true
+                    // Mirror the auth-success clear: a successful start
+                    // means whatever earlier error was surfaced is no
+                    // longer relevant.
+                    self.lastError = nil
+                    log.info("workout collection started")
+                }
+            }
         } catch {
             log.error("session create failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
@@ -79,18 +120,33 @@ final class WorkoutKeepalive: NSObject {
 
     /// Idempotent — safe to call when no session is running.
     func stop() {
-        guard let s = session else { return }
+        guard let s = session, let b = builder else { return }
+        // Clear state *synchronously* before kicking off the async
+        // teardown. A rapid stop()→start() (multi-heat tournament
+        // loop) used to hit the `guard session == nil` in start()
+        // while the old endCollection completion hadn't yet nilled
+        // the field, so the new race lost its keepalive. Local refs
+        // (`s`, `b`) keep the async completion working against the
+        // outgoing session even though the instance state is now
+        // pointing at "no workout".
+        session = nil
+        builder = nil
+        isActive = false
         s.end()
-        // discardWorkout() removes the (empty) workout from Health so
-        // the user doesn't see a litter of 0-calorie entries every
-        // race. End the collection first; discard after.
-        builder?.endCollection(withEnd: Date()) { [weak self] _, _ in
-            self?.builder?.discardWorkout()
-            Task { @MainActor [weak self] in
-                self?.session = nil
-                self?.builder = nil
-                self?.isActive = false
+        b.endCollection(withEnd: Date()) { ok, err in
+            if let err {
+                log.error("endCollection failed: \(err.localizedDescription)")
+            }
+            // `discardWorkout()` is only valid after a successful end;
+            // discarding a builder whose collection didn't end is
+            // undefined behavior per Apple's lifecycle docs. On
+            // failure we accept that a zero-content workout entry may
+            // appear in Health rather than risk a crash.
+            if ok {
+                b.discardWorkout()
                 log.info("workout ended + discarded")
+            } else {
+                log.warning("workout ended with ok=false — not discarding, may leave a Health entry")
             }
         }
     }
@@ -118,9 +174,7 @@ extension WorkoutKeepalive: HKWorkoutSessionDelegate {
 extension WorkoutKeepalive: HKLiveWorkoutBuilderDelegate {
     nonisolated func workoutBuilder(_ workoutBuilder: HKLiveWorkoutBuilder,
                                     didCollectDataOf collectedTypes: Set<HKSampleType>) {
-        // We don't subscribe any data sources, so this should never
-        // fire. Left empty rather than fatalError'd in case Apple
-        // adds default collectors in a future watchOS release.
+        // We don't subscribe any data sources, so this should never fire.
     }
 
     nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {

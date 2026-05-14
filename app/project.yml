@@ -65,7 +65,9 @@ targets:
         WKCompanionAppBundleIdentifier: sh.saqoo.HDZap
         WKBackgroundModes:
           - workout-processing
-        NSHealthShareUsageDescription: "HDZap uses a workout session to keep the race timer responsive so countdown haptics fire on time."
+        # Only Update (write) is requested — `requestAuthorization` uses
+        # `toShare:` (write), not `read:`. Carrying NSHealthShareUsageDescription
+        # would advertise a permission we never request.
         NSHealthUpdateUsageDescription: "HDZap uses a workout session to keep the race timer responsive so countdown haptics fire on time."
     settings:
       base:

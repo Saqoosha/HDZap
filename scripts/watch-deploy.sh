@@ -44,7 +44,10 @@ detect_device() {
   xcrun devicectl list devices 2>/dev/null \
     | awk -v p="$pattern" '
       (/available \(paired\)/ || /connected/) && !/unavailable/ && tolower($0) ~ tolower(p) {
-        for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-F]{8}-/) { print $i; exit }
+        # Match UUID-shaped fields case-insensitively — different Xcode
+        # versions and devicectl builds emit either upper- or lower-
+        # case hex; accept both.
+        for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-Fa-f]{8}-/) { print $i; exit }
       }'
 }
 

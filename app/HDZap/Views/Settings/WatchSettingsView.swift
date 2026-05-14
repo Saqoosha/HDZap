@@ -43,7 +43,7 @@ struct WatchSettingsView: View {
             Section {
                 Toggle("Race countdown haptics", isOn: $enabled)
             } footer: {
-                Text("Buzzes the Apple Watch at 30 s (single tap), 20 s (double), and 10 s (triple) remaining, plus a long tap at the buzzer.")
+                Text("Buzzes the Apple Watch at 30 s (gentle up-tap), 20 s (firm tap), and 10 s remaining (long alarm), plus a double alarm at the buzzer.")
                     .font(.caption2)
             }
 

@@ -28,8 +28,6 @@
 	<array>
 		<string>workout-processing</string>
 	</array>
-	<key>NSHealthShareUsageDescription</key>
-	<string>HDZap uses a workout session to keep the race timer responsive so countdown haptics fire on time.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>HDZap uses a workout session to keep the race timer responsive so countdown haptics fire on time.</string>
 </dict>

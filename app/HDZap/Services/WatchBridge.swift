@@ -71,10 +71,12 @@ final class WatchBridge: NSObject {
     }
 
     /// Publish the latest race state. Idempotent for unchanged
-    /// snapshots — `updateApplicationContext` rejects an exact-equal
-    /// dictionary (the framework dedupes), so the encoded JSON's
-    /// `publishedAt` field doubles as a nonce that guarantees the
-    /// dict differs each call.
+    /// snapshots — WatchConnectivity *silently suppresses* delivery
+    /// of an identical context dictionary (no throw, no callback),
+    /// so the encoded JSON's `publishedAt` field doubles as a nonce
+    /// that guarantees the dict differs each call. Without it, an
+    /// otherwise-unchanged-but-still-meaningful re-publish (e.g. on
+    /// reachability flip) would never reach the watch.
     func publish(_ snapshot: RaceSnapshot) {
         lastSnapshot = snapshot
         #if canImport(WatchConnectivity)

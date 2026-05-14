@@ -18,10 +18,14 @@ public struct RaceSnapshot: Codable, Equatable, Sendable {
         case ended     // race over (manual or buzzer)
     }
 
-    /// Bumped on any breaking shape change. The receiver compares and
-    /// silently drops snapshots from a future schema rather than
-    /// crashing on a missing key — a forward-rolled iPhone shouldn't
-    /// brick the watch during the upgrade window.
+    /// Bumped on any breaking shape change. The receiver accepts any
+    /// snapshot whose `schemaVersion <= currentSchemaVersion` and logs
+    /// a warning + drops anything higher — a forward-rolled iPhone
+    /// shouldn't brick the watch during the upgrade window, but the
+    /// reverse (newer watch reading an older iPhone) keeps working
+    /// because additive changes flow through Codable's tolerance for
+    /// missing keys. Only bump this when the wire format change is
+    /// actually breaking.
     public static let currentSchemaVersion = 1
 
     public let schemaVersion: Int
