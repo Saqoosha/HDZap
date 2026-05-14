@@ -69,10 +69,11 @@ targets:
         NSHealthUpdateUsageDescription: "HDZap uses a workout session to keep the race timer responsive so countdown haptics fire on time."
     settings:
       base:
-        # ASSETCATALOG_COMPILER_APPICON_NAME inherits the iOS-side default,
-        # which doesn't exist in the watch asset catalog yet — clear it
-        # so the build doesn't fail looking for a watch app icon set.
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        # Watch app uses its own AppIcon set in
+        # HDZapWatch/Assets.xcassets — same source image as the iOS
+        # icon for brand consistency, retagged with `platform=watchos`
+        # in its Contents.json. Required for App Store submission.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "4"
         WATCHOS_DEPLOYMENT_TARGET: "11.0"
         # Companion-app pairing rule: watch bundle id MUST be the iPhone

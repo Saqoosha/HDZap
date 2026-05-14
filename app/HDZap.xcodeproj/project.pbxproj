@@ -21,6 +21,7 @@
 		34305017E1FD46A91F2686E9 /* DeviceRenameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */; };
 		374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */; };
 		3802B2A61EA12FCA55B2319B /* HDZapWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9E29C1D9B0D66F129E9851 /* HDZapWatchApp.swift */; };
+		4A26D2497B18E23F8981344B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 80FE2B04F55C8F6DDB8EDAAA /* Assets.xcassets */; };
 		4BD1A6777B94B70BDAD20186 /* RaceRecord+FlightBattery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */; };
 		523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */; };
 		5BDFBBD976345C1014300844 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6ACFF44D27BA66D4B32E55F /* WatchBridge.swift */; };
@@ -105,6 +106,7 @@
 		6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		71CDADF310B2DA49B5ABEA48 /* RaceSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceSnapshot.swift; sourceTree = "<group>"; };
 		7B161428CF02B06F13538AF4 /* OSDLayoutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettingsView.swift; sourceTree = "<group>"; };
+		80FE2B04F55C8F6DDB8EDAAA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8D700C319FF96194EDFEB58E /* RaceFaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceFaceView.swift; sourceTree = "<group>"; };
 		90AB489293AF90A66653F7E8 /* AudioSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSettingsView.swift; sourceTree = "<group>"; };
 		948C7D11EFBB4FC5E275E58E /* HDZapWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDZapWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -182,6 +184,7 @@
 		52381E618C342956FC00562A /* HDZapWatch */ = {
 			isa = PBXGroup;
 			children = (
+				80FE2B04F55C8F6DDB8EDAAA /* Assets.xcassets */,
 				F97CFFCF38AA96371E7F6E8E /* HDZapWatch.entitlements */,
 				0E9E29C1D9B0D66F129E9851 /* HDZapWatchApp.swift */,
 				4CA65BC0D6ED3AEB37009004 /* Info.plist */,
@@ -304,6 +307,7 @@
 			buildConfigurationList = D692C6E710DED5F59319C054 /* Build configuration list for PBXNativeTarget "HDZapWatch" */;
 			buildPhases = (
 				CAC0532F2FB4C48D26DDA8F2 /* Sources */,
+				9B09C77F7115C1327E49F5DB /* Resources */,
 			);
 			buildRules = (
 			);
@@ -364,6 +368,14 @@
 				29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */,
 				374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */,
 				F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9B09C77F7115C1327E49F5DB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4A26D2497B18E23F8981344B /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -598,7 +610,7 @@
 		CDC249BCDEC123B8A1DBAB13 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = HDZapWatch/HDZapWatch.entitlements;
 				INFOPLIST_FILE = HDZapWatch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = sh.saqoo.HDZap.watchkitapp;
@@ -612,7 +624,7 @@
 		FA07C8221D678F2017B4C9D3 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = HDZapWatch/HDZapWatch.entitlements;
 				INFOPLIST_FILE = HDZapWatch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = sh.saqoo.HDZap.watchkitapp;
