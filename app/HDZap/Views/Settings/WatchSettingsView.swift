@@ -1,5 +1,29 @@
 import SwiftUI
 
+/// Catalogue of every built-in `WKHapticType` exposed by watchOS,
+/// keyed by the raw name the watch-side `RaceCoordinator` switches
+/// on. Defined here on the iPhone side so the Settings UI stays free
+/// of any `WatchKit` import — the iPhone target doesn't link WatchKit
+/// at all.
+private struct TestHapticOption: Identifiable {
+    let name: String
+    let label: String
+    let blurb: String
+    var id: String { name }
+}
+
+private let testHapticOptions: [TestHapticOption] = [
+    .init(name: "notification",  label: "Notification",   blurb: "Standard firm tap"),
+    .init(name: "directionUp",   label: "Direction Up",   blurb: "Single tap, upward feel"),
+    .init(name: "directionDown", label: "Direction Down", blurb: "Single tap, downward feel"),
+    .init(name: "success",       label: "Success",        blurb: "Built-in ascending trill"),
+    .init(name: "retry",         label: "Retry",          blurb: "Rapid alternating pulses"),
+    .init(name: "failure",       label: "Failure",        blurb: "Long alarm (~1.5 s)"),
+    .init(name: "start",         label: "Start",          blurb: "Affirmative single tap"),
+    .init(name: "stop",          label: "Stop",           blurb: "Distinct single tap"),
+    .init(name: "click",         label: "Click",          blurb: "Subtle quick click"),
+]
+
 /// Apple Watch countdown haptics — toggle + status. Lives under the
 /// Settings root's "App" section.
 ///
@@ -45,6 +69,37 @@ struct WatchSettingsView: View {
                 EmptyView()
             } footer: {
                 Text(armingHint)
+                    .font(.caption2)
+            }
+
+            // Lives at the bottom so it doesn't push the main toggle
+            // and status rows below the fold. Buttons are disabled
+            // when the watch isn't reachable — the iPhone uses
+            // `sendMessage` for one-shot haptic auditions, which
+            // requires the watch app to be foregrounded (or running a
+            // workout). Footer explains the disabled state so the
+            // operator isn't left wondering.
+            Section {
+                ForEach(testHapticOptions) { opt in
+                    Button {
+                        bridge.sendTestHaptic(typeName: opt.name)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(opt.label)
+                                .foregroundStyle(.primary)
+                            Text(opt.blurb)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(!bridge.isReachable)
+                }
+            } header: {
+                Text("Try haptics")
+            } footer: {
+                Text(bridge.isReachable
+                     ? "Tap any row to feel that pattern on your wrist."
+                     : "Open the HDZap app on your Apple Watch to enable these — auditioning a haptic needs the watch app reachable.")
                     .font(.caption2)
             }
         }

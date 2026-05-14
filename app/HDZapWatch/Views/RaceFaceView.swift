@@ -14,12 +14,39 @@ struct RaceFaceView: View {
     private let tick = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(spacing: 6) {
-            phasePip
-            remainingDigits
-            lapAndWorkoutRow
+        // The watch's safe area is asymmetric — the system clock at
+        // the top occupies a ~24 pt inset, but the bottom edge has
+        // none. Centering the digits inside the safe area therefore
+        // *visually* shifts them below the screen midpoint by half
+        // that inset (~12 pt on the SE 3). Position the digits in
+        // absolute coordinates against the GeometryProxy so they sit
+        // at the screen's geometric center regardless of which watch
+        // size we're running on — phasePip and lapAndWorkoutRow stay
+        // inside the safe area as a normal VStack overlay.
+        GeometryReader { geo in
+            ZStack {
+                remainingDigits
+                    .position(
+                        x: geo.size.width / 2,
+                        // Bias the digits toward screen-center with a
+                        // *quarter* of the top safe-area inset rather
+                        // than half. Half over-shot — the rendered
+                        // glyph's bounding box already includes empty
+                        // descender space below the cap, so its visual
+                        // midpoint sits a few points above the bbox
+                        // midpoint. A quarter-inset offset lands the
+                        // visual midpoint close to the screen
+                        // midpoint without overcompensating into "a
+                        // bit upper" territory.
+                        y: geo.size.height / 2 - geo.safeAreaInsets.top / 4
+                    )
+                VStack(spacing: 0) {
+                    phasePip
+                    Spacer(minLength: 0)
+                    lapAndWorkoutRow
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .containerBackground(.black.gradient, for: .navigation)
         .onReceive(tick) { now in nowTick = now }
         .onAppear {

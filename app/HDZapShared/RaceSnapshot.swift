@@ -73,25 +73,49 @@ public struct RaceSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-/// Wire-format helpers. WCSession's `applicationContext` is a
-/// `[String: Any]` dictionary — we wrap a single Codable JSON blob
-/// under one key so the snapshot's shape lives entirely in Swift,
-/// not in a hand-curated dictionary that could quietly disagree
-/// between sender and receiver.
+/// Wire-format helpers. WCSession's `applicationContext` /
+/// `sendMessage` payload is a `[String: Any]` dictionary — we use
+/// distinct top-level keys per message kind so a receiver can route
+/// on key presence without inspecting the JSON payload, and so a
+/// future message kind can coexist with snapshot delivery on the
+/// same wire format.
 public enum RaceSnapshotWire {
-    /// Single dictionary key carrying the encoded JSON blob.
+    /// Carries the encoded RaceSnapshot JSON blob.
     public static let key = "snapshot.v1"
+
+    /// Carries the `WKHapticType` raw name (e.g. "notification",
+    /// "failure", "directionUp") that the watch should play once on
+    /// receipt. Used by the Settings "Try haptics" UI on iPhone so
+    /// the operator can audition each built-in type on their wrist
+    /// before committing it to a race-countdown mark.
+    public static let testHapticKey = "testHaptic.v1"
+
+    /// Discriminated outcome of decoding an inbound WCSession dict.
+    /// `unknown` lets the receiver log-and-ignore future message
+    /// kinds without throwing.
+    public enum Decoded {
+        case snapshot(RaceSnapshot)
+        case testHaptic(typeName: String)
+        case unknown
+    }
 
     public static func encode(_ snapshot: RaceSnapshot) throws -> [String: Any] {
         let data = try JSONEncoder().encode(snapshot)
         return [key: data]
     }
 
-    /// Returns nil when the dictionary doesn't contain a snapshot
-    /// payload (e.g. a stray ping from a future iOS feature) — callers
-    /// should treat nil as "ignore," not as an error.
-    public static func decode(_ context: [String: Any]) throws -> RaceSnapshot? {
-        guard let data = context[key] as? Data else { return nil }
-        return try JSONDecoder().decode(RaceSnapshot.self, from: data)
+    public static func encodeTestHaptic(typeName: String) -> [String: Any] {
+        [testHapticKey: typeName]
+    }
+
+    public static func decode(_ context: [String: Any]) throws -> Decoded {
+        if let data = context[key] as? Data {
+            let snapshot = try JSONDecoder().decode(RaceSnapshot.self, from: data)
+            return .snapshot(snapshot)
+        }
+        if let typeName = context[testHapticKey] as? String {
+            return .testHaptic(typeName: typeName)
+        }
+        return .unknown
     }
 }

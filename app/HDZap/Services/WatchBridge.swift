@@ -86,6 +86,25 @@ final class WatchBridge: NSObject {
         #endif
     }
 
+    /// One-shot "play this `WKHapticType` on your wrist" command.
+    /// Backed by `sendMessage` rather than `updateApplicationContext`
+    /// — auditioning a haptic only makes sense when the watch app is
+    /// actively reachable (operator is feeling for it), and we don't
+    /// want this request persisting into a later race start via the
+    /// context channel. Silently no-ops when the watch isn't reachable.
+    func sendTestHaptic(typeName: String) {
+        #if canImport(WatchConnectivity)
+        guard let s = session, s.activationState == .activated, s.isReachable else {
+            log.debug("sendTestHaptic: watch not reachable")
+            return
+        }
+        let dict = RaceSnapshotWire.encodeTestHaptic(typeName: typeName)
+        s.sendMessage(dict, replyHandler: nil) { error in
+            log.debug("sendTestHaptic failed: \(error.localizedDescription)")
+        }
+        #endif
+    }
+
     #if canImport(WatchConnectivity)
     private func send(_ snapshot: RaceSnapshot, on s: WCSession) {
         let dict: [String: Any]

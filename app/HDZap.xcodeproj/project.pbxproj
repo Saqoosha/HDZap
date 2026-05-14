@@ -110,6 +110,7 @@
 		948C7D11EFBB4FC5E275E58E /* HDZapWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDZapWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9C1B87A05D28EC314EEC592A /* WatchSessionReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionReceiver.swift; sourceTree = "<group>"; };
 		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB4DEE8E1C9B5DB1E96D7454 /* HDZap.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HDZap.entitlements; sourceTree = "<group>"; };
 		B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettings.swift; sourceTree = "<group>"; };
 		B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RaceRecord+FlightBattery.swift"; sourceTree = "<group>"; };
@@ -229,6 +230,7 @@
 			isa = PBXGroup;
 			children = (
 				67948DF123DC370E6DBE5590 /* Assets.xcassets */,
+				AB4DEE8E1C9B5DB1E96D7454 /* HDZap.entitlements */,
 				3BFF7583FD58A10FE7357025 /* HDZapApp.swift */,
 				3AA9BB23D795AA5162829B3C /* Info.plist */,
 				6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */,
