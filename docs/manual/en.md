@@ -9,8 +9,6 @@
 </p>
 
 > **Need help?** Email [a@saqoo.sh](mailto:a@saqoo.sh) or open an issue on [GitHub Issues](https://github.com/Saqoosha/HDZap/issues). Common problems are covered in [§11 Troubleshooting](#11-troubleshooting) below.
->
-> **Disclaimer.** HDZap is an independent, third-party tool created by an individual developer. HDZero, ExpressLRS, and M5Stack are trademarks of their respective owners. HDZap is not affiliated with, endorsed by, or sponsored by any of these projects or companies. Product names referenced in this manual are used solely to describe hardware compatibility.
 
 ---
 
@@ -21,7 +19,7 @@
 3. [Flashing firmware to the M5StickS3](#3-flashing-firmware-to-the-m5sticks3)
 4. [Installing the iPhone app](#4-installing-the-iphone-app)
 5. [Pairing the M5StickS3 with the iPhone (Bluetooth)](#5-pairing-the-m5sticks3-with-the-iphone-bluetooth)
-6. [Binding to the HDZero Goggle](#6-binding-to-the-hdzero-goggle)
+6. [Binding to the Digital FPV Goggle](#6-binding-to-the-digital-fpv-goggle)
 7. [Flight battery telemetry](#7-flight-battery-telemetry)
 8. [Running a race](#8-running-a-race)
 9. [After the race](#9-after-the-race)
@@ -42,19 +40,19 @@
           allowfullscreen></iframe>
 </p>
 
-HDZap is a system that **shows lap times measured on an iPhone on the OSD of an HDZero Goggle**. It assumes a **two-person setup**: a pilot and a separate spotter who runs the timer.
+HDZap is a system that **shows lap times measured on an iPhone on the OSD of a Digital FPV Goggle**. It assumes a **two-person setup**: a pilot and a separate spotter who runs the timer.
 
 ```mermaid
 flowchart LR
     A["iPhone<br/>HDZap App<br/><i>Spotter</i>"] -- Bluetooth --> B["M5StickS3<br/><i>Bridge</i>"]
-    B -- ESP-NOW --> C["HDZero Goggle<br/><i>Pilot</i>"]
+    B -- ESP-NOW --> C["Digital FPV Goggle<br/><i>Pilot</i>"]
 ```
 
 The system has three components:
 
 - **iPhone app**: the timer UI the spotter operates — Start / Lap / Stop / history.
 - **M5StickS3**: a palm-sized ESP32 device that acts as a bridge. It receives commands from the iPhone over Bluetooth and forwards OSD commands to the Goggle over a separate radio (ESP-NOW).
-- **HDZero Goggle**: the FPV goggle the pilot wears. Its built-in ELRS Backpack receives OSD commands and overlays the lap times on the video.
+- **Digital FPV Goggle**: the FPV goggle the pilot wears. Its built-in ELRS Backpack receives OSD commands and overlays the lap times on the video.
 
 > 💡 **The iPhone app works standalone too.** Lap timing, lap history, and voice announcements all work in-app without any extra hardware. Adding the M5StickS3 and Goggle just makes the lap times also appear on the Goggle's OSD.
 
@@ -64,7 +62,7 @@ These terms come up throughout the manual. Full definitions are in the [Appendix
 
 | Term | One-line description |
 |---|---|
-| **Goggle** | FPV goggle the pilot wears. Supports HDZero Goggle / HDZero Goggle 2 |
+| **Goggle** | FPV goggle the pilot wears. Supports Digital FPV Goggle / Digital FPV Goggle 2 |
 | **ELRS Backpack** | ESP32 module built into the Goggle. Receives OSD commands |
 | **UID** | 6-byte identifier. The Goggle and the M5StickS3 must share the same UID to communicate |
 | **bind phrase** | A string that derives the UID. The same phrase always produces the same UID on any device |
@@ -82,7 +80,7 @@ These terms come up throughout the manual. Full definitions are in the [Appendix
 
 - **USB-C data cable** ×1
   - **Charge-only cables won't work.** You need a cable that carries data.
-- **HDZero Goggle** (HDZero Goggle / HDZero Goggle 2)
+- **Digital FPV Goggle** (Digital FPV Goggle / Digital FPV Goggle 2)
 - **iPhone** (iOS 18 or later)
 
 ### Software
@@ -93,7 +91,7 @@ These terms come up throughout the manual. Full definitions are in the [Appendix
 
 ### Required: Goggle backpack firmware v1.5.5 or newer
 
-> ⚠️ **The HDZero Goggle's ELRS Backpack firmware must be v1.5.5 or newer.**
+> ⚠️ **The Digital FPV Goggle's ELRS Backpack firmware must be v1.5.5 or newer.**
 >
 > Older versions silently drop or mis-render some of the OSD commands HDZap sends.
 
@@ -205,7 +203,7 @@ If you have several M5StickS3 units, the default `HDZapBridge` name makes them h
 
 ---
 
-## 6. Binding to the HDZero Goggle
+## 6. Binding to the Digital FPV Goggle
 
 ### Prerequisite
 
@@ -483,7 +481,7 @@ The card includes:
 
 ### Device → Goggle pairing
 
-The mode picker switches the form between bind phrase, manual UID, and new pairing. **TX UID Capture** lives on the same screen, below the mode form. See [Chapter 6](#6-binding-to-the-hdzero-goggle) for the full workflow.
+The mode picker switches the form between bind phrase, manual UID, and new pairing. **TX UID Capture** lives on the same screen, below the mode form. See [Chapter 6](#6-binding-to-the-digital-fpv-goggle) for the full workflow.
 
 - **Current UID**: live display of what's currently active on the M5StickS3.
 - **Apply UID** / **Pair with new goggle**: trigger the chosen flow; the apply alert and verification banner step you through `Switching pairing…` → `Verifying…` → `Pairing works` / auto-rollback.
@@ -560,7 +558,7 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 - **MSP / MSPv2**: MultiWii Serial Protocol — a lightweight binary protocol common across FPV gear. HDZap sends OSD commands via v2.
 - **OSD**: On-Screen Display. The text overlay rendered on top of the video.
 - **ELRS (ExpressLRS)**: an open-source RC link ecosystem that includes receivers, transmitters, and backpacks.
-- **Backpack**: an ESP32 module attached to a Goggle or radio (built into the HDZero Goggle). A control channel separate from the video link.
+- **Backpack**: an ESP32 module attached to a Goggle or radio (built into the Digital FPV Goggle). A control channel separate from the video link.
 - **ESP-NOW**: a peer-to-peer wireless protocol on top of Wi-Fi PHY that ESP32s can use without pairing.
 - **BLE / GATT**: Bluetooth Low Energy / Generic Attribute Profile. Used between the iPhone and the M5StickS3.
 
