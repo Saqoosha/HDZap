@@ -1,7 +1,13 @@
 # HDZap User Manual
 
 <p align="center">
-  <img src="images/app-icon.png" alt="HDZap" width="120" />
+  <img src="images/app-icon-squircle.png" alt="HDZap" width="120" border="0" style="border:0" />
+</p>
+
+<p align="center">
+  <a href="https://apps.apple.com/app/id6766197336">
+    <img src="https://toolbox.marketingtools.apple.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download HDZap on the App Store" height="40" />
+  </a>
 </p>
 
 <p align="center">
@@ -147,20 +153,18 @@ This step uses the **Web Flasher** — a tool that runs entirely in your browser
 
 ## 4. Installing the iPhone app
 
-> ℹ️ **HDZap is still in beta.** It is currently distributed through TestFlight. A public App Store release is coming soon.
+HDZap is available on the App Store.
 
-1. On your iPhone, open the **TestFlight invitation link** below.
+<p align="center">
+  <a href="https://apps.apple.com/app/id6766197336">
+    <img src="https://toolbox.marketingtools.apple.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download HDZap on the App Store" height="60" />
+  </a>
+</p>
 
-   <div class="copy-link">
-     <a href="https://testflight.apple.com/join/gjjbKFp3" class="copy-link-url">https://testflight.apple.com/join/gjjbKFp3</a>
-     <button class="copy-link-btn" type="button" data-clipboard="https://testflight.apple.com/join/gjjbKFp3" data-copied-label="Copied ✓">Copy</button>
-   </div>
+1. On your iPhone, open the App Store link above and tap **Get** to install HDZap.
+2. Tap the HDZap icon on your home screen to launch the app.
 
-2. Install **TestFlight** from the App Store first if you don't have it.
-3. In TestFlight, tap **Install** for HDZap.
-4. Tap the HDZap icon on your home screen to launch the app.
-
-5. On first launch, iOS asks you to **allow Bluetooth access** — tap **Allow**. If you decline, the app can't talk to the M5StickS3.
+3. On first launch, iOS asks you to **allow Bluetooth access** — tap **Allow**. If you decline, the app can't talk to the M5StickS3.
 
    <img src="images/04-bluetooth-permission.png" alt="Bluetooth permission dialog" width="320" />
 
