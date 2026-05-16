@@ -1,7 +1,7 @@
 # HDZap
 
 <p align="center">
-  <img src="docs/manual/images/app-icon-squircle.png" alt="HDZap" width="120" />
+  <img src="docs/manual/images/app-icon-squircle.png" alt="HDZap" width="120" border="0" style="border:0" />
 </p>
 
 <p align="center">

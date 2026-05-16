@@ -1,7 +1,7 @@
 # HDZap User Manual
 
 <p align="center">
-  <img src="images/app-icon-squircle.png" alt="HDZap" width="120" />
+  <img src="images/app-icon-squircle.png" alt="HDZap" width="120" border="0" style="border:0" />
 </p>
 
 <p align="center">
