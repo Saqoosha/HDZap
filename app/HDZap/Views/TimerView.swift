@@ -458,19 +458,19 @@ struct TimerView: View {
 
     private var sessionBar: some View {
         VStack(spacing: 4) {
-            HStack {
-                HStack(spacing: 6) {
-                    Text("Elapsed").monoCap(size: 8.5, tracking: 1.5)
+            HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Elapsed").monoCap(size: 10, tracking: 1.5)
                     Text(EditorialFormat.time(lapTimer.elapsedTime, msDigits: 2))
-                        .font(.editorialMono(10))
+                        .font(.editorialMono(18, weight: .medium))
                         .monospacedDigit()
                         .foregroundStyle(EditorialTheme.ink)
                 }
                 Spacer()
-                HStack(spacing: 6) {
-                    Text("Remain").monoCap(size: 8.5, tracking: 1.5)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Remain").monoCap(size: 10, tracking: 1.5)
                     Text(EditorialFormat.time(remaining, msDigits: 2))
-                        .font(.editorialMono(10))
+                        .font(.editorialMono(18, weight: .medium))
                         .monospacedDigit()
                         .foregroundStyle(timeUp ? accent : EditorialTheme.ink)
                 }
