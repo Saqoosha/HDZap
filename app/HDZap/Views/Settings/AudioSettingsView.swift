@@ -17,6 +17,10 @@ struct AudioSettingsView: View {
         = Double(LapAnnouncerDefaults.defaultRate)
     @AppStorage(LapAnnouncerDefaults.pitchKey) private var ttsPitch: Double
         = Double(LapAnnouncerDefaults.defaultPitch)
+    @AppStorage(LapAnnouncerDefaults.countdownEnabledKey) private var countdownEnabled
+        = LapAnnouncerDefaults.defaultCountdownEnabled
+    @AppStorage(LapAnnouncerDefaults.countdownStartSecondsKey) private var countdownStartSeconds
+        = LapAnnouncerDefaults.defaultCountdownStartSeconds
 
     var body: some View {
         // Re-snapshot the voice list on every body eval — language picker
@@ -50,6 +54,29 @@ struct AudioSettingsView: View {
                     }
 
                     Toggle("Say \"best lap\" on new best", isOn: $announceBest)
+
+                    Toggle("Count down final seconds", isOn: $countdownEnabled)
+
+                    if countdownEnabled {
+                        // Stepper instead of Slider: the operator picks a
+                        // discrete second count exactly once, and a stepper
+                        // is easier to tap precisely than a 5–15 slider on
+                        // a small range. Clamped at the storage layer too
+                        // (`fireCountdownIfDue` in TimerView) so a stale
+                        // out-of-bounds value from a previous build can't
+                        // produce a runaway count.
+                        let range = LapAnnouncerDefaults.minCountdownStartSeconds
+                            ... LapAnnouncerDefaults.maxCountdownStartSeconds
+                        Stepper(value: $countdownStartSeconds, in: range) {
+                            HStack {
+                                Text("Start at")
+                                Spacer()
+                                Text("\(countdownStartSeconds) s")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
 
                     Picker("Voice", selection: $voiceIdentifier) {
                         Text("System default").tag(LapAnnouncerDefaults.defaultVoiceIdentifier)
@@ -150,6 +177,8 @@ struct AudioSettingsView: View {
                             ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
                             voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
                             announceBest = LapAnnouncerDefaults.defaultAnnounceBest
+                            countdownEnabled = LapAnnouncerDefaults.defaultCountdownEnabled
+                            countdownStartSeconds = LapAnnouncerDefaults.defaultCountdownStartSeconds
                         }
                         .buttonStyle(.bordered)
                     }

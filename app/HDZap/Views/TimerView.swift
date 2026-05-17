@@ -20,6 +20,10 @@ struct TimerView: View {
         = RaceMetrics.defaultSessionLimit
     @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled
         = LapAnnouncerDefaults.defaultEnabled
+    @AppStorage(LapAnnouncerDefaults.countdownEnabledKey) private var countdownEnabled
+        = LapAnnouncerDefaults.defaultCountdownEnabled
+    @AppStorage(LapAnnouncerDefaults.countdownStartSecondsKey) private var countdownStartSeconds
+        = LapAnnouncerDefaults.defaultCountdownStartSeconds
     @Environment(\.accentHue) private var accentHue: Double
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
     private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }
@@ -77,6 +81,24 @@ struct TimerView: View {
     /// BLE link issue and doesn't pollute the BLE error log/dropped-counter
     /// accounting.
     @State private var shareError: String?
+    /// Next countdown number queued to fire as `lapTimer.elapsedTime`
+    /// climbs past the boundary for it. Driven by an `.onChange` on
+    /// `elapsedTime` (60 Hz, race-synced — vs the wall-clock 1 Hz
+    /// `osdTick` that previously triggered the count, which could
+    /// fire anywhere in the 1 s window after the boundary and made
+    /// the audio land 0–1 s late on top of the BT codec latency).
+    /// `nil` means "no count active": between sessions, before
+    /// `remaining` reaches `countdownStartSeconds`, and after "1" has
+    /// fired. Armed on a fresh START to the clamped countdown-start
+    /// value; cleared on RESET / FINAL-lap / manual STOP.
+    @State private var nextCountdownN: Int?
+    /// One-shot latch for the "Last lap!" / "ラストラップ！" cue. Flips
+    /// true the instant `elapsedTime` crosses `sessionLimit` (with
+    /// the same lead-time compensation the countdown uses) so the
+    /// announcement lands right when remaining hits 0, then stays
+    /// true for the rest of the session so a 60 Hz tick can't
+    /// re-fire it. Reset on START / RESET so the next race re-arms.
+    @State private var lastLapAnnounced = false
 
     private var timeUp: Bool { lapTimer.elapsedTime >= sessionLimit }
     private var sessionEnded: Bool {
@@ -220,6 +242,16 @@ struct TimerView: View {
             guard lapTimer.isRunning && !sessionEnded && bluetooth.isReady else { return }
             guard !showSettings else { return }
             sendTimeLeftRow()
+        }
+        // Race-synced final-seconds countdown — observes the lap
+        // timer's own 60 Hz `elapsedTime` updates so the speak() call
+        // lands at `sessionLimit − N − outputLatency` to within
+        // ~16 ms. Independent of `bluetooth.isReady` / `showSettings`:
+        // the audio cue should fire even when the goggle bridge is
+        // off or the operator is flipping through Settings.
+        .onChange(of: lapTimer.elapsedTime) { _, newElapsed in
+            fireCountdownIfElapsedReached(newElapsed)
+            fireLastLapAnnounceIfDue(newElapsed)
         }
         // Persist the race once it transitions to ended. `sessionEnded`
         // flips false→true via either the FINAL-lap path or manual STOP
@@ -921,7 +953,24 @@ struct TimerView: View {
             // (see `announceFinalIfNeeded(lastLap:)`).
             let finalLap = recordLap(announce: false)
             lapTimer.stop()
+            // Stop the countdown machinery so a queued "1" can't fire
+            // after the FINAL summary starts speaking — the summary's
+            // `speak()` would cancel it mid-numeral anyway, but resetting
+            // here also prevents a 60 Hz elapsedTime tick from re-arming
+            // a number under sessionEnded.
+            nextCountdownN = nil
             announceFinalIfNeeded(lastLap: finalLap)
+            // Release the session hold: the final summary is the last
+            // utterance of this race, so let `didFinish` deactivate the
+            // AVAudioSession when it ends instead of holding it open
+            // until RESET. Warm-keeper uses the *deferred* stop so the
+            // summary speak() — enqueued by `announceFinalIfNeeded`
+            // above — still plays through a hot HAL; stopping
+            // immediately would let the engine die before the synth
+            // started rendering, re-introducing the cold-start hitch
+            // for the result announcement.
+            announcer.sessionHoldActive = false
+            announcer.stopWarmKeeperWhenIdle()
         } else if lapTimer.isRunning {
             lastLapWasFinal = false
             recordLap()
@@ -934,13 +983,51 @@ struct TimerView: View {
             // the active frame, so a future Settings dismiss shouldn't
             // restore it.
             readyShown = false
+            // Arm the countdown BEFORE `start()` so the very first
+            // `elapsedTime` change (from 0) already sees a valid
+            // `nextCountdownN`. Setting after `start()` would race
+            // the 60 Hz tick and miss the first fire on very-short
+            // races where countdownStart ≥ sessionLimit.
+            let start = min(LapAnnouncerDefaults.maxCountdownStartSeconds,
+                            max(LapAnnouncerDefaults.minCountdownStartSeconds,
+                                countdownStartSeconds))
+            nextCountdownN = start
+            lastLapAnnounced = false
             lapTimer.start()
             raceFlightBatterySamples.removeAll()
-            // Audio cue for the start of the race; also warms the audio
-            // session so the first lap announcement doesn't pay the
-            // setActive(true) round-trip.
+            // Hold the audio session active for the whole race so each
+            // announcement (start cue, countdown numbers, per-lap call,
+            // final summary) is a bare `synthesizer.speak()` — without
+            // the hold, every utterance pays an AVAudioSession
+            // activate/deactivate round-trip whose interruption
+            // notifications stutter the UI at voice-start and voice-end.
+            // Set BEFORE announceStart() so the session that call
+            // activates stays up; cleared on FINAL / STOP / RESET below.
+            //
+            // The warm-keeper streams a silent buffer through our own
+            // AVAudioEngine on the same session for the duration of
+            // the race. That keeps the audio-output HAL hot so the
+            // first countdown number ("10") and any LAP announcement
+            // that lands after an idle gap don't pay the synth's
+            // per-utterance HAL wake-up cost — which is what the
+            // operator was hearing as the residual voice-start hitch.
             if lapTTSEnabled {
-                announcer.announceStart()
+                announcer.sessionHoldActive = true
+                announcer.startWarmKeeper()
+                // Give the warm-keeper engine ~100 ms to ramp the
+                // audio-output HAL up before the first utterance —
+                // without this, "Start" fires while the HAL is still
+                // cold and pays the same per-utterance hitch the
+                // warm-keeper is built to prevent. The lapTimer is
+                // already running by this point so the 100 ms shift
+                // only delays the audio cue, not the race clock. The
+                // guard handles the rare race where the operator
+                // cancels (RESET/STOP) inside the 100 ms window.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(100))
+                    guard self.lapTimer.isRunning else { return }
+                    self.announcer.announceStart()
+                }
             }
         }
     }
@@ -948,6 +1035,10 @@ struct TimerView: View {
     private func secondaryAction() {
         if lapTimer.isRunning {
             lapTimer.stop()
+            // Stop the countdown machinery the same way `primaryAction`
+            // does on the FINAL-lap path — keeps a queued number from
+            // landing after a summary or pause.
+            nextCountdownN = nil
             // STOP ends the session when laps were recorded — flip the
             // view to the result summary instead of leaving the user in
             // a "paused mid-run" state.
@@ -958,6 +1049,15 @@ struct TimerView: View {
                 refreshMetricsSnapshot(paceOverride: lapTimer.laps.count)
                 announceFinalIfNeeded()
             }
+            // Race is over from the operator's standpoint — let the
+            // final summary's `didFinish` deactivate the session, or
+            // (if TTS is off / no laps) the `didSet` deactivates
+            // immediately. Mirrors the FINAL-lap path above. Warm-
+            // keeper uses the deferred stop so the enqueued summary
+            // speak() plays through a hot HAL — see the FINAL-lap
+            // path's note for the cold-start regression it prevents.
+            announcer.sessionHoldActive = false
+            announcer.stopWarmKeeperWhenIdle()
         } else {
             // iOS state is the source of truth — clear it regardless of
             // whether the goggle ack'd the reset packet. The `lastError`
@@ -983,6 +1083,14 @@ struct TimerView: View {
             // stale "Lap 5, 12.34" trailing into the next session would be
             // disorienting since the visible state was just cleared.
             announcer.cancel()
+            // Release the session hold AFTER `cancel()` so the
+            // didSet's "deactivate if idle" path takes effect: the
+            // stopSpeaking above puts the synth into the idle state
+            // the didSet checks. Race condition with the didCancel
+            // delegate is harmless — whichever fires first finds the
+            // hold flag already false and deactivates.
+            announcer.sessionHoldActive = false
+            announcer.stopWarmKeeper()
             lapTimer.reset()
             metricsSnapshot = nil
             manuallyEnded = false
@@ -990,7 +1098,48 @@ struct TimerView: View {
             readyShown = false
             savedRaceID = nil
             raceFlightBatterySamples.removeAll()
+            nextCountdownN = nil
+            lastLapAnnounced = false
         }
+    }
+
+    /// Race-synced countdown trigger: fires "N" the instant
+    /// `elapsedTime` reaches `sessionLimit − N − outputLatency`, so
+    /// the audio reaches the operator's ear right at the second
+    /// boundary instead of 0–1 s late on top of the BT codec delay.
+    /// Called from `.onChange(of: lapTimer.elapsedTime)` which fires
+    /// at LapTimer's 60 Hz cadence — boundary detection is within
+    /// ~16 ms, well under any audible discrepancy.
+    ///
+    /// `announceCountdown` self-suppresses when the synth is mid-lap;
+    /// pairing that with `nextCountdownN` decrementing only after we
+    /// *attempt* the speak means a dropped number doesn't re-fire on
+    /// the next tick — the next firing's number is already current.
+    private func fireCountdownIfElapsedReached(_ newElapsed: TimeInterval) {
+        guard lapTTSEnabled, countdownEnabled else { return }
+        guard lapTimer.isRunning, !sessionEnded else { return }
+        guard let n = nextCountdownN else { return }
+        let leadSec = announcer.estimatedOutputLatency
+        let fireAtElapsed = sessionLimit - TimeInterval(n) - leadSec
+        guard newElapsed >= fireAtElapsed else { return }
+        announcer.announceCountdown(n)
+        nextCountdownN = (n > 1) ? n - 1 : nil
+    }
+
+    /// Fires the "Last lap!" / "ラストラップ！" cue at remaining=0.
+    /// Independent of `countdownEnabled` — the FINAL-lap cue is the
+    /// climax of any TTS-enabled race, not just countdown-armed ones.
+    /// Uses the same `outputLatency` lead-time compensation as the
+    /// countdown so the audio lands at the second boundary on AirPods
+    /// instead of ~150 ms late.
+    private func fireLastLapAnnounceIfDue(_ newElapsed: TimeInterval) {
+        guard lapTTSEnabled, !lastLapAnnounced else { return }
+        guard lapTimer.isRunning, !sessionEnded else { return }
+        let leadSec = announcer.estimatedOutputLatency
+        let fireAtElapsed = sessionLimit - leadSec
+        guard newElapsed >= fireAtElapsed else { return }
+        lastLapAnnounced = true
+        announcer.announceLastLap()
     }
 
     private func ingestFlightBatteryTelemetry() {
