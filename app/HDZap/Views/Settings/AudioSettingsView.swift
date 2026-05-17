@@ -61,10 +61,11 @@ struct AudioSettingsView: View {
                         // Stepper instead of Slider: the operator picks a
                         // discrete second count exactly once, and a stepper
                         // is easier to tap precisely than a 5–15 slider on
-                        // a small range. Clamped at the storage layer too
-                        // (`fireCountdownIfDue` in TimerView) so a stale
-                        // out-of-bounds value from a previous build can't
-                        // produce a runaway count.
+                        // a small range. Clamped again at race START in
+                        // TimerView.primaryAction() before arming
+                        // `nextCountdownN`, so a stale out-of-bounds value
+                        // from a previous build can't produce a runaway
+                        // count.
                         let range = LapAnnouncerDefaults.minCountdownStartSeconds
                             ... LapAnnouncerDefaults.maxCountdownStartSeconds
                         Stepper(value: $countdownStartSeconds, in: range) {

@@ -999,16 +999,33 @@ struct TimerView: View {
             // the active frame, so a future Settings dismiss shouldn't
             // restore it.
             readyShown = false
-            // Arm the countdown BEFORE `start()` so the very first
-            // `elapsedTime` change (from 0) already sees a valid
-            // `nextCountdownN`. Setting after `start()` would race
-            // the 60 Hz tick and miss the first fire on very-short
-            // races where countdownStart ≥ sessionLimit.
-            let start = min(LapAnnouncerDefaults.maxCountdownStartSeconds,
-                            max(LapAnnouncerDefaults.minCountdownStartSeconds,
-                                countdownStartSeconds))
-            nextCountdownN = start
-            lastLapAnnounced = false
+            // Arm the countdown BEFORE `lapTimer.start()` so the
+            // very first `elapsedTime` change already sees a valid
+            // `nextCountdownN`. Setting after start would race the
+            // 60 Hz tick on degenerate `countdownStart ≥ sessionLimit`
+            // configs.
+            //
+            // Clamp the configured start down to whatever fits in the
+            // remaining window — this branch is taken on both a
+            // fresh race (elapsedTime == 0, full window) AND on a
+            // resume after STOP-without-laps (elapsedTime preserved
+            // across pause). Without the clamp, resuming a 60 s race
+            // at 55 s with countdownStart=10 would fire "10" the
+            // very next tick (boundary already crossed) and
+            // burst-replay 10→9→8→7→6 to catch up. Re-anchoring to
+            // the current remaining keeps the count starting at the
+            // highest number that hasn't already been passed.
+            let configured = min(LapAnnouncerDefaults.maxCountdownStartSeconds,
+                                 max(LapAnnouncerDefaults.minCountdownStartSeconds,
+                                     countdownStartSeconds))
+            let leadSec = announcer.estimatedOutputLatency
+            let maxN = Int((sessionLimit - lapTimer.elapsedTime - leadSec).rounded(.down))
+            nextCountdownN = maxN >= 1 ? min(configured, maxN) : nil
+            // Same clamp idea for the FINAL-lap cue: if elapsedTime
+            // already past the fire threshold (resume from a paused
+            // FINAL state — rare but possible), skip the announce so
+            // we don't shout "Last lap!" mid-cooldown.
+            lastLapAnnounced = lapTimer.elapsedTime >= sessionLimit - leadSec
             lapTimer.start()
             raceFlightBatterySamples.removeAll()
             // Hold the audio session active for the whole race so each
@@ -1017,16 +1034,22 @@ struct TimerView: View {
             // the hold, every utterance pays an AVAudioSession
             // activate/deactivate round-trip whose interruption
             // notifications stutter the UI at voice-start and voice-end.
-            // Set BEFORE announceStart() so the session that call
-            // activates stays up; cleared on FINAL / STOP / RESET below.
+            // Set BEFORE `startWarmKeeper()` below so the session it
+            // activates is held open through every utterance instead
+            // of being torn down between them; cleared on FINAL /
+            // STOP / RESET.
             //
-            // The warm-keeper streams a silent buffer through our own
-            // AVAudioEngine on the same session for the duration of
-            // the race. That keeps the audio-output HAL hot so the
+            // `startWarmKeeper()` streams a silent buffer through our
+            // own AVAudioEngine on the same session for the duration
+            // of the race. That keeps the audio-output HAL hot so the
             // first countdown number ("10") and any LAP announcement
             // that lands after an idle gap don't pay the synth's
             // per-utterance HAL wake-up cost — which is what the
             // operator was hearing as the residual voice-start hitch.
+            //
+            // `announceStart()` itself runs ~100 ms later inside the
+            // Task below, after the HAL has had time to ramp up
+            // through the warm-keeper.
             if lapTTSEnabled {
                 announcer.sessionHoldActive = true
                 announcer.startWarmKeeper()
@@ -1041,7 +1064,15 @@ struct TimerView: View {
                 // cancels (RESET/STOP) inside the 100 ms window.
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(100))
-                    guard self.lapTimer.isRunning else { return }
+                    guard self.lapTimer.isRunning else {
+                        // Race was cancelled (RESET / STOP) inside the
+                        // 100 ms gate. Log so a "Start never spoke"
+                        // support report can be told apart from a
+                        // warm-keeper failure (which logs from
+                        // startWarmKeeper).
+                        Self.log.debug("announceStart skipped: lapTimer no longer running after 100 ms gate")
+                        return
+                    }
                     self.announcer.announceStart()
                 }
             }

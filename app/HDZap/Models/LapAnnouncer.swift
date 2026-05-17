@@ -406,6 +406,15 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         // cost synchronously here — the operator's tap on the START
         // button hides it, and it's a once-per-race expense.
         configureSessionSync()
+        guard sessionConfigured else {
+            // configureSessionSync already wrote the root-cause to
+            // lastAudioError + fired the haptic. Bail out before
+            // `warmKeeperEngine.start()` runs on an inactive session
+            // and overwrites the diagnostic with a misleading
+            // "engine start failed" cascade error.
+            warmKeeperRunning = false
+            return
+        }
 
         let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                    sampleRate: 44100,
@@ -499,21 +508,32 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
 
     /// Synchronous variant of `configureSessionIfNeeded` for callers
     /// that need the session active before the next syscall (engine
-    /// start). Falls through to the existing async path's
-    /// `sessionConfigured` marker so subsequent `speak()` calls
-    /// early-return their configure step.
+    /// start). Routes the setCategory/setActive pair through
+    /// `audioSessionQueue.sync` so this activate can't reorder
+    /// against a previous `deactivateSession()`'s queued
+    /// `setActive(false)` — otherwise the operator's RESET → immediate
+    /// START sequence would have the queued deactivate land *after*
+    /// our activate, deactivating the session we just brought up and
+    /// leaving `sessionConfigured == true` lying about it.
     private func configureSessionSync() {
         guard !sessionConfigured else { return }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true, options: [])
+        var setupError: Error?
+        audioSessionQueue.sync {
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+                try session.setActive(true, options: [])
+            } catch {
+                setupError = error
+            }
+        }
+        if let setupError {
+            log.error("AVAudioSession activation (sync) failed: \(setupError.localizedDescription, privacy: .public)")
+            lastAudioError = "Audio unavailable: \(setupError.localizedDescription)"
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        } else {
             sessionConfigured = true
             lastAudioError = nil
-        } catch {
-            log.error("AVAudioSession activation (sync) failed: \(error.localizedDescription, privacy: .public)")
-            lastAudioError = "Audio unavailable: \(error.localizedDescription)"
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
     }
 
@@ -526,7 +546,15 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     func cancel() {
         let synth = synthesizer
         synthQueue.async {
-            synth.stopSpeaking(at: .immediate)
+            // `stopSpeaking` returns false when there's nothing to
+            // cancel — benign during RESET in the no-utterance case
+            // but worth logging so a stuck-synth state (synth
+            // refusing to stop while still reporting `isSpeaking ==
+            // true`) shows up in Console for diagnosis instead of
+            // silently lingering until the next session activate.
+            if !synth.stopSpeaking(at: .immediate) {
+                log.debug("cancel: stopSpeaking returned false (no utterance to stop)")
+            }
         }
     }
 
@@ -635,17 +663,20 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// Bluetooth devices from staying ducked between announcements.
     private func configureSessionIfNeeded() {
         guard !sessionConfigured else { return }
-        // Don't mark `sessionConfigured = true` until `setActive`
-        // *actually* succeeds. The previous optimistic flag created
-        // a race against `configureSessionSync` — the sync caller
-        // would see `true` while the async path was still mid-flight,
-        // early-return, and then `warmKeeperEngine.start()` would
-        // attach to a not-yet-active session. The cost of dropping
-        // the flag is that a fast double-tap can dispatch the
-        // setActive pair twice. AVAudioSession is documented
-        // thread-safe and `audioSessionQueue` is serial, so the
-        // second pair runs sequentially after the first and is a
-        // documented no-op (both calls idempotent).
+        // `sessionConfigured = true` only flips after `setActive`
+        // actually succeeds — an optimistic pre-dispatch flag lets
+        // `configureSessionSync` see "true" while the async setActive
+        // is still mid-flight and proceed against a not-yet-active
+        // session.
+        //
+        // The activation Task ends with a `deactivateSession()` call
+        // because `didFinish`'s deactivate Task can be scheduled
+        // before this activation Task lands on the main actor —
+        // Task @MainActor ordering across separate Task entries is
+        // not strictly FIFO. Without the retry, the deactivate sees
+        // `!sessionConfigured` and early-returns, leaving the
+        // session active forever for short out-of-race utterances
+        // (Test Voice, ad-hoc lap call).
         audioSessionQueue.async { [weak self] in
             let session = AVAudioSession.sharedInstance()
             do {
@@ -654,6 +685,9 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 Task { @MainActor [weak self] in
                     self?.sessionConfigured = true
                     self?.lastAudioError = nil
+                    // Re-evaluate any pending deactivate that bailed
+                    // out on a stale `!sessionConfigured` read.
+                    self?.deactivateSession()
                 }
             } catch {
                 // Most likely cause: another app holds an exclusive audio
@@ -991,11 +1025,13 @@ enum LapAnnouncerVoiceCatalog {
     /// against the actual `speechVoices()` state at that moment.
     ///
     /// `nonisolated(unsafe)` because the catalog isn't `@MainActor`. In
-    /// practice the function is invoked from `LapAnnouncer.init`'s
-    /// background `Task.detached` once per launch and from the main-actor
-    /// AudioSettingsView body when its body renders — never concurrently —
-    /// so the unsynchronized read/write doesn't actually race. Marking it
-    /// explicitly silences the Swift 6 warning and documents the intent.
+    /// practice the function is invoked exactly once per app launch
+    /// from `LapAnnouncer.init`'s background `Task.detached`, so the
+    /// unsynchronized read/write of `lastDumpedVoiceIds` can't race.
+    /// Marking it explicitly silences the Swift 6 warning and
+    /// documents the single-caller invariant — adding a second caller
+    /// (e.g. from AudioSettingsView's `.onAppear`) would invalidate
+    /// this and require a real lock.
     nonisolated(unsafe) private static var lastDumpedVoiceIds: Set<String> = []
     static func dumpInstalledVoicesOnce() {
         let voices = AVSpeechSynthesisVoice.speechVoices()
