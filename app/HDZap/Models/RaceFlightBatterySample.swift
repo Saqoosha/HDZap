@@ -58,11 +58,19 @@ struct RaceFlightBatterySample: Codable, Equatable {
         )
     }
 
-    static func parseWireV1(_ data: Data, raceStartedAt: Date, now: Date = Date()) -> RaceFlightBatterySample? {
+    /// - Parameter now: Timestamp used to compute `tRace`. Callers may
+    ///   clamp this (e.g. `max(receivedAt, started)`) to avoid a negative
+    ///   `tRace` from a pre-race-cached notify; pass `receivedAt`
+    ///   separately so the persisted arrival-time field keeps its
+    ///   documented meaning.
+    /// - Parameter receivedAt: Wall-clock when the notify physically
+    ///   landed. Defaults to `now` for the common case where the caller
+    ///   hasn't clamped; override when `now` was clamped.
+    static func parseWireV1(_ data: Data, raceStartedAt: Date, now: Date = Date(), receivedAt: Date? = nil) -> RaceFlightBatterySample? {
         guard let f = decodeFieldsV1(data) else { return nil }
         return RaceFlightBatterySample(
             tRace: now.timeIntervalSince(raceStartedAt),
-            receivedAt: now,
+            receivedAt: receivedAt ?? now,
             voltageDv: f.voltageDv,
             currentDa: f.currentDa,
             consumedMah: f.consumedMah,
