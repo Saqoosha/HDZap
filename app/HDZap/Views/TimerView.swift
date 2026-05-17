@@ -112,10 +112,13 @@ struct TimerView: View {
 
                 if let err = bluetooth.lastError {
                     errorStrip(err)
-                } else if !bluetooth.isReady {
+                } else if bluetooth.isBridgeEnabled && !bluetooth.isReady {
                     // Surface link state passively — actions always run
                     // against iOS state, but the operator should know the
-                    // goggle won't update until BLE is back.
+                    // goggle won't update until BLE is back. Suppressed
+                    // when the bridge is disabled in Settings: users who
+                    // don't own the hardware shouldn't see a "Not connected"
+                    // nag for a device they're not trying to reach.
                     bleStrip
                 }
 
