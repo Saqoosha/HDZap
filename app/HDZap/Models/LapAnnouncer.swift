@@ -635,16 +635,24 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// Bluetooth devices from staying ducked between announcements.
     private func configureSessionIfNeeded() {
         guard !sessionConfigured else { return }
-        // Optimistically mark configured so a fast double-tap doesn't queue
-        // the activation twice. The background result reverts the flag if
-        // the syscall fails so the next utterance retries.
-        sessionConfigured = true
+        // Don't mark `sessionConfigured = true` until `setActive`
+        // *actually* succeeds. The previous optimistic flag created
+        // a race against `configureSessionSync` — the sync caller
+        // would see `true` while the async path was still mid-flight,
+        // early-return, and then `warmKeeperEngine.start()` would
+        // attach to a not-yet-active session. The cost of dropping
+        // the flag is that a fast double-tap can dispatch the
+        // setActive pair twice. AVAudioSession is documented
+        // thread-safe and `audioSessionQueue` is serial, so the
+        // second pair runs sequentially after the first and is a
+        // documented no-op (both calls idempotent).
         audioSessionQueue.async { [weak self] in
             let session = AVAudioSession.sharedInstance()
             do {
                 try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
                 try session.setActive(true, options: [])
                 Task { @MainActor [weak self] in
+                    self?.sessionConfigured = true
                     self?.lastAudioError = nil
                 }
             } catch {
@@ -655,7 +663,6 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 // and fire a haptic so they know audio didn't take.
                 log.error("AVAudioSession activation failed: \(error.localizedDescription, privacy: .public)")
                 Task { @MainActor [weak self] in
-                    self?.sessionConfigured = false
                     self?.lastAudioError = "Audio unavailable: \(error.localizedDescription)"
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
                 }
