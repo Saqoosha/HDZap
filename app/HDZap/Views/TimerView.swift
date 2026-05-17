@@ -112,10 +112,13 @@ struct TimerView: View {
 
                 if let err = bluetooth.lastError {
                     errorStrip(err)
-                } else if !bluetooth.isReady {
+                } else if bluetooth.isBridgeEnabled && !bluetooth.isReady {
                     // Surface link state passively — actions always run
                     // against iOS state, but the operator should know the
-                    // goggle won't update until BLE is back.
+                    // goggle won't update until BLE is back. Suppressed
+                    // when the bridge is disabled in Settings: users who
+                    // don't own the hardware shouldn't see a "Not connected"
+                    // nag for a device they're not trying to reach.
                     bleStrip
                 }
 
@@ -455,19 +458,19 @@ struct TimerView: View {
 
     private var sessionBar: some View {
         VStack(spacing: 4) {
-            HStack {
-                HStack(spacing: 6) {
-                    Text("Elapsed").monoCap(size: 8.5, tracking: 1.5)
+            HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Elapsed").monoCap(size: 10, tracking: 1.5)
                     Text(EditorialFormat.time(lapTimer.elapsedTime, msDigits: 2))
-                        .font(.editorialMono(10))
+                        .font(.editorialMono(18, weight: .medium))
                         .monospacedDigit()
                         .foregroundStyle(EditorialTheme.ink)
                 }
                 Spacer()
-                HStack(spacing: 6) {
-                    Text("Remain").monoCap(size: 8.5, tracking: 1.5)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Remain").monoCap(size: 10, tracking: 1.5)
                     Text(EditorialFormat.time(remaining, msDigits: 2))
-                        .font(.editorialMono(10))
+                        .font(.editorialMono(18, weight: .medium))
                         .monospacedDigit()
                         .foregroundStyle(timeUp ? accent : EditorialTheme.ink)
                 }
@@ -1000,8 +1003,20 @@ struct TimerView: View {
         // moves in lockstep with `lastFlightBatteryWire`, so the pair
         // is always coherent. Falls back to `Date()` for the race-start
         // path where no notify has landed yet.
-        let now = bluetooth.lastFlightBatteryReceivedAt ?? Date()
-        guard let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started, now: now) else { return }
+        //
+        // Clamp the `tRace` anchor to `started` so a notify cached from
+        // BEFORE the race (BLE connected during pre-race setup, no new
+        // notify since) lands the baseline sample at `tRace = 0` instead
+        // of a far-negative value that would fail RaceRecord's tRace
+        // lower-bound validator and drop the whole record on save
+        // (saveRaceIfNeeded only logs the rejection at debug, so the
+        // dropped record is otherwise invisible). Pass `receivedAt`
+        // separately so `sample.receivedAt` (and the CSV `received_at`
+        // export) still reflects the actual BLE-notify arrival time,
+        // not the clamped value.
+        let receivedAt = bluetooth.lastFlightBatteryReceivedAt ?? Date()
+        let now = max(receivedAt, started)
+        guard let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started, now: now, receivedAt: receivedAt) else { return }
         if let previous = raceFlightBatterySamples.last,
            previous.voltageDv == sample.voltageDv,
            previous.currentDa == sample.currentDa,
