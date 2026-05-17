@@ -1000,8 +1000,20 @@ struct TimerView: View {
         // moves in lockstep with `lastFlightBatteryWire`, so the pair
         // is always coherent. Falls back to `Date()` for the race-start
         // path where no notify has landed yet.
-        let now = bluetooth.lastFlightBatteryReceivedAt ?? Date()
-        guard let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started, now: now) else { return }
+        //
+        // Clamp the `tRace` anchor to `started` so a notify cached from
+        // BEFORE the race (BLE connected during pre-race setup, no new
+        // notify since) lands the baseline sample at `tRace = 0` instead
+        // of a far-negative value that would fail RaceRecord's tRace
+        // lower-bound validator and drop the whole record on save
+        // (saveRaceIfNeeded only logs the rejection at debug, so the
+        // dropped record is otherwise invisible). Pass `receivedAt`
+        // separately so `sample.receivedAt` (and the CSV `received_at`
+        // export) still reflects the actual BLE-notify arrival time,
+        // not the clamped value.
+        let receivedAt = bluetooth.lastFlightBatteryReceivedAt ?? Date()
+        let now = max(receivedAt, started)
+        guard let sample = RaceFlightBatterySample.parseWireV1(raw, raceStartedAt: started, now: now, receivedAt: receivedAt) else { return }
         if let previous = raceFlightBatterySamples.last,
            previous.voltageDv == sample.voltageDv,
            previous.currentDa == sample.currentDa,
