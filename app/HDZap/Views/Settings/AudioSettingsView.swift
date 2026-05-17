@@ -186,14 +186,16 @@ struct AudioSettingsView: View {
                 }
             } footer: {
                 // Two notes the operator wouldn't otherwise know:
-                // 1. Why announcements still play with the ringer off (the
-                //    answer is the AVAudioSession `.playback` category we set —
-                //    cued here so the behavior doesn't read as a bug).
+                // 1. Why announcements still play with the ringer off, and
+                //    why other audio stays ducked for the whole race (the
+                //    warm-keeper streams a silent buffer through the
+                //    `.playback` + `.duckOthers` session so the HAL stays
+                //    hot — the tradeoff is continuous ducking).
                 // 2. Why a voice they expect to see isn't in the picker — iOS
                 //    ships only a base voice; better-quality voices are an
                 //    opt-in download.
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Plays through the speaker even when the ringer switch is silent. Other audio is briefly ducked during each announcement.")
+                    Text("Plays through the speaker even when the ringer switch is silent. Other audio stays ducked for the duration of a race so announcement timing stays precise.")
                     Text("More voices: Settings → Accessibility → Spoken Content → Voices.")
                 }
                 .font(.caption2)
