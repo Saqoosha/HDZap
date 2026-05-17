@@ -157,6 +157,17 @@ class BluetoothManager: NSObject {
     ///   on next launch before BLE reconnects.
     private(set) var lastKnownUID: [UInt8]?
     private static let lastKnownUIDKey = "lastKnownUID"
+
+    /// Whether the M5StickS3 bridge is enabled. When false, the app runs as
+    /// a standalone manual lap timer: `CBCentralManager` is never
+    /// instantiated, so iOS does not show the Bluetooth permission prompt,
+    /// the Settings root hides the M5StickS3 / Goggle pairing / OSD layout
+    /// drilldowns, and the TimerView masthead does not surface the
+    /// "Not connected" banner. Default for fresh installs is `false` — see
+    /// `init()` for the one-shot migration that flips it to `true` for
+    /// users who already paired with a bridge under the older builds.
+    private(set) var isBridgeEnabled: Bool = false
+    private static let bridgeEnabledKey = "m5StickBridgeEnabled"
     /// Latest Test OSD outcome from the firmware status notify.
     /// Encodes the `g_last_test_result` byte:
     ///   .none      = no test result yet (or the firmware byte was 0)
@@ -350,7 +361,13 @@ class BluetoothManager: NSObject {
     }
 
     private static let errorLogCapacity = 5
-    private var centralManager: CBCentralManager!
+    /// Nil while `isBridgeEnabled == false` — the lazy-init is the entire
+    /// point of the toggle (no central manager means no system Bluetooth
+    /// permission prompt for users who don't own a bridge). Every site that
+    /// touches this must be nil-safe; UI gates are wired to `isBridgeEnabled`
+    /// and `isReady` so most call sites are unreachable in the nil state,
+    /// but the safety net keeps a stray `startScan()` from crashing.
+    private var centralManager: CBCentralManager?
     private var connectedPeripheral: CBPeripheral?
     private var characteristics: [CBUUID: CBCharacteristic] = [:]
     /// Suppresses iOS background auto-reconnect. Set by both `disconnect()`
@@ -365,7 +382,6 @@ class BluetoothManager: NSObject {
 
     override init() {
         super.init()
-        centralManager = CBCentralManager(delegate: self, queue: nil)
         // Restore the last UID we saw on a previous run so the Settings
         // root's "Goggle pairing" row can render the remembered value
         // immediately on launch, before a BLE reconnect populates the
@@ -389,6 +405,79 @@ class BluetoothManager: NSObject {
                 UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
             }
         }
+        // One-shot migration: first launch of a build that knows about
+        // the bridge toggle. If the user already paired with a bridge
+        // under the older builds, keep their bridge enabled so it
+        // doesn't appear to vanish on upgrade. Otherwise default to off
+        // (the "half of users don't own the hardware" case).
+        if UserDefaults.standard.object(forKey: Self.bridgeEnabledKey) == nil {
+            let hasPriorPairing = (lastKnownUID != nil)
+            UserDefaults.standard.set(hasPriorPairing, forKey: Self.bridgeEnabledKey)
+        }
+        isBridgeEnabled = UserDefaults.standard.bool(forKey: Self.bridgeEnabledKey)
+        if isBridgeEnabled {
+            centralManager = CBCentralManager(delegate: self, queue: nil)
+        }
+    }
+
+    /// Toggle handler for the Settings root's "Use bridge" row. Idempotent:
+    /// a no-op when the requested state already matches. Turning the bridge
+    /// on instantiates `CBCentralManager` (which is the call that triggers
+    /// iOS's Bluetooth permission prompt on first run); turning it off
+    /// tears down any live connection and drops the central manager so BLE
+    /// goes fully quiet. `lastKnownUID` is intentionally preserved across
+    /// toggle-off so a later re-enable can still display the prior pairing
+    /// in the Settings root summary row.
+    func setBridgeEnabled(_ enabled: Bool) {
+        if enabled == isBridgeEnabled { return }
+        UserDefaults.standard.set(enabled, forKey: Self.bridgeEnabledKey)
+        if enabled {
+            // Enable path: flip the flag THEN create the central, so any
+            // observer seeing `isBridgeEnabled == true` can already trust
+            // that `setBridgeEnabled` is committing to a live central.
+            isBridgeEnabled = true
+            if centralManager == nil {
+                centralManager = CBCentralManager(delegate: self, queue: nil)
+            }
+        } else {
+            // Disable path: tear DOWN first so no observer ever sees the
+            // illegal pair (`isBridgeEnabled == false` with a still-live
+            // central manager). The teardown is synchronous from the
+            // main-actor's perspective — async didDisconnect callbacks
+            // are gated by the central-identity guard on the delegate
+            // methods, so a late callback from the dropped central
+            // cannot revive state.
+            disableBridgeTeardown()
+            isBridgeEnabled = false
+            // Drop any stale BLE error that accumulated while the bridge
+            // was enabled — leaving "Bluetooth turned off mid-session"
+            // sitting in the masthead after the user has explicitly
+            // walked away from the bridge is confusing, and (per the
+            // TimerView masthead guard) is the only path that would
+            // surface a bridge-related error in the disabled state.
+            clearAllErrors()
+        }
+    }
+
+    /// Symmetric counterpart of the lazy-init path. Distinct from
+    /// `disconnect()` — that path also wipes `lastKnownUID` because it
+    /// represents the user walking away from a specific M5Stick. Toggling
+    /// the bridge off is a "stop using the bridge for now" action, not a
+    /// "I've swapped devices" action, so the remembered UID stays.
+    private func disableBridgeTeardown() {
+        if let peripheral = connectedPeripheral {
+            suppressAutoReconnect = true
+            userTappedDisconnect = true
+            tearDownConnection(peripheral)
+        }
+        centralManager?.stopScan()
+        isScanning = false
+        discoveredDevices = []
+        advertisedNames = [:]
+        // Drop the central manager so BLE is fully quiet. iOS's permission
+        // grant survives this — a future re-enable creates a fresh central
+        // and does NOT re-prompt the user.
+        centralManager = nil
     }
 
     /// Dismiss the currently-displayed error. Other queued errors stay
@@ -429,6 +518,10 @@ class BluetoothManager: NSObject {
     }
 
     func startScan() {
+        // Defensive — the UI hides Scan when the bridge is disabled, so this
+        // shouldn't be reachable, but a no-op beats a crash if someone wires
+        // a new entry point without checking `isBridgeEnabled` first.
+        guard let centralManager else { return }
         switch centralManager.state {
         case .poweredOn:
             break
@@ -465,7 +558,7 @@ class BluetoothManager: NSObject {
     }
 
     func stopScan() {
-        centralManager.stopScan()
+        centralManager?.stopScan()
         isScanning = false
     }
 
@@ -474,7 +567,7 @@ class BluetoothManager: NSObject {
         suppressAutoReconnect = false
         userTappedDisconnect = false
         connectedPeripheral = peripheral
-        centralManager.connect(peripheral)
+        centralManager?.connect(peripheral)
     }
 
     func disconnect() {
@@ -495,7 +588,7 @@ class BluetoothManager: NSObject {
         resetTelemetryDebugState()
         resetBatteryState()
         resetFirmwareVersion()
-        centralManager.cancelPeripheralConnection(peripheral)
+        centralManager?.cancelPeripheralConnection(peripheral)
     }
 
     /// Best-known display name for a discovered peripheral. Prefers the
@@ -757,6 +850,16 @@ class BluetoothManager: NSObject {
 
     @discardableResult
     private func write(data: Data, to uuid: CBUUID, type: CBCharacteristicWriteType) -> Bool {
+        // When the user has disabled the bridge in Settings, silently
+        // no-op every write — they explicitly opted out of bridge UX, so
+        // a "Not connected" error popping up on the next LAP tap would
+        // accuse them of a problem they don't have. TimerView's lap path
+        // (sendTimeLeftRow / sendMetricRows) fires unconditionally on
+        // every LAP because those calls are a no-op-or-better when the
+        // bridge is gone; this guard is the boundary that makes that
+        // contract honest, instead of pushing the check into every call
+        // site upstream.
+        guard isBridgeEnabled else { return false }
         guard let peripheral = connectedPeripheral else {
             lastError = "Not connected. Tap Scan and reconnect."
             return false
@@ -874,7 +977,22 @@ class BluetoothManager: NSObject {
 }
 
 extension BluetoothManager: CBCentralManagerDelegate {
+    /// Stale-callback guard. After `setBridgeEnabled(false)` drops the
+    /// central manager (and a later `setBridgeEnabled(true)` may have
+    /// created a new one), CoreBluetooth can still deliver one or two
+    /// already-queued callbacks from the OLD central. Without this
+    /// check those callbacks would mutate state belonging to a fresh
+    /// session (revive `isConnected`, repopulate `discoveredDevices`,
+    /// surface a misleading state-change banner). Identity compare,
+    /// not equality — there's only ever one current central per
+    /// process, so `===` is the right relation. Applied at the top of
+    /// every CBCentralManagerDelegate method.
+    private func isCurrentCentral(_ central: CBCentralManager) -> Bool {
+        central === centralManager
+    }
+
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        guard isCurrentCentral(central) else { return }
         if central.state == .poweredOn { return }
         isScanning = false
         // A mid-session state change (Bluetooth toggled off, permission
@@ -912,6 +1030,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        guard isCurrentCentral(central) else { return }
         if !discoveredDevices.contains(where: { $0.identifier == peripheral.identifier }) {
             discoveredDevices.append(peripheral)
         }
@@ -927,6 +1046,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard isCurrentCentral(central) else { return }
         isConnected = true
         // Clean slate for the intent flags on every successful connection,
         // regardless of which path (explicit connect() or iOS auto-reconnect
@@ -946,6 +1066,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard isCurrentCentral(central) else { return }
         isConnected = false
         connectedPeripheral = nil
         connectedDeviceName = nil
@@ -963,6 +1084,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard isCurrentCentral(central) else { return }
         isConnected = false
         connectedDeviceName = nil
         // Drop the firmware-reported name on disconnect; the next reconnect
@@ -991,7 +1113,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
         if let error {
             print("BLE auto-reconnecting after disconnect: \(error.localizedDescription)")
         }
-        centralManager.connect(peripheral)
+        centralManager?.connect(peripheral)
     }
 }
 
@@ -1090,7 +1212,7 @@ extension BluetoothManager: CBPeripheralDelegate {
     /// (iOS can skip it when the peripheral was still in .connecting),
     /// the flag remains sticky until the next call to `connect(_:)`.
     private func tearDownConnection(_ peripheral: CBPeripheral) {
-        centralManager.cancelPeripheralConnection(peripheral)
+        centralManager?.cancelPeripheralConnection(peripheral)
         isConnected = false
         connectedDeviceName = nil
         currentDeviceName = nil

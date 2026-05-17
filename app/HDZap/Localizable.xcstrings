@@ -301,6 +301,17 @@
         }
       }
     },
+    "Connect an M5Stick bridge to mirror lap times on your goggle OSD." : {
+      "comment" : "Settings → Device section footer shown when the Use bridge toggle is OFF, explaining what the bridge is for.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "M5Stick ブリッジを接続するとラップタイムをゴーグルの OSD に表示できます。"
+          }
+        }
+      }
+    },
     "Current UID" : {
       "localizations" : {
         "ja" : {
@@ -782,6 +793,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不明"
+          }
+        }
+      }
+    },
+    "Use bridge" : {
+      "comment" : "Settings → Device toggle that enables or disables the M5StickS3 bridge. OFF (default) hides all bridge-related UI and prevents iOS from asking for Bluetooth permission.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブリッジを使う"
           }
         }
       }
