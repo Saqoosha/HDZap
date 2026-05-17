@@ -83,14 +83,16 @@ struct TimerView: View {
     @State private var shareError: String?
     /// Next countdown number queued to fire as `lapTimer.elapsedTime`
     /// climbs past the boundary for it. Driven by an `.onChange` on
-    /// `elapsedTime` (60 Hz, race-synced — vs the wall-clock 1 Hz
-    /// `osdTick` that previously triggered the count, which could
-    /// fire anywhere in the 1 s window after the boundary and made
-    /// the audio land 0–1 s late on top of the BT codec latency).
-    /// `nil` means "no count active": between sessions, before
-    /// `remaining` reaches `countdownStartSeconds`, and after "1" has
-    /// fired. Armed on a fresh START to the clamped countdown-start
-    /// value; cleared on RESET / FINAL-lap / manual STOP.
+    /// `elapsedTime` (60 Hz, race-synced — boundary detection lands
+    /// within ~16 ms; a wall-clock 1 Hz tick would land 0–1 s late
+    /// on top of any BT codec latency). `nil` means "no count
+    /// active": between sessions, before `remaining` reaches
+    /// `countdownStartSeconds`, and after "1" has fired. Armed on a
+    /// fresh START to the clamped countdown-start value; cleared on
+    /// RESET / FINAL-lap / manual STOP. Always decremented when its
+    /// boundary is crossed, even if TTS or countdown is disabled,
+    /// so re-enabling Settings mid-race doesn't replay every missed
+    /// number in a burst.
     @State private var nextCountdownN: Int?
     /// One-shot latch for the "Last lap!" / "ラストラップ！" cue. Flips
     /// true the instant `elapsedTime` crosses `sessionLimit` (with
@@ -252,6 +254,20 @@ struct TimerView: View {
         .onChange(of: lapTimer.elapsedTime) { _, newElapsed in
             fireCountdownIfElapsedReached(newElapsed)
             fireLastLapAnnounceIfDue(newElapsed)
+        }
+        // Toggling TTS off mid-race needs to release the warm-keeper
+        // engine and the session hold, otherwise the silent stream
+        // keeps `.duckOthers` engaged and other apps stay quiet for
+        // the rest of the race even after the operator told us to
+        // stop announcing. Re-enabling mid-race intentionally does
+        // NOT auto-restart the warm-keeper — the next race START
+        // re-engages it, and a partial re-engage now would have the
+        // operator pay an HAL warm-up hitch on the very next
+        // utterance anyway.
+        .onChange(of: lapTTSEnabled) { _, isEnabled in
+            guard !isEnabled else { return }
+            announcer.sessionHoldActive = false
+            announcer.stopWarmKeeper()
         }
         // Persist the race once it transitions to ended. `sessionEnded`
         // flips false→true via either the FINAL-lap path or manual STOP
@@ -1083,12 +1099,17 @@ struct TimerView: View {
             // stale "Lap 5, 12.34" trailing into the next session would be
             // disorienting since the visible state was just cleared.
             announcer.cancel()
-            // Release the session hold AFTER `cancel()` so the
-            // didSet's "deactivate if idle" path takes effect: the
-            // stopSpeaking above puts the synth into the idle state
-            // the didSet checks. Race condition with the didCancel
-            // delegate is harmless — whichever fires first finds the
-            // hold flag already false and deactivates.
+            // `cancel()` dispatches `stopSpeaking` to the synth's
+            // serial background queue, so the synth is *not* yet
+            // idle when this `sessionHoldActive = false` lands —
+            // its `didSet` will see the inflight counter > 0 and
+            // skip the deactivate. That's the desired path: the
+            // `didCancel` delegate fires from the synth queue,
+            // decrements the counter, and calls `deactivateSession`
+            // which now finds the hold released. Stopping the
+            // warm-keeper immediately is safe because RESET means
+            // we're throwing the queued summary speak away — no
+            // need to keep the HAL hot for it.
             announcer.sessionHoldActive = false
             announcer.stopWarmKeeper()
             lapTimer.reset()
@@ -1116,13 +1137,20 @@ struct TimerView: View {
     /// *attempt* the speak means a dropped number doesn't re-fire on
     /// the next tick — the next firing's number is already current.
     private func fireCountdownIfElapsedReached(_ newElapsed: TimeInterval) {
-        guard lapTTSEnabled, countdownEnabled else { return }
         guard lapTimer.isRunning, !sessionEnded else { return }
         guard let n = nextCountdownN else { return }
         let leadSec = announcer.estimatedOutputLatency
         let fireAtElapsed = sessionLimit - TimeInterval(n) - leadSec
         guard newElapsed >= fireAtElapsed else { return }
-        announcer.announceCountdown(n)
+        // Always advance the state, even when speak is suppressed —
+        // otherwise toggling countdown back on at `remaining=4` would
+        // see `nextCountdownN = 10` and burst "10","9","8","7","6","5"
+        // in rapid succession to catch up. Decrementing in sync with
+        // the elapsed boundaries means re-enabling mid-race picks up
+        // at the *current* second only.
+        if lapTTSEnabled && countdownEnabled {
+            announcer.announceCountdown(n)
+        }
         nextCountdownN = (n > 1) ? n - 1 : nil
     }
 
@@ -1133,13 +1161,19 @@ struct TimerView: View {
     /// countdown so the audio lands at the second boundary on AirPods
     /// instead of ~150 ms late.
     private func fireLastLapAnnounceIfDue(_ newElapsed: TimeInterval) {
-        guard lapTTSEnabled, !lastLapAnnounced else { return }
+        guard !lastLapAnnounced else { return }
         guard lapTimer.isRunning, !sessionEnded else { return }
         let leadSec = announcer.estimatedOutputLatency
         let fireAtElapsed = sessionLimit - leadSec
         guard newElapsed >= fireAtElapsed else { return }
+        // Same latch-without-speak pattern as the countdown: setting
+        // `lastLapAnnounced = true` even when TTS is off means
+        // re-enabling Settings mid-race doesn't backfill a "Last lap!"
+        // call after `remaining` has already passed 0.
         lastLapAnnounced = true
-        announcer.announceLastLap()
+        if lapTTSEnabled {
+            announcer.announceLastLap()
+        }
     }
 
     private func ingestFlightBatteryTelemetry() {

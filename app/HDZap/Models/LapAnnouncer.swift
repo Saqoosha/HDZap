@@ -264,26 +264,30 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// The +0.05 s is the empirical synthesis-and-enqueue overhead
     /// of `AVSpeechUtterance` for a one- or two-syllable numeral —
     /// `outputLatency` measures only the audio session's output
-    /// buffer, not the speech pipeline upstream of it.
+    /// buffer, not the speech pipeline upstream of it. The raw value
+    /// is clamped to `≥ 0`: the property is documented to return 0
+    /// for an inactive session, but Apple has historically tightened
+    /// "undefined" to specific sentinels (NaN, -1) without warning,
+    /// and any negative value here would make
+    /// `fireAtElapsed = sessionLimit − n − leadSec` overshoot
+    /// `sessionLimit` and silently kill the countdown.
     ///
-    /// Returns 0 before `configureSessionIfNeeded()` has activated
-    /// the session — `announceStart()` warms the session at race
-    /// start, so by the time `remaining` reaches the countdown
-    /// threshold this is a valid number.
+    /// The minimum is `0.05` (the synth-overhead floor): before
+    /// `startWarmKeeper()` activates the session the route latency
+    /// reads as 0, but the synth overhead is still there.
     var estimatedOutputLatency: TimeInterval {
-        AVAudioSession.sharedInstance().outputLatency + 0.05
+        max(0, AVAudioSession.sharedInstance().outputLatency) + 0.05
     }
 
     override init() {
         super.init()
         synthesizer.delegate = self
-        // Keep `usesApplicationAudioSession = true` (the default) so
-        // the synth shares our AVAudioSession. The warm-keeper engine
-        // attached below runs continuously through that same session,
-        // which is what keeps the audio-output HAL hot between
-        // utterances. With `false`, the synth would have its own
-        // private internal session and our warm-keeper couldn't
-        // prevent its per-utterance cold-start hitch.
+        // NB: do NOT set `synthesizer.usesApplicationAudioSession =
+        // false` — the synth needs to share our AVAudioSession so
+        // the warm-keeper engine started by `startWarmKeeper()` can
+        // keep the audio-output HAL hot for it. With `false`, the
+        // synth uses its own private internal session and the
+        // warm-keeper has no effect on its per-utterance cold-start.
         // Tripwire for `defaultRate` drifting away from
         // `AVSpeechUtteranceDefaultSpeechRate` in a future SDK.
         assert(LapAnnouncerDefaults.defaultRate == AVSpeechUtteranceDefaultSpeechRate,
@@ -331,9 +335,10 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     /// Announces the race start ("Start" / "スタート") so the operator
-    /// gets an audio cue when they tap START. Doubles as a warm-up for
-    /// the audio session so the first lap announcement isn't delayed by
-    /// the initial `setActive(true)` round-trip.
+    /// gets an audio cue when they tap START. Session warm-up is now
+    /// owned by `startWarmKeeper()` (called synchronously before
+    /// this utterance is enqueued), so the announcement is purely
+    /// the operator cue.
     func announceStart() {
         switch currentLanguage() {
         case .english: speak("Start")
@@ -355,30 +360,36 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    /// Speaks a single countdown number near race end. Uses
-    /// `cancelInflight: false` so consecutive numbers ("10","9","8")
-    /// queue end-to-end instead of chopping the previous utterance the
-    /// way the lap callout does — a clipped "te-" then "9" would read
-    /// as garbled. AVSpeechSynthesizer reads bare numerals naturally
-    /// in both en (`ten` / `nine`) and ja (`じゅう` / `きゅう`) voices,
-    /// so no per-language phrasing is needed. A LAP tap or FINAL
-    /// summary still cancels the count — those go through `speak()`
-    /// with the default `cancelInflight: true`, which is the right
-    /// priority order (lap timing > continued count).
+    /// Speaks a single countdown number near race end.
+    /// AVSpeechSynthesizer reads bare numerals naturally in both en
+    /// (`ten` / `nine`) and ja (`じゅう` / `きゅう`) voices, so no
+    /// per-language phrasing is needed.
     ///
-    /// Guard against queueing behind a longer utterance: if the synth
-    /// is mid-phrase (typically a just-fired lap callout taking ~2s),
-    /// drop this number entirely. Without the guard, "Lap 5, 12.34"
-    /// followed by queued "6","5","4" would replay the count from a
-    /// stale value seconds after the time it referred to — the
-    /// operator complained the count "starts from 6 or 5 after the
-    /// lap announcement when it should be ~3 by then." Dropping is
-    /// safe: the next 1Hz tick fires the *current* `ceil(remaining)`
-    /// via `lastCountdownAnnounced`, so the user hears the count
-    /// resume at whatever second is actually remaining, not stale
-    /// values queued from before the interruption.
+    /// Guard on `inflightUtteranceCount == 0`, not `isSpeaking`:
+    /// `speak()` is dispatched to `synthQueue` and the counter is
+    /// incremented synchronously *before* the dispatch, while
+    /// `isSpeaking` only flips true once the synth worker picks up
+    /// the utterance. Reading `isSpeaking` would let a countdown
+    /// number slip past a still-pending lap callout that hasn't
+    /// reached the synth yet, and the operator would then hear the
+    /// stale number out-of-order after the lap announcement
+    /// finished. The counter check covers both the in-flight and
+    /// the queued cases.
+    ///
+    /// Dropping is safe — `nextCountdownN` in `TimerView` is only
+    /// advanced after this method is called (regardless of whether
+    /// `speak()` actually fired), so a dropped number is simply
+    /// skipped; the next 60 Hz `.onChange(of: elapsedTime)` tick
+    /// already targets the next-smaller integer and lands when the
+    /// synth has cleared. `cancelInflight: false` matches that
+    /// design: a LAP or FINAL utterance does *not* preempt the
+    /// count via `speak()`'s cancel path (it preempts the count
+    /// only by passing this guard), but the counter check makes the
+    /// `cancelInflight: false` parameter effectively unreachable on
+    /// the steady-state countdown path — only the start-of-count
+    /// case (idle synth) ever passes the guard.
     func announceCountdown(_ seconds: Int) {
-        guard !synthesizer.isSpeaking else { return }
+        guard inflightUtteranceCount == 0 else { return }
         speak(String(seconds), cancelInflight: false)
     }
 
@@ -403,13 +414,27 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         guard let format,
               let buffer = AVAudioPCMBuffer(pcmFormat: format,
                                             frameCapacity: 4410) else {
+            log.error("warm-keeper buffer allocation failed (format nil or PCMBuffer nil)")
+            lastAudioError = "Audio warm-up unavailable — announcements may stutter at race start."
             warmKeeperRunning = false
             return
         }
-        // 100 ms of zero-amplitude audio, looped — long enough that
-        // the scheduling overhead is negligible (10 Hz reschedule),
-        // short enough that `.stop()` cuts cleanly at race end.
+        // 100 ms looped — short enough that `.stop()` cuts cleanly at
+        // race end (worst-case ~100 ms tail before silence), long
+        // enough that any internal restart at the loop boundary stays
+        // well below audibility. AVAudioPCMBuffer's sample storage is
+        // *not* guaranteed to be zero-initialized — the allocator
+        // typically returns zeroed pages but it isn't part of the
+        // contract, and an uninitialized chunk would replay through
+        // the speaker as a click/burst loud enough to startle the
+        // operator. Memset is a few µs once per race start.
         buffer.frameLength = 4410
+        if let channels = buffer.floatChannelData {
+            let bytes = Int(buffer.frameLength) * MemoryLayout<Float>.size
+            for c in 0..<Int(format.channelCount) {
+                memset(channels[c], 0, bytes)
+            }
+        }
 
         if !warmKeeperAttached {
             warmKeeperEngine.attach(warmKeeperNode)
@@ -429,7 +454,15 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                                           completionHandler: nil)
             warmKeeperNode.play()
         } catch {
+            // Hide-the-error here defeats the whole point of the
+            // warm-keeper: silently failing means the operator's
+            // countdown audio stutters and they have no idea why.
+            // Surface the same lastAudioError + haptic pair that
+            // session activation uses, so the existing
+            // AudioSettingsView banner picks it up.
             log.error("warm-keeper start failed: \(error.localizedDescription, privacy: .public)")
+            lastAudioError = "Audio warm-up failed — announcements may stutter at race start: \(error.localizedDescription)"
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
             warmKeeperRunning = false
         }
     }
@@ -526,7 +559,21 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// warm-keeper running past the race end, ducking other apps'
     /// audio forever.
     private func utteranceDidEnd() {
-        inflightUtteranceCount = max(0, inflightUtteranceCount - 1)
+        let newCount = inflightUtteranceCount - 1
+        if newCount < 0 {
+            // The invariant is +1 in `speak()` paired with exactly one
+            // didFinish or didCancel from the synth. Underflow means
+            // one of: a delegate callback fired twice for the same
+            // utterance, a callback fired for an utterance we never
+            // counted, or `speak()` was bypassed for an enqueue. Any
+            // of those would silently corrupt warm-keeper / session
+            // lifecycle decisions downstream, so log and assert in
+            // debug — the `max(0, ...)` keeps release builds limping
+            // along instead of permanently gating `deactivateSession`.
+            log.error("inflightUtteranceCount underflow (\(self.inflightUtteranceCount, privacy: .public) -> \(newCount, privacy: .public)) — speak/utteranceDidEnd asymmetry")
+            assertionFailure("inflightUtteranceCount underflow")
+        }
+        inflightUtteranceCount = max(0, newCount)
         if stopWarmKeeperPending && inflightUtteranceCount == 0 {
             stopWarmKeeperPending = false
             stopWarmKeeper()
@@ -555,16 +602,25 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         utterance.volume = 1.0
 
         let synth = synthesizer
-        // `isSpeaking` is a thread-safe property on AVSpeechSynthesizer
-        // and may race with a previous queued speak that's still in
-        // flight, but a redundant `stopSpeaking` on an idle synth is
-        // harmless — the dispatched closure runs serially after that
-        // prior speak anyway.
-        let needCancel = cancelInflight && synth.isSpeaking
         inflightUtteranceCount += 1
         synthQueue.async {
-            if needCancel {
-                synth.stopSpeaking(at: .immediate)
+            // `cancelInflight` is evaluated on this serial queue —
+            // not on main when speak() was called — so it can't be
+            // stale. Reading `synth.isSpeaking` on main and dispatching
+            // the decision risks the cancel being skipped when the
+            // previous speak is still pending in this same queue
+            // (`isSpeaking` is still false at the time of the read);
+            // by the time *this* closure runs that earlier speak has
+            // already begun, and the `cancelInflight: true` contract
+            // demands it be preempted. A `stopSpeaking` on an idle
+            // synth is a documented no-op; the debug log keeps the
+            // "stuck synth" observability the pre-refactor cancel()
+            // had.
+            if cancelInflight {
+                let stopped = synth.stopSpeaking(at: .immediate)
+                if !stopped {
+                    log.debug("speak: stopSpeaking returned false (no utterance to cancel)")
+                }
             }
             synth.speak(utterance)
         }
@@ -667,8 +723,18 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         }
 
         let resolved = resolveVoice(language: language, identifier: id)
-        cachedVoiceKey = key
-        cachedVoice = resolved
+        // Only cache a successful resolution. Caching nil would pin
+        // the synth to its hidden default voice forever once a
+        // transient voice-data outage happens (Settings → Spoken
+        // Content → Voices is mid-download, locale just changed,
+        // etc.); on the next utterance we'd hand AVSpeechSynthesizer
+        // a `nil` voice and never retry. Leaving the cache empty
+        // means the next call re-tries the lookup — usually free
+        // once the voice is back on disk.
+        if let resolved {
+            cachedVoiceKey = key
+            cachedVoice = resolved
+        }
         return resolved
     }
 
@@ -699,7 +765,20 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 log.info("Saved voice '\(id, privacy: .public)' no longer installed; using system default for \(language.fallbackVoiceLanguage, privacy: .public).")
             }
         }
-        return AVSpeechSynthesisVoice(language: language.fallbackVoiceLanguage)
+        let fallback = AVSpeechSynthesisVoice(language: language.fallbackVoiceLanguage)
+        if fallback == nil {
+            // No voice at all for this language — the system has no
+            // installed voice for, say, `ja-JP`, possibly because the
+            // operator restored to a region that doesn't ship one or
+            // the voice-data download is mid-flight. Without this
+            // surface, AVSpeechSynthesizer falls back to its hidden
+            // default voice silently and the operator hears `en-US`
+            // for a `ja-JP`-tagged race — easy to miss until a lap
+            // time reads as gibberish numbers.
+            log.error("No AVSpeechSynthesisVoice available for \(language.fallbackVoiceLanguage, privacy: .public) — synth will fall back to system default voice")
+            lastAudioError = "No voice installed for \(language.fallbackVoiceLanguage). Install one in Settings → Accessibility → Spoken Content → Voices."
+        }
+        return fallback
     }
 
     private func currentRate() -> Float {
