@@ -854,6 +854,7 @@ struct TimerView: View {
                     EditorialTheme.ink.opacity(readyShown ? 0.5 : 0.2),
                     lineWidth: readyShown ? 1 : 0.5))
         }
+        .buttonStyle(PressDownHapticStyle())
     }
 
     // MARK: - Action dock
@@ -880,6 +881,7 @@ struct TimerView: View {
                         .overlay(Circle().stroke(EditorialTheme.ink.opacity(0.14), lineWidth: 0.5))
                         .opacity(secondaryDisabled ? 0.45 : 1)
                 }
+                .buttonStyle(PressDownHapticStyle())
                 .disabled(secondaryDisabled)
                 .padding(.leading, 28)
 
@@ -895,6 +897,7 @@ struct TimerView: View {
                             .background(.ultraThinMaterial, in: Circle())
                             .overlay(Circle().stroke(EditorialTheme.ink.opacity(0.14), lineWidth: 0.5))
                     }
+                    .buttonStyle(PressDownHapticStyle())
                     .accessibilityLabel("Share race result")
                     .padding(.trailing, 28)
                 }
@@ -913,6 +916,9 @@ struct TimerView: View {
                     .shadow(color: primaryShadowColor, radius: 14, x: 0, y: 10)
                     .opacity(primaryDisabled ? 0.55 : 1)
             }
+            // Press-down haptic; trailing-edge haptics for LAP / FINAL /
+            // START are carried by the `.sensoryFeedback` modifiers above.
+            .buttonStyle(PressDownHapticStyle())
             .disabled(primaryDisabled)
             .scaleEffect(primaryPulse ? 1.0 : 0.985)
             .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true),
@@ -1892,5 +1898,27 @@ struct LapTable: View {
                 .frame(width: LapTableMetrics.trendColumnWidth)
             }
         }
+    }
+}
+
+/// Press-down (touch-in) haptic + dim for the four large action buttons in
+/// this view (primary, secondary, share, ready). Pairs with the parent's
+/// `.sensoryFeedback` modifiers, which carry release-edge haptics only for
+/// the LAP / FINAL / START transitions on the primary button; the
+/// secondary (STOP/RESET), share, and ready buttons get this leading edge
+/// as their only haptic. `isEnabled` guards the haptic so a disabled
+/// button never ticks even if SwiftUI delivers the press transition. The
+/// opacity restores the default-style press dim that applying a custom
+/// `ButtonStyle` otherwise strips off the label.
+private struct PressDownHapticStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.75 : 1.0)
+            .onChange(of: configuration.isPressed) { _, isPressed in
+                guard isPressed, isEnabled else { return }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
     }
 }
