@@ -23,6 +23,20 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.countdownStartSecondsKey: LapAnnouncerDefaults.defaultCountdownStartSeconds,
         ])
         #if DEBUG
+        // Screenshot-mode override: force the session-limit + target-lap
+        // defaults so the seeded LapTimer / history records always render
+        // against the documented 90s / 7L baseline, even on a simulator
+        // whose developer previously set different values in Settings.
+        // Without this, the @AppStorage backing values would survive and
+        // make the screenshot drift from what docs/screenshot-capture.md
+        // promises.
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-screenshotTimer") || args.contains("-screenshotHistory") {
+            UserDefaults.standard.set(RaceMetrics.defaultSessionLimit,
+                                      forKey: RaceMetrics.raceSessionLimitStorageKey)
+            UserDefaults.standard.set(RaceMetrics.defaultTargetLapCount,
+                                      forKey: RaceMetrics.targetLapCountStorageKey)
+        }
         _oklchSanityCheck()
         #endif
     }

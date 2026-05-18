@@ -379,7 +379,82 @@ struct TimerView: View {
         .sensoryFeedback(trigger: lapTimer.isRunning) { old, new in
             (!old && new) ? .impact(weight: .heavy) : nil
         }
+        #if DEBUG
+        .onAppear { seedScreenshotIfNeeded() }
+        #endif
     }
+
+    #if DEBUG
+    /// LapTimer + BluetoothManager handle their own screenshot seeds in
+    /// their `init()` so the first render sees the seeded state (avoids
+    /// the START→LAP fade transition on the primary button). This hook
+    /// covers the bits that have to wait until the view exists: the
+    /// metrics snapshot @State, and presenting the history sheet.
+    /// See docs/screenshot-capture.md for the end-to-end procedure.
+    private func seedScreenshotIfNeeded() {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-screenshotTimer") {
+            // Populate PACE / AVG / DIFF / NEED cells which are otherwise
+            // empty (`—`) until a lap is recorded via the normal flow.
+            // Skipping the paceOverride lets `RaceMetrics` compute the
+            // projected pace from the seeded laps' totals against
+            // `sessionLimit`. The in-flight `currentLapElapsed` doesn't
+            // feed the pace estimate — only completed laps and the
+            // session window do.
+            refreshMetricsSnapshot()
+        } else if args.contains("-screenshotHistory") {
+            history.seedForScreenshot(Self.makeScreenshotHistory())
+            showHistory = true
+        }
+    }
+
+    /// Five race records matching the original 02-history.png shape. The
+    /// displayed totals and best-lap stats are functions of the lap arrays,
+    /// so the per-lap breakdowns below are constructed to sum / minimize
+    /// to those values. The history row's date label is the `startedAt`
+    /// value, so the tuple timestamp is the start (not the end).
+    ///
+    /// Dates are relative to `Date()` so the rows always read as recent
+    /// regardless of when the capture is run. Gregorian is pinned
+    /// explicitly because `Calendar.current` can be Japanese / Hebrew /
+    /// Islamic on simulators with non-default region settings, which
+    /// would either trap the force-unwraps or produce off-by-millennia
+    /// labels.
+    private static func makeScreenshotHistory() -> [RaceRecord] {
+        let cal = Calendar(identifier: .gregorian)
+        let now = Date()
+        func recent(_ daysAgo: Int, _ hour: Int, _ minute: Int) -> Date {
+            let day = cal.date(byAdding: .day, value: -daysAgo, to: now)!
+            return cal.date(bySettingHour: hour, minute: minute, second: 0, of: day)!
+        }
+        let rows: [(lapTimes: [TimeInterval], start: Date)] = [
+            // 6 laps · 01:32.82 · BEST 14.67 · yesterday 22:09
+            ([14.67, 15.31, 15.42, 15.55, 15.68, 16.19], recent(1, 22, 9)),
+            // 6 laps · 01:31.65 · BEST 14.92 · yesterday 21:48
+            ([14.92, 15.04, 15.20, 15.39, 15.42, 15.68], recent(1, 21, 48)),
+            // 2 laps · 00:11.14 · BEST 5.35  · yesterday 17:07
+            ([5.35, 5.79], recent(1, 17, 7)),
+            // 6 laps · 01:32.89 · BEST 15.02 · yesterday 14:51
+            ([15.02, 15.20, 15.31, 15.42, 15.62, 16.32], recent(1, 14, 51)),
+            // 2 laps · 00:24.14 · BEST 11.38 · two days ago 20:35
+            ([11.38, 12.76], recent(2, 20, 35)),
+        ]
+        return rows.compactMap { row in
+            var laps: [Lap] = []
+            for (i, t) in row.lapTimes.enumerated() {
+                laps.append(Lap(id: i + 1, time: t))
+            }
+            return RaceRecord.snapshot(
+                laps: laps,
+                startedAt: row.start,
+                endedAt: row.start.addingTimeInterval(row.lapTimes.reduce(0, +)),
+                sessionLimit: 90,
+                targetLapCount: 6,
+                accentHue: EditorialTheme.defaultAccentHue
+            )
+        }
+    }
+    #endif
 
     // MARK: - Masthead
 

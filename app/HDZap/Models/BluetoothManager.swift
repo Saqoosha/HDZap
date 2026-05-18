@@ -418,6 +418,19 @@ class BluetoothManager: NSObject {
         if isBridgeEnabled {
             centralManager = CBCentralManager(delegate: self, queue: nil)
         }
+        #if DEBUG
+        // Screenshot-mode flight-battery seed runs at init so the strip is
+        // already in the .live state on first render — mirrors the
+        // LapTimer.init() pattern. See docs/screenshot-capture.md.
+        if ProcessInfo.processInfo.arguments.contains("-screenshotTimer") {
+            seedFlightBatteryForScreenshot(
+                voltageDv: 222,
+                currentDa: 0,
+                consumedMah: 222,
+                remainingPercent: 40
+            )
+        }
+        #endif
     }
 
     /// Toggle handler for the Settings root's "Use bridge" row. Idempotent:
@@ -888,6 +901,28 @@ class BluetoothManager: NSObject {
         flightBatteryRemainingPercent = nil
         lastFlightBatteryReceivedAt = nil
     }
+
+    #if DEBUG
+    /// Inject a flight-battery reading for App Store screenshot capture.
+    /// The strip is hidden until `lastFlightBatteryReceivedAt` is non-nil,
+    /// so without this hook the simulator (which never sees a real CRSF
+    /// packet) renders a stripless timer view. The receive timestamp is
+    /// pushed an hour into the future so the `.live` (green) → `.stale`
+    /// (orange) flip can't catch us mid-capture; safe today because the
+    /// seed leaves `lastFlightBatteryWire` nil, so the future timestamp
+    /// never reaches `ingestFlightBatteryTelemetry()` or saved races.
+    /// Future contributors who add a wire-data seed alongside this MUST
+    /// also reset `lastFlightBatteryReceivedAt = Date()` so saved samples
+    /// don't get stamped with a future date. See docs/screenshot-capture.md.
+    func seedFlightBatteryForScreenshot(voltageDv: Int, currentDa: Int, consumedMah: Int, remainingPercent: Int) {
+        flightBatteryVoltageDv = voltageDv
+        flightBatteryCurrentDa = currentDa
+        flightBatteryConsumedMah = consumedMah
+        flightBatteryRemainingPercent = remainingPercent
+        lastFlightBatteryReceivedAt = Date(timeIntervalSinceNow: 3600)
+        flightBatteryNotifyRevision &+= 1
+    }
+    #endif
 
     /// Wipe all backpack-telemetry-debug state. Called on every teardown
     /// path (user disconnect, app-initiated tear, peripheral drop) so a
