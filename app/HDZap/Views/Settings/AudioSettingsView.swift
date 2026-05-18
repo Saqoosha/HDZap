@@ -17,6 +17,10 @@ struct AudioSettingsView: View {
         = Double(LapAnnouncerDefaults.defaultRate)
     @AppStorage(LapAnnouncerDefaults.pitchKey) private var ttsPitch: Double
         = Double(LapAnnouncerDefaults.defaultPitch)
+    @AppStorage(LapAnnouncerDefaults.countdownEnabledKey) private var countdownEnabled
+        = LapAnnouncerDefaults.defaultCountdownEnabled
+    @AppStorage(LapAnnouncerDefaults.countdownStartSecondsKey) private var countdownStartSeconds
+        = LapAnnouncerDefaults.defaultCountdownStartSeconds
 
     var body: some View {
         // Re-snapshot the voice list on every body eval — language picker
@@ -50,6 +54,30 @@ struct AudioSettingsView: View {
                     }
 
                     Toggle("Say \"best lap\" on new best", isOn: $announceBest)
+
+                    Toggle("Count down final seconds", isOn: $countdownEnabled)
+
+                    if countdownEnabled {
+                        // Stepper instead of Slider: the operator picks a
+                        // discrete second count exactly once, and a stepper
+                        // is easier to tap precisely than a 5–15 slider on
+                        // a small range. Clamped again at race START in
+                        // TimerView.primaryAction() before arming
+                        // `nextCountdownN`, so a stale out-of-bounds value
+                        // from a previous build can't produce a runaway
+                        // count.
+                        let range = LapAnnouncerDefaults.minCountdownStartSeconds
+                            ... LapAnnouncerDefaults.maxCountdownStartSeconds
+                        Stepper(value: $countdownStartSeconds, in: range) {
+                            HStack {
+                                Text("Start at")
+                                Spacer()
+                                Text("\(countdownStartSeconds) s")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
 
                     Picker("Voice", selection: $voiceIdentifier) {
                         Text("System default").tag(LapAnnouncerDefaults.defaultVoiceIdentifier)
@@ -150,20 +178,24 @@ struct AudioSettingsView: View {
                             ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
                             voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
                             announceBest = LapAnnouncerDefaults.defaultAnnounceBest
+                            countdownEnabled = LapAnnouncerDefaults.defaultCountdownEnabled
+                            countdownStartSeconds = LapAnnouncerDefaults.defaultCountdownStartSeconds
                         }
                         .buttonStyle(.bordered)
                     }
                 }
             } footer: {
                 // Two notes the operator wouldn't otherwise know:
-                // 1. Why announcements still play with the ringer off (the
-                //    answer is the AVAudioSession `.playback` category we set —
-                //    cued here so the behavior doesn't read as a bug).
+                // 1. Why announcements still play with the ringer off, and
+                //    why other audio stays ducked for the whole race (the
+                //    warm-keeper streams a silent buffer through the
+                //    `.playback` + `.duckOthers` session so the HAL stays
+                //    hot — the tradeoff is continuous ducking).
                 // 2. Why a voice they expect to see isn't in the picker — iOS
                 //    ships only a base voice; better-quality voices are an
                 //    opt-in download.
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Plays through the speaker even when the ringer switch is silent. Other audio is briefly ducked during each announcement.")
+                    Text("Plays through the speaker even when the ringer switch is silent. Other audio stays ducked for the duration of a race so announcement timing stays precise.")
                     Text("More voices: Settings → Accessibility → Spoken Content → Voices.")
                 }
                 .font(.caption2)

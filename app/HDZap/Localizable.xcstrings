@@ -914,12 +914,45 @@
         }
       }
     },
-    "Plays through the speaker even when the ringer switch is silent. Other audio is briefly ducked during each announcement." : {
+    "Plays through the speaker even when the ringer switch is silent. Other audio stays ducked for the duration of a race so announcement timing stays precise." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "着信スイッチがサイレントでもスピーカーから再生されます。読み上げ中は他のオーディオが一時的に小さくなります。"
+            "value" : "着信スイッチがサイレントでもスピーカーから再生されます。読み上げのタイミングを保つため、他のオーディオはレース中ずっと小さいままになります。"
+          }
+        }
+      }
+    },
+    "Count down final seconds" : {
+      "comment" : "Toggle: announce a spoken countdown over the final seconds of a race.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残り秒数をカウントダウンする"
+          }
+        }
+      }
+    },
+    "Start at" : {
+      "comment" : "Stepper label for how many seconds from race end the spoken countdown starts.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開始秒数"
+          }
+        }
+      }
+    },
+    "%lld s" : {
+      "comment" : "Compact seconds suffix for the countdown-start stepper readout (e.g. 10 s).",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 秒"
           }
         }
       }
