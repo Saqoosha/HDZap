@@ -1,0 +1,63 @@
+{
+  "description": "HDZap lap timer real utterances. Test phrases derived from LapAnnouncer.swift announceLap/announceFinal/announceStart/announceLastLap/announceCountdown.",
+  "categories": {
+    "lap_short": {
+      "description": "Typical lap announcement, short variant (no best lap flag)",
+      "phrases": [
+        { "id": "lap_short_ja_1", "lang": "ja", "text": "ラップ3、12.34" },
+        { "id": "lap_short_ja_2", "lang": "ja", "text": "ラップ12、8.97" },
+        { "id": "lap_short_en_1", "lang": "en", "text": "Lap 3, 12.34" },
+        { "id": "lap_short_en_2", "lang": "en", "text": "Lap 12, 8.97" }
+      ]
+    },
+    "lap_best": {
+      "description": "Lap announcement with best lap flag — most common short utterance",
+      "phrases": [
+        { "id": "lap_best_ja_1", "lang": "ja", "text": "ラップ3、12.34、ベストラップ" },
+        { "id": "lap_best_ja_2", "lang": "ja", "text": "ラップ7、11.20、ベストラップ" },
+        { "id": "lap_best_en_1", "lang": "en", "text": "Lap 3, 12.34, best lap" },
+        { "id": "lap_best_en_2", "lang": "en", "text": "Lap 7, 11.20, best lap" }
+      ]
+    },
+    "fixed_cues": {
+      "description": "Fixed cues — Start, Last lap, countdown numbers",
+      "phrases": [
+        { "id": "start_ja", "lang": "ja", "text": "スタート" },
+        { "id": "start_en", "lang": "en", "text": "Start" },
+        { "id": "last_lap_ja", "lang": "ja", "text": "ファイナルラップです" },
+        { "id": "last_lap_en", "lang": "en", "text": "Last lap!" },
+        { "id": "countdown_10_ja", "lang": "ja", "text": "10" },
+        { "id": "countdown_5_ja", "lang": "ja", "text": "5" },
+        { "id": "countdown_1_ja", "lang": "ja", "text": "1" },
+        { "id": "countdown_10_en", "lang": "en", "text": "10" },
+        { "id": "countdown_5_en", "lang": "en", "text": "5" },
+        { "id": "countdown_1_en", "lang": "en", "text": "1" }
+      ]
+    },
+    "final_summary": {
+      "description": "Race-end summary — longer multi-clause utterance with several numbers",
+      "phrases": [
+        {
+          "id": "final_ja_1",
+          "lang": "ja",
+          "text": "ラップ3 12.34秒、トータル8周、2分15.66秒、ベストラップは11.20秒でした"
+        },
+        {
+          "id": "final_ja_2",
+          "lang": "ja",
+          "text": "5周 1分23.45秒、ベストラップは10.50秒でした"
+        },
+        {
+          "id": "final_en_1",
+          "lang": "en",
+          "text": "Lap 3, 12.34 seconds. Total 8 laps in 2 minutes 15.66 seconds. Best lap was 11.20 seconds."
+        },
+        {
+          "id": "final_en_2",
+          "lang": "en",
+          "text": "5 laps in 1 minute 23.45 seconds. Best lap was 10.50 seconds."
+        }
+      ]
+    }
+  }
+}
