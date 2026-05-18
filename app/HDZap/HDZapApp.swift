@@ -19,6 +19,8 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.rateKey: Double(LapAnnouncerDefaults.defaultRate),
             LapAnnouncerDefaults.pitchKey: Double(LapAnnouncerDefaults.defaultPitch),
             LapAnnouncerDefaults.voiceIdentifierKey: LapAnnouncerDefaults.defaultVoiceIdentifier,
+            LapAnnouncerDefaults.countdownEnabledKey: LapAnnouncerDefaults.defaultCountdownEnabled,
+            LapAnnouncerDefaults.countdownStartSecondsKey: LapAnnouncerDefaults.defaultCountdownStartSeconds,
         ])
         #if DEBUG
         _oklchSanityCheck()
