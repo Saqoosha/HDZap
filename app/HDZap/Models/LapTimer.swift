@@ -26,6 +26,25 @@ class LapTimer {
     private var accumulatedTime: TimeInterval = 0
     private var cumulativeLapTime: TimeInterval = 0
 
+    init() {
+        #if DEBUG
+        // App Store screenshot seed runs at init() so the first render
+        // already sees `isRunning == true` and the seeded laps. Flipping
+        // state post-render via `.onAppear` exposes the primary button's
+        // pulse-scale animation (driven by
+        // `.onChange(of: lapTimer.isRunning)` + an explicit easeInOut
+        // .animation modifier at the button site) and risks an unstable
+        // label / pulse frame at capture time. See
+        // docs/screenshot-capture.md.
+        if ProcessInfo.processInfo.arguments.contains("-screenshotTimer") {
+            seedForScreenshot(
+                lapTimes: [15.55, 15.68, 14.67, 14.87],
+                currentLapElapsed: 4.045
+            )
+        }
+        #endif
+    }
+
     func start() {
         guard !isRunning else { return }
         isRunning = true
@@ -84,4 +103,32 @@ class LapTimer {
         laps = []
         sessionStartedAt = nil
     }
+
+    #if DEBUG
+    /// Pre-populate state for App Store screenshot capture. Bypasses the
+    /// normal start()/lap() sequence to land specific lap times. `isRunning`
+    /// is flipped on so the view renders the LIVE state, but the 60 Hz
+    /// timer is NOT started — the elapsed value stays frozen at the seeded
+    /// total so the capture timing can drift without changing the
+    /// displayed clock. `startDate` intentionally stays nil so the
+    /// `if let startDate` guards in `lap()` / `stop()` short-circuit the
+    /// elapsed-recompute, keeping the frozen state coherent even if those
+    /// paths fire during capture. A subsequent `start()` resumes from the
+    /// seeded `accumulatedTime`. See docs/screenshot-capture.md.
+    func seedForScreenshot(lapTimes: [TimeInterval], currentLapElapsed: TimeInterval) {
+        var cumulative: TimeInterval = 0
+        var seeded: [Lap] = []
+        for (i, t) in lapTimes.enumerated() {
+            cumulative += t
+            seeded.append(Lap(id: i + 1, time: t))
+        }
+        laps = seeded
+        cumulativeLapTime = cumulative
+        let total = cumulative + currentLapElapsed
+        elapsedTime = total
+        accumulatedTime = total
+        sessionStartedAt = Date(timeIntervalSinceNow: -total)
+        isRunning = true
+    }
+    #endif
 }
