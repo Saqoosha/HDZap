@@ -1,0 +1,11 @@
+name = "hdzap-premium"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers Free plan supports SSE streaming via the standard Response.body ReadableStream.
+# No special bindings yet — we'll add KV (ENTITLEMENTS, USAGE_COUNTERS) and Apple webhook
+# routes when adding JWS verification.
+
+[observability]
+enabled = true
