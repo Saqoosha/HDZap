@@ -5,6 +5,19 @@ import SwiftUI
 /// missing-voice banners have room to render without crowding the root.
 struct AudioSettingsView: View {
     @Environment(LapAnnouncer.self) private var announcer
+#if DEBUG
+    // Premium TTS test harness — only compiled into Debug builds. Production code will
+    // create the synth via SubscriptionManager + SpeechRouter; this @State instance is just
+    // for end-to-end audition before that wiring lands.
+    @State private var premiumSynth = PremiumSpeechSynthesizer()
+    @AppStorage(PremiumTTSDevDefaults.workerURLKey) private var premiumWorkerURL
+        = PremiumTTSDevDefaults.defaultWorkerURL
+    @AppStorage(PremiumTTSDevDefaults.bearerKey) private var premiumBearer = ""
+    @AppStorage(PremiumTTSDevDefaults.voiceIdKey) private var premiumVoiceId
+        = PremiumTTSDevDefaults.defaultVoiceId
+    @State private var premiumTestText = "ラップ3、12.34、ベストラップ"
+    @State private var premiumErrorBanner: String?
+#endif
     @AppStorage(LapAnnouncerDefaults.enabledKey) private var lapTTSEnabled
         = LapAnnouncerDefaults.defaultEnabled
     @AppStorage(LapAnnouncerDefaults.languageKey) private var ttsLanguageRaw
@@ -200,8 +213,106 @@ struct AudioSettingsView: View {
                 }
                 .font(.caption2)
             }
+
+#if DEBUG
+            premiumTestSection
+#endif
         }
         .navigationTitle("Lap announcer")
         .navigationBarTitleDisplayMode(.inline)
     }
+
+#if DEBUG
+    /// DEBUG-only Premium TTS harness. Lets the developer paste a Worker bearer, pick a
+    /// Cartesia voice, and audition a phrase end-to-end before the StoreKit wiring lands.
+    private var premiumTestSection: some View {
+        Section {
+            HStack {
+                Text("Worker URL")
+                Spacer()
+                TextField("URL", text: $premiumWorkerURL)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.caption.monospaced())
+            }
+
+            HStack {
+                Text("Bearer")
+                Spacer()
+                SecureField("paste from 1Password", text: $premiumBearer)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.caption.monospaced())
+            }
+
+            Picker("Voice", selection: $premiumVoiceId) {
+                ForEach(PremiumVoiceCatalog.voices) { v in
+                    Text("\(v.lang.uppercased()) — \(v.label)").tag(v.id)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Test phrase").font(.caption).foregroundStyle(.secondary)
+                TextField("", text: $premiumTestText, axis: .vertical)
+                    .lineLimit(2...4)
+                    .font(.callout)
+            }
+
+            // Bearer status row — makes "did I actually paste it?" obvious without taking the
+            // bearer back out of SecureField. Without this it's invisible whether the field is
+            // empty or holds 29 chars.
+            HStack {
+                Text("Bearer status")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if premiumBearer.isEmpty {
+                    Label("missing", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Label("\(premiumBearer.count) chars", systemImage: "checkmark.seal.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+
+            HStack {
+                // Always enabled — the synth itself surfaces "bearer missing" as a visible error.
+                // Disabling the button silently was hiding the real state from the operator.
+                Button(premiumSynth.isPlaying ? "Speaking…" : "Speak via Cartesia") {
+                    premiumErrorBanner = nil
+                    let lang = PremiumVoiceCatalog.voices.first { $0.id == premiumVoiceId }?.lang ?? "ja"
+                    premiumSynth.speakAsync(text: premiumTestText, lang: lang, voice: premiumVoiceId)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Spacer()
+
+                Button("Stop", role: .destructive) {
+                    premiumSynth.cancel()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!premiumSynth.isPlaying)
+            }
+
+            if let err = premiumSynth.lastError {
+                Text(err).font(.caption).foregroundStyle(.red)
+            }
+            if let ms = premiumSynth.lastFirstAudioMs {
+                Text(String(format: "First audio: %.0f ms", ms))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        } header: {
+            Text("Premium TTS (Debug)")
+        } footer: {
+            Text("Streams from \(URL(string: premiumWorkerURL)?.host ?? "?") via Cartesia Sonic 3.5. This panel is DEBUG-only and will be replaced by the StoreKit-gated SpeechRouter in the next phase.")
+                .font(.caption2)
+        }
+    }
+#endif
 }

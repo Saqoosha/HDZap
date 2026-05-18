@@ -38,6 +38,7 @@
 		D3B6435AACBDBC150667EE1C /* RaceFlightBatterySample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025B5A861D62E2D7242FE3CA /* RaceFlightBatterySample.swift */; };
 		EA2F8003A1A5258DBA937A5F /* ConnectionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13438604B6DB026C9FDAC24F /* ConnectionSettingsView.swift */; };
 		F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */; };
+		FAE09644E7798A86BE837D66 /* PremiumSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -71,6 +72,7 @@
 		CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
 		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
+		DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumSpeechSynthesizer.swift; sourceTree = "<group>"; };
 		E48C631CA51BB0A3E899833E /* AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsView.swift; sourceTree = "<group>"; };
 		EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceRecord.swift; sourceTree = "<group>"; };
 		FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceDetailView.swift; sourceTree = "<group>"; };
@@ -121,8 +123,17 @@
 				D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */,
 				EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */,
 				B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */,
+				75E578D3CF47B760E0B94656 /* Speech */,
 			);
 			path = Models;
+			sourceTree = "<group>";
+		};
+		75E578D3CF47B760E0B94656 /* Speech */ = {
+			isa = PBXGroup;
+			children = (
+				DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */,
+			);
+			path = Speech;
 			sourceTree = "<group>";
 		};
 		82F6C797C6916CD57EB49E2C /* Settings */ = {
@@ -263,6 +274,7 @@
 				C377E0A27CFCE41D44BC6AB8 /* OSDLayoutSettings.swift in Sources */,
 				9DE8F86CE8258154BB0C4D55 /* OSDLayoutSettingsView.swift in Sources */,
 				523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */,
+				FAE09644E7798A86BE837D66 /* PremiumSpeechSynthesizer.swift in Sources */,
 				3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */,
 				D3B6435AACBDBC150667EE1C /* RaceFlightBatterySample.swift in Sources */,
 				C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */,
