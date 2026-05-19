@@ -26,7 +26,22 @@ type Env = {
    * so they're only safe to honour in dev/staging. Production deploys leave this unset.
    */
   ALLOW_XCODE_LOCAL_JWS?: string;
+  /** Per-IP daily request counter. Keys: `rl:<ip>:<YYYY-MM-DD>`, TTL 48h. */
+  RATELIMIT: KVNamespace;
 };
+
+/**
+ * Daily per-IP request caps. Bearer and JWS get the same generous cap because IP-level
+ * rate limiting is fundamentally a coarse guardrail given residential NAT (carriers,
+ * Apple Private Relay, home WiFi all share an IP across many users) — a tighter cap
+ * would break the legit first-time-audition session (~100-150 previews across 55 voices)
+ * for any user behind a shared IP. The real ceilings on abuse are the TTS provider
+ * spending caps (AWS Polly $50/mo budget, Cartesia + Azure fixed-tier models) and the
+ * Apple-signed JWS gate; this cap exists to stop a single host running a curl loop, not
+ * a determined attacker rotating residential proxies.
+ */
+const DAILY_CAP_BEARER = 1000;
+const DAILY_CAP_JWS = 1000;
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -110,6 +125,25 @@ app.post("/tts", async (c) => {
     console.log("auth=bearer");
   }
 
+  // Per-IP daily rate limit. Runs after auth so unauthorized callers can't burn through
+  // somebody else's quota (and to keep the auth-fail path 401-fast). Cap is tier-dependent
+  // because bearer is the abuse surface; JWS is already cryptographically gated.
+  const ip = c.req.header("CF-Connecting-IP") || c.req.header("X-Real-IP") || "unknown";
+  const cap = authMode === "jws" ? DAILY_CAP_JWS : DAILY_CAP_BEARER;
+  const rateLimit = await consumeRateLimitToken(c.env.RATELIMIT, ip, cap);
+  if (!rateLimit.ok) {
+    console.warn("rate-limited", { ip, authMode, count: rateLimit.count, cap });
+    return c.json(
+      {
+        error: "rate-limited",
+        message: `daily cap ${cap} reached for this IP (${rateLimit.count})`,
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      },
+      429,
+      { "Retry-After": String(rateLimit.retryAfterSeconds) },
+    );
+  }
+
   let body: {
     provider?: string;
     text?: string;
@@ -177,6 +211,36 @@ app.post("/tts", async (c) => {
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
+}
+
+/**
+ * Read → check-against-cap → increment KV counter for the IP's daily quota. We bake the
+ * UTC date into the key so the counter rolls over at 00:00 UTC, and TTL each entry at 48h
+ * so yesterday's keys clean themselves up. KV's eventual consistency (~60 s) means a
+ * determined attacker hitting multiple PoPs could squeeze a few extra requests past the
+ * cap, but for a "stop bearer abuse" guardrail that's acceptable — Durable Objects would
+ * give strict consistency at the cost of meaningfully more complexity + paid-plan ties.
+ */
+async function consumeRateLimitToken(
+  kv: KVNamespace,
+  ip: string,
+  cap: number,
+): Promise<{ ok: boolean; count: number; retryAfterSeconds: number }> {
+  const today = new Date().toISOString().slice(0, 10);
+  const key = `rl:${ip}:${today}`;
+  const current = Number((await kv.get(key)) ?? "0");
+  const next = current + 1;
+  if (next > cap) {
+    // Seconds until 00:00 UTC tomorrow — when the bucket rolls over.
+    const now = new Date();
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    const retryAfterSeconds = Math.ceil((tomorrow.getTime() - now.getTime()) / 1000);
+    return { ok: false, count: current, retryAfterSeconds };
+  }
+  // 48h TTL — gives a comfortable margin past the 24h bucket so the read sees the
+  // counter, and self-evicts so the namespace doesn't grow unbounded.
+  await kv.put(key, String(next), { expirationTtl: 60 * 60 * 48 });
+  return { ok: true, count: next, retryAfterSeconds: 0 };
 }
 
 // MARK: - Cartesia (SSE → raw PCM s16le 24kHz)
