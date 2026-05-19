@@ -285,6 +285,21 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
     /// audio cuts to silence.
     private var mp3Player: AVAudioPlayer?
 
+    /// Cache key for the in-flight speak() request. Set at the top of `speak()` so the mp3
+    /// and SSE write paths can save under the same key without re-deriving it. Cleared on
+    /// completion / failure so a subsequent miss writes to the right entry, not stale state.
+    private var currentCacheKey: String?
+    /// Paired with `currentCacheKey` — the provider whose audio bytes we'll be saving, so
+    /// `TTSCache.save()` can pick the right filename extension (`.mp3` vs `.pcm`).
+    private var currentCacheProvider: PremiumVoiceProvider?
+
+    /// Decoded raw PCM accumulated across the Cartesia SSE stream for this speak() call.
+    /// We write the concatenated bytes to `TTSCache` once the stream completes — way more
+    /// disk-efficient than caching the SSE wrapper (base64 + JSON framing adds ~30%).
+    /// Cleared at the start of every speak() so a partial stream from a prior failed call
+    /// can't bleed into the next entry.
+    private var accumulatedPCM = Data()
+
     /// Fire-and-forget version of `speak(text:lang:voice:)` for `Button` action callbacks.
     func speakAsync(text: String, lang: String, voice: PremiumVoiceOption) {
         log.notice("speakAsync invoked: text=\"\(text, privacy: .public)\" provider=\(voice.provider.rawValue, privacy: .public) voice=\(voice.id, privacy: .public) lang=\(voice.lang, privacy: .public)")
@@ -304,6 +319,28 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
 
     func speak(text: String, lang: String, voice: PremiumVoiceOption) async throws {
         note("speak called (\(voice.provider.rawValue))")
+        // Reset per-call cache state so a previous failure can't taint this entry.
+        currentCacheKey = nil
+        accumulatedPCM.removeAll(keepingCapacity: true)
+
+        // Local disk lookup before any network. Same canonical key shape as the Worker R2
+        // cache, so a phrase pulled down once (R2 hit OR cold-provider miss + cache write
+        // here) plays in ~10 ms forever after, with zero RTT and zero provider cost.
+        let cacheKey = buildCacheKey(text: text, lang: lang, voice: voice)
+        if let cachedURL = TTSCache.shared.url(forKey: cacheKey, provider: voice.provider) {
+            note("local-cache=hit key=\(cacheKey.prefix(12))")
+            try configureSession()
+            let t0 = Date()
+            isPlaying = true
+            streamReceiveComplete = true  // No streaming for cache hits — the file is the whole audio.
+            lastError = nil
+            try playFromCacheFile(url: cachedURL, voice: voice, startedAt: t0)
+            return
+        }
+        note("local-cache=miss key=\(cacheKey.prefix(12))")
+        currentCacheKey = cacheKey
+        currentCacheProvider = voice.provider
+
         let defaults = UserDefaults.standard
         let urlString = defaults.string(forKey: PremiumTTSDevDefaults.workerURLKey)
             ?? PremiumTTSDevDefaults.defaultWorkerURL
@@ -341,6 +378,58 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
         note("session OK")
         try await sendAndStream(url: url, bearer: bearer, text: text, lang: lang, voice: voice)
         note("speak completed")
+    }
+
+    /// Build the cache key for an in-flight speak(). Mirrors the Worker's `buildCacheKey` so
+    /// the local + R2 layers refer to the same logical entity. When the provider doesn't
+    /// honour a control (Cartesia: neither rate nor pitch, Polly: pitch), we substitute the
+    /// default so two callers — one with a custom rate that's irrelevant to this provider,
+    /// one without — collapse to the same key. Matches the Worker's behaviour of clamping
+    /// the body's rate/pitch with defaults before hashing.
+    private func buildCacheKey(text: String, lang: String, voice: PremiumVoiceOption) -> String {
+        let defaults = UserDefaults.standard
+        let rate = voice.provider.supportsRate
+            ? (defaults.object(forKey: LapAnnouncerDefaults.premiumRateKey) as? Double
+                ?? LapAnnouncerDefaults.defaultPremiumRate)
+            : LapAnnouncerDefaults.defaultPremiumRate
+        let pitch = voice.provider.supportsPitch
+            ? (defaults.object(forKey: LapAnnouncerDefaults.premiumPitchKey) as? Double
+                ?? LapAnnouncerDefaults.defaultPremiumPitch)
+            : LapAnnouncerDefaults.defaultPremiumPitch
+        let model = voice.provider == .cartesia ? "sonic-3.5" : ""
+        return TTSCache.shared.key(
+            provider: voice.provider,
+            voice: voice.id,
+            lang: lang,
+            rate: rate,
+            pitch: pitch,
+            model: model,
+            text: text
+        )
+    }
+
+    /// Cache-hit playback: load the on-disk file and play it through the same audio paths
+    /// the streaming code uses (AVAudioPlayer for mp3, AVAudioPlayerNode + a single big
+    /// AVAudioPCMBuffer for PCM). Sets `lastFirstAudioMs` so the picker's TTFA telemetry
+    /// reflects "disk cache read" not "no audio ever started".
+    private func playFromCacheFile(url: URL, voice: PremiumVoiceOption, startedAt t0: Date) throws {
+        switch voice.provider {
+        case .polly, .azure:
+            let data = try Data(contentsOf: url)
+            let player = try AVAudioPlayer(data: data)
+            player.delegate = self
+            player.prepareToPlay()
+            mp3Player = player
+            player.play()
+            lastFirstAudioMs = Date().timeIntervalSince(t0) * 1000
+            log.notice("cache-hit mp3 playing — bytes=\(data.count, privacy: .public) duration=\(player.duration, privacy: .public)s")
+        case .cartesia:
+            let pcm = try Data(contentsOf: url)
+            // One buffer for the whole utterance. AVAudioPCMBuffer caps depend on engine
+            // limits but a few hundred KB is comfortable; Cartesia 2-sec utterances are
+            // ~96 KB at s16le 24 kHz mono.
+            try schedulePCM(pcm, startedAt: t0)
+        }
     }
 
     // MARK: - Session
@@ -465,6 +554,12 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
             note("AVAudioPlayer ready, play()")
             player.play()
             log.notice("AVAudioPlayer started — duration=\(player.duration, privacy: .public)s")
+            // Successful playback means the bytes are valid mp3 — safe to cache. We save
+            // the same payload that AVAudioPlayer accepted, so a future cache hit goes
+            // through the same code path with the same result.
+            if let key = currentCacheKey, let provider = currentCacheProvider {
+                TTSCache.shared.save(key: key, provider: provider, data: data)
+            }
         } catch {
             log.error("AVAudioPlayer init failed: \(error.localizedDescription, privacy: .public)")
             throw PremiumTTSError.engineFailure("AVAudioPlayer init failed: \(error.localizedDescription)")
@@ -522,6 +617,12 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
             self.debugSseEvents = eventCount
             self.debugChunks = chunkCount
         }
+        // Persist the concatenated PCM once the whole stream has drained cleanly. A
+        // cancelled / errored stream throws before reaching here, so we never write a
+        // partial utterance — which would play as a clipped audio file on every cache hit.
+        if chunkCount > 0, let key = currentCacheKey, let provider = currentCacheProvider {
+            TTSCache.shared.save(key: key, provider: provider, data: accumulatedPCM)
+        }
     }
 
     /// Returns true if this event produced an audio chunk (for stats).
@@ -538,6 +639,11 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
         let type = obj["type"] as? String
 
         if type == "chunk", let b64 = obj["data"] as? String, let pcm = Data(base64Encoded: b64) {
+            // Accumulate the raw PCM so we can save the whole utterance to TTSCache at
+            // the end of the stream. We append in-order before scheduling playback, which
+            // means a cancelled-mid-stream call still gets dropped (the cache write only
+            // happens on parseSSE's clean exit).
+            accumulatedPCM.append(pcm)
             try schedulePCM(pcm, startedAt: t0)
             return true
         } else if type == "done" || (obj["done"] as? Bool == true) {

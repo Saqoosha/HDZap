@@ -41,6 +41,7 @@
 		C377E0A27CFCE41D44BC6AB8 /* OSDLayoutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */; };
 		C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */; };
 		CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D706FE213381CDC8D3EC0893 /* TimerView.swift */; };
+		CB202CD3B4B1D9D186F34AE5 /* TTSCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B555968818961BDDFDD836ED /* TTSCache.swift */; };
 		D3B6435AACBDBC150667EE1C /* RaceFlightBatterySample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025B5A861D62E2D7242FE3CA /* RaceFlightBatterySample.swift */; };
 		EA2F8003A1A5258DBA937A5F /* ConnectionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13438604B6DB026C9FDAC24F /* ConnectionSettingsView.swift */; };
 		F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */; };
@@ -77,6 +78,7 @@
 		B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettings.swift; sourceTree = "<group>"; };
 		B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RaceRecord+FlightBattery.swift"; sourceTree = "<group>"; };
+		B555968818961BDDFDD836ED /* TTSCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSCache.swift; sourceTree = "<group>"; };
 		C5A430E5AE0F9117C107E99D /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		CA61CCE32759AA19858FD543 /* PremiumVoicePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumVoicePickerView.swift; sourceTree = "<group>"; };
 		CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
@@ -155,6 +157,7 @@
 				9A5CB02666324477E3DEE14B /* BuildSecrets.swift */,
 				DF97D1680A0F537ABDC0D416 /* BuildSecrets.swift.tpl */,
 				DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */,
+				B555968818961BDDFDD836ED /* TTSCache.swift */,
 			);
 			path = Speech;
 			sourceTree = "<group>";
@@ -331,6 +334,7 @@
 				B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */,
 				03B99D4D428FE955BCC3B8B4 /* SettingsView.swift in Sources */,
 				1D1024DCEB47BEF6A2A49DCF /* SubscriptionManager.swift in Sources */,
+				CB202CD3B4B1D9D186F34AE5 /* TTSCache.swift in Sources */,
 				CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */,
 				12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */,
 				2F3B59196B2D83DF64D2A1B2 /* VoltageChartPreview.swift in Sources */,
