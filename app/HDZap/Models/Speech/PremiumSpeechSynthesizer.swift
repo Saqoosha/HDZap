@@ -14,46 +14,71 @@ enum PremiumTTSDevDefaults {
     static let defaultVoiceId = "06950fa3-534d-46b3-93bb-f852770ea0b5"  // Takeshi - Hero (JA)
 }
 
-/// One row in the voice picker shown by the dev test panel.
+/// Which upstream TTS service should the Worker call for a given voice. Each provider returns
+/// a different audio format on the wire — the synth uses this to pick the decode path.
+enum PremiumVoiceProvider: String, Codable {
+    /// Cartesia Sonic 3.5 — SSE event stream of base64-encoded raw PCM s16le @ 24kHz.
+    case cartesia
+    /// AWS Polly Neural via SigV4 (Cognito Identity Pool) — chunked mp3 over HTTPS.
+    case polly
+    /// Azure AI Speech Neural via subscription key — chunked mp3 over HTTPS.
+    case azure
+}
+
+/// One row in the voice picker. `provider` decides Worker routing and audio format on the
+/// client; the same `id` namespace per provider is opaque to us (Cartesia UUIDs, Polly Pascal
+/// names, Azure full locale-qualified names).
 struct PremiumVoiceOption: Identifiable, Hashable {
     let id: String
     let label: String
     let lang: String
+    let provider: PremiumVoiceProvider
 }
 
-/// Stock Cartesia voice IDs. Japanese set = all 22 voices Cartesia ships for `language: "ja"`
-/// as of the live `GET /voices` snapshot on 2026-05-18. English set = a handpicked few that fit
-/// the race-announcer / friendly-narrator personas; the full English library is 375 voices and
-/// not worth surfacing in a picker without a search field.
+/// All Premium TTS voices that ship in the dev panel — sourced from live API listings on
+/// 2026-05-19 (Cartesia 22 JA, Polly 3 JA Neural, Azure 7 JA Neural). The full English library
+/// is huge; we stick to handpicked picks for the race-announcer / friendly-narrator personas.
 enum PremiumVoiceCatalog {
     static let voices: [PremiumVoiceOption] = [
-        // Japanese — all 22 voices in alphabetical-by-display-name order
-        .init(id: "498e7f37-7fa3-4e2c-b8e2-8b6e9276f956", label: "Aiko - Calming Voice", lang: "ja"),
-        .init(id: "446f922f-c43a-4aad-9a8b-ad2af568e882", label: "Akira - Professional Colleague", lang: "ja"),
-        .init(id: "63d6f469-8c2c-489d-b53f-d36f0bbdcd4b", label: "Ayako", lang: "ja"),
-        .init(id: "31c55968-a9f4-4115-8831-3a16952179c8", label: "Ayumi - Sales Guide", lang: "ja"),
-        .init(id: "a759ecc5-ac21-487e-88c7-288bdfe76999", label: "Daichi - Baritone Narrator", lang: "ja"),
-        .init(id: "e8a863c6-22c7-4671-86ca-91cacffc038d", label: "Daisuke - Businessman", lang: "ja"),
-        .init(id: "c7eafe22-8b71-40cd-850b-c5a3bbd8f8d2", label: "Emi - Soft-Spoken Friend", lang: "ja"),
-        .init(id: "97e7d7a9-dfaa-4758-a936-f5f844ac34cc", label: "Fuji - Positive Colleague", lang: "ja"),
-        .init(id: "861213b7-f057-45c8-9527-0f4c144f1a03", label: "Haruka - Gracious Guide", lang: "ja"),
-        .init(id: "d0ff6870-dd30-420d-8568-d756d806ea62", label: "Hinata - Graceful Guide", lang: "ja"),
-        .init(id: "1d210168-d764-462c-8ab6-288a6d5a9579", label: "Hiroshi - Dependable Director", lang: "ja"),
-        .init(id: "44863732-e415-4084-8ba1-deabe34ce3d2", label: "Kaori - Friendly Narrator", lang: "ja"),
-        .init(id: "9436e723-612d-4114-aeb0-fa00d4d639bf", label: "Katsuya - Promo Host", lang: "ja"),
-        .init(id: "6b92f628-be90-497c-8f4c-3b035002df71", label: "Kenji - Calm Man", lang: "ja"),
-        .init(id: "177df681-25b1-48c2-bb47-03ca5fa27f0a", label: "Ren - Calm Navigator", lang: "ja"),
-        .init(id: "9e7ef2cf-b69c-46ac-9e35-bbfd73ba82af", label: "Ren - High-Energy Character", lang: "ja"),
-        .init(id: "0cd0cde2-3b93-42b5-bcb9-f214a591aa29", label: "Sayuri - Peppy Colleague", lang: "ja"),
-        .init(id: "b8e1169c-f16a-4064-a6e0-95054169e553", label: "Takashi - Professional Conversationalist", lang: "ja"),
-        .init(id: "06950fa3-534d-46b3-93bb-f852770ea0b5", label: "Takeshi - Hero", lang: "ja"),
-        .init(id: "49e02441-83ea-4c77-bda8-79fdd7f07e92", label: "Tohru - Career Coach", lang: "ja"),
-        .init(id: "59d4fd2f-f5eb-4410-8105-58db7661144f", label: "Yuki - Calm Woman", lang: "ja"),
-        .init(id: "2b568345-1d48-4047-b25f-7baccf842eb0", label: "Yumiko - Friendly Agent", lang: "ja"),
-        // English — handpicked picks for FPV race-announcer use
-        .init(id: "2f22b9bc-b0eb-4cb6-b5ae-0c099a0fdfad", label: "Scott - Sportscaster", lang: "en"),
-        .init(id: "820a3788-2b37-4d21-847a-b65d8a68c99a", label: "Tyler - Friendly Salesman", lang: "en"),
-        .init(id: "62305e79-9d39-4643-b003-5e0b096fe4f4", label: "Madison - Happy Best Friend", lang: "en"),
+        // ── Cartesia JA (all 22) ───────────────────────────────────────────────────
+        .init(id: "498e7f37-7fa3-4e2c-b8e2-8b6e9276f956", label: "Cartesia · Aiko - Calming",                 lang: "ja", provider: .cartesia),
+        .init(id: "446f922f-c43a-4aad-9a8b-ad2af568e882", label: "Cartesia · Akira - Professional",           lang: "ja", provider: .cartesia),
+        .init(id: "63d6f469-8c2c-489d-b53f-d36f0bbdcd4b", label: "Cartesia · Ayako",                          lang: "ja", provider: .cartesia),
+        .init(id: "31c55968-a9f4-4115-8831-3a16952179c8", label: "Cartesia · Ayumi - Sales Guide",            lang: "ja", provider: .cartesia),
+        .init(id: "a759ecc5-ac21-487e-88c7-288bdfe76999", label: "Cartesia · Daichi - Baritone",              lang: "ja", provider: .cartesia),
+        .init(id: "e8a863c6-22c7-4671-86ca-91cacffc038d", label: "Cartesia · Daisuke - Businessman",          lang: "ja", provider: .cartesia),
+        .init(id: "c7eafe22-8b71-40cd-850b-c5a3bbd8f8d2", label: "Cartesia · Emi - Soft-Spoken",              lang: "ja", provider: .cartesia),
+        .init(id: "97e7d7a9-dfaa-4758-a936-f5f844ac34cc", label: "Cartesia · Fuji - Positive",                lang: "ja", provider: .cartesia),
+        .init(id: "861213b7-f057-45c8-9527-0f4c144f1a03", label: "Cartesia · Haruka - Gracious",              lang: "ja", provider: .cartesia),
+        .init(id: "d0ff6870-dd30-420d-8568-d756d806ea62", label: "Cartesia · Hinata - Graceful",              lang: "ja", provider: .cartesia),
+        .init(id: "1d210168-d764-462c-8ab6-288a6d5a9579", label: "Cartesia · Hiroshi - Director",             lang: "ja", provider: .cartesia),
+        .init(id: "44863732-e415-4084-8ba1-deabe34ce3d2", label: "Cartesia · Kaori - Friendly Narrator",      lang: "ja", provider: .cartesia),
+        .init(id: "9436e723-612d-4114-aeb0-fa00d4d639bf", label: "Cartesia · Katsuya - Promo Host",           lang: "ja", provider: .cartesia),
+        .init(id: "6b92f628-be90-497c-8f4c-3b035002df71", label: "Cartesia · Kenji - Calm",                   lang: "ja", provider: .cartesia),
+        .init(id: "177df681-25b1-48c2-bb47-03ca5fa27f0a", label: "Cartesia · Ren - Calm Navigator",           lang: "ja", provider: .cartesia),
+        .init(id: "9e7ef2cf-b69c-46ac-9e35-bbfd73ba82af", label: "Cartesia · Ren - High-Energy",              lang: "ja", provider: .cartesia),
+        .init(id: "0cd0cde2-3b93-42b5-bcb9-f214a591aa29", label: "Cartesia · Sayuri - Peppy",                 lang: "ja", provider: .cartesia),
+        .init(id: "b8e1169c-f16a-4064-a6e0-95054169e553", label: "Cartesia · Takashi - Professional",         lang: "ja", provider: .cartesia),
+        .init(id: "06950fa3-534d-46b3-93bb-f852770ea0b5", label: "Cartesia · Takeshi - Hero",                 lang: "ja", provider: .cartesia),
+        .init(id: "49e02441-83ea-4c77-bda8-79fdd7f07e92", label: "Cartesia · Tohru - Career Coach",           lang: "ja", provider: .cartesia),
+        .init(id: "59d4fd2f-f5eb-4410-8105-58db7661144f", label: "Cartesia · Yuki - Calm Woman",              lang: "ja", provider: .cartesia),
+        .init(id: "2b568345-1d48-4047-b25f-7baccf842eb0", label: "Cartesia · Yumiko - Friendly Agent",        lang: "ja", provider: .cartesia),
+        // ── Polly JA (3 Neural) ─────────────────────────────────────────────────────
+        .init(id: "Takumi", label: "Polly · Takumi (male, Neural)",   lang: "ja", provider: .polly),
+        .init(id: "Kazuha", label: "Polly · Kazuha (female, Neural)", lang: "ja", provider: .polly),
+        .init(id: "Tomoko", label: "Polly · Tomoko (female, Neural)", lang: "ja", provider: .polly),
+        // ── Azure JA (7 Neural) ─────────────────────────────────────────────────────
+        .init(id: "ja-JP-DaichiNeural", label: "Azure · Daichi (male)",   lang: "ja", provider: .azure),
+        .init(id: "ja-JP-KeitaNeural",  label: "Azure · Keita (male)",    lang: "ja", provider: .azure),
+        .init(id: "ja-JP-NaokiNeural",  label: "Azure · Naoki (male)",    lang: "ja", provider: .azure),
+        .init(id: "ja-JP-AoiNeural",    label: "Azure · Aoi (female)",    lang: "ja", provider: .azure),
+        .init(id: "ja-JP-MayuNeural",   label: "Azure · Mayu (female)",   lang: "ja", provider: .azure),
+        .init(id: "ja-JP-NanamiNeural", label: "Azure · Nanami (female)", lang: "ja", provider: .azure),
+        .init(id: "ja-JP-ShioriNeural", label: "Azure · Shiori (female)", lang: "ja", provider: .azure),
+        // ── Cartesia EN (handpicked) ────────────────────────────────────────────────
+        .init(id: "2f22b9bc-b0eb-4cb6-b5ae-0c099a0fdfad", label: "Cartesia · Scott - Sportscaster",      lang: "en", provider: .cartesia),
+        .init(id: "820a3788-2b37-4d21-847a-b65d8a68c99a", label: "Cartesia · Tyler - Friendly Salesman", lang: "en", provider: .cartesia),
+        .init(id: "62305e79-9d39-4643-b003-5e0b096fe4f4", label: "Cartesia · Madison - Best Friend",     lang: "en", provider: .cartesia),
     ]
 
     static func voices(for lang: String) -> [PremiumVoiceOption] {
@@ -162,11 +187,13 @@ final class PremiumSpeechSynthesizer {
         log.notice("engine init: outputFormat=\(self.engine.outputNode.outputFormat(forBus: 0).description, privacy: .public)  mixerFormat=\(self.engine.mainMixerNode.outputFormat(forBus: 0).description, privacy: .public)")
     }
 
-    /// Stops any in-flight request and playback. Idempotent.
+    /// Stops any in-flight request and playback (both PCM engine and mp3 player). Idempotent.
     func cancel() {
         currentTask?.cancel()
         currentTask = nil
         if playerNode.isPlaying { playerNode.stop() }
+        if mp3Player?.isPlaying == true { mp3Player?.stop() }
+        mp3Player = nil
         pendingBuffers = 0
         pendingPreEngineBuffers.removeAll()
         isPlaying = false
@@ -187,13 +214,18 @@ final class PremiumSpeechSynthesizer {
         lastFirstAudioMs = nil
     }
 
+    /// AVAudioPlayer used for the mp3 path (Polly + Azure). Held as a property so the player
+    /// outlives the speak() call — without this the buffer is deallocated mid-playback and the
+    /// audio cuts to silence.
+    private var mp3Player: AVAudioPlayer?
+
     /// Fire-and-forget version of `speak(text:lang:voice:)` for `Button` action callbacks.
-    func speakAsync(text: String, lang: String, voice: String) {
-        log.notice("speakAsync invoked from button: text=\"\(text, privacy: .public)\" voice=\(voice, privacy: .public) lang=\(lang, privacy: .public)")
+    func speakAsync(text: String, lang: String, voice: PremiumVoiceOption) {
+        log.notice("speakAsync invoked: text=\"\(text, privacy: .public)\" provider=\(voice.provider.rawValue, privacy: .public) voice=\(voice.id, privacy: .public) lang=\(voice.lang, privacy: .public)")
         currentTask?.cancel()
         currentTask = Task { [weak self] in
             do {
-                try await self?.speak(text: text, lang: lang, voice: voice)
+                try await self?.speak(text: text, lang: voice.lang, voice: voice)
             } catch {
                 await MainActor.run { [weak self] in
                     self?.lastError = error.localizedDescription
@@ -204,8 +236,8 @@ final class PremiumSpeechSynthesizer {
         }
     }
 
-    func speak(text: String, lang: String, voice: String) async throws {
-        note("speak called")
+    func speak(text: String, lang: String, voice: PremiumVoiceOption) async throws {
+        note("speak called (\(voice.provider.rawValue))")
         let defaults = UserDefaults.standard
         let urlString = defaults.string(forKey: PremiumTTSDevDefaults.workerURLKey)
             ?? PremiumTTSDevDefaults.defaultWorkerURL
@@ -239,19 +271,22 @@ final class PremiumSpeechSynthesizer {
 
     // MARK: - Network + SSE
 
-    private func sendAndStream(url: URL, bearer: String, text: String, lang: String, voice: String) async throws {
-        log.notice("speak start: url=\(url.absoluteString, privacy: .public) voice=\(voice, privacy: .public) lang=\(lang, privacy: .public) chars=\(text.count, privacy: .public)")
+    private func sendAndStream(url: URL, bearer: String, text: String, lang: String, voice: PremiumVoiceOption) async throws {
+        log.notice("speak start: url=\(url.absoluteString, privacy: .public) provider=\(voice.provider.rawValue, privacy: .public) voice=\(voice.id, privacy: .public) lang=\(lang, privacy: .public) chars=\(text.count, privacy: .public)")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = [
+        var bodyDict: [String: Any] = [
+            "provider": voice.provider.rawValue,
             "text": text,
-            "voice": voice,
+            "voice": voice.id,
             "lang": lang,
-            "model": "sonic-3.5",
         ]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        // Cartesia is the only provider that takes a model parameter today; the Worker rejects
+        // the field for the other two so we only send it for Cartesia.
+        if voice.provider == .cartesia { bodyDict["model"] = "sonic-3.5" }
+        req.httpBody = try JSONSerialization.data(withJSONObject: bodyDict)
 
         let t0 = Date()
         lastFirstAudioMs = nil
@@ -275,12 +310,58 @@ final class PremiumSpeechSynthesizer {
             throw PremiumTTSError.http(http.statusCode, bodyPrefix)
         }
 
-        try await parseSSE(bytes: bytes, startedAt: t0)
-        // The network stream is done; whatever's still queued in playerNode will finish on its own.
-        // We only flip isPlaying false when the player drains — but that's hard to observe per-buffer
-        // without an audio tap, so as a reasonable proxy we just flip it here. The dev panel can
-        // re-issue speak() at any time; the cancel() path inside speakAsync handles preemption.
+        switch voice.provider {
+        case .cartesia:
+            // Cartesia returns SSE with base64 PCM s16le 24kHz — schedule chunks on the
+            // existing AVAudioEngine path.
+            try await parseSSE(bytes: bytes, startedAt: t0)
+        case .polly, .azure:
+            // Polly + Azure both return chunked mp3. Decode + play with AVAudioPlayer, which
+            // handles the container itself. We accumulate the whole mp3 first (5-30 KB) and
+            // then call .play() — the user-perceived delay is effectively the total HTTP time,
+            // which is still <300 ms for these providers on Japan East.
+            try await playMp3FromStream(bytes: bytes, startedAt: t0)
+        }
+        // The network stream is done; whatever's still queued in playerNode/AVAudioPlayer
+        // finishes on its own. We mark isPlaying false here as a reasonable proxy.
         isPlaying = false
+    }
+
+    /// Drain the mp3 chunked response into memory, then hand it to AVAudioPlayer. The first-byte
+    /// timestamp is recorded for TTFA reporting even though playback doesn't begin until the
+    /// full mp3 arrives — for the small payloads Polly/Azure return (≤30 KB) the gap is <100 ms.
+    private func playMp3FromStream(bytes: URLSession.AsyncBytes, startedAt t0: Date) async throws {
+        var data = Data()
+        // Use ~4 KB buffer accumulation so we don't pay byte-by-byte append overhead but still
+        // catch the first-byte moment precisely. AsyncBytes yields UInt8s; we batch.
+        var buffer = [UInt8]()
+        buffer.reserveCapacity(4096)
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            if lastFirstAudioMs == nil {
+                lastFirstAudioMs = Date().timeIntervalSince(t0) * 1000
+                note("first byte @ \(Int(self.lastFirstAudioMs ?? 0))ms")
+            }
+            buffer.append(byte)
+            if buffer.count >= 4096 {
+                data.append(contentsOf: buffer)
+                buffer.removeAll(keepingCapacity: true)
+            }
+        }
+        if !buffer.isEmpty { data.append(contentsOf: buffer) }
+        log.notice("mp3 received: \(data.count, privacy: .public) bytes in \(Date().timeIntervalSince(t0) * 1000, privacy: .public) ms")
+
+        do {
+            let player = try AVAudioPlayer(data: data)
+            player.prepareToPlay()
+            mp3Player = player
+            note("AVAudioPlayer ready, play()")
+            player.play()
+            log.notice("AVAudioPlayer started — duration=\(player.duration, privacy: .public)s")
+        } catch {
+            log.error("AVAudioPlayer init failed: \(error.localizedDescription, privacy: .public)")
+            throw PremiumTTSError.engineFailure("AVAudioPlayer init failed: \(error.localizedDescription)")
+        }
     }
 
     /// Parse Cartesia's SSE stream. Each event Cartesia emits is `event: chunk\ndata: {…}\n\n`,
