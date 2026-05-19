@@ -23,6 +23,27 @@ enum PremiumVoiceProvider: String, Codable {
     case polly
     /// Azure AI Speech Neural via subscription key — chunked mp3 over HTTPS.
     case azure
+
+    /// `<prosody rate>` (or equivalent) support per provider as of 2026-05.
+    ///   - Cartesia Sonic 3.5: prosody controls explicitly disabled in the preview release
+    ///   - Polly Neural: rate yes via `<prosody rate>` percentage
+    ///   - Azure Neural: rate yes via SSML
+    var supportsRate: Bool {
+        switch self {
+        case .cartesia: return false
+        case .polly, .azure: return true
+        }
+    }
+
+    /// `<prosody pitch>` support. Polly Neural REJECTS pitch with "Unsupported Neural
+    /// feature" — only Standard voices accept it, and our catalog ships Neural only.
+    /// Cartesia Sonic 3.5 also disabled it in preview. So only Azure is fully covered.
+    var supportsPitch: Bool {
+        switch self {
+        case .cartesia, .polly: return false
+        case .azure: return true
+        }
+    }
 }
 
 /// One row in the voice picker. `provider` decides Worker routing and audio format on the
@@ -120,7 +141,7 @@ enum PremiumTTSError: Error, LocalizedError {
 /// one session (and one warm-keeper) via a `SpeechRouter`.
 @MainActor
 @Observable
-final class PremiumSpeechSynthesizer {
+final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
     /// Cartesia returns `pcm_s16le` at 24kHz mono. We convert to Float32 on the fly because
     /// AVAudioEngine's mixer is happiest with floats — going through Int16 hit silent failures
     /// on iOS 18/26 where `int16ChannelData` returned nil and the buffer scheduled as silence.
@@ -177,7 +198,16 @@ final class PremiumSpeechSynthesizer {
         if debugFlow.count > 12 { debugFlow.removeLast() }
     }
 
-    init() {
+    /// True once `parseSSE` (or the mp3 download loop) has consumed the entire response body.
+    /// Used together with `pendingBuffers` so we only flip `isPlaying` false when BOTH the
+    /// network is done AND every scheduled audio buffer has actually drained through the
+    /// speaker — the previous logic flipped `isPlaying` at end-of-network, but for short
+    /// utterances that's seconds before the audio finishes playing, which made the picker's
+    /// stop icon revert to play far too early.
+    private var streamReceiveComplete = false
+
+    override init() {
+        super.init()
         engine.attach(playerNode)
         engine.connect(playerNode, to: engine.mainMixerNode, format: Self.sourceFormat)
         engineAttached = true
@@ -196,6 +226,7 @@ final class PremiumSpeechSynthesizer {
         mp3Player = nil
         pendingBuffers = 0
         pendingPreEngineBuffers.removeAll()
+        streamReceiveComplete = false
         isPlaying = false
         note("cancel")
     }
@@ -286,11 +317,24 @@ final class PremiumSpeechSynthesizer {
         // Cartesia is the only provider that takes a model parameter today; the Worker rejects
         // the field for the other two so we only send it for Cartesia.
         if voice.provider == .cartesia { bodyDict["model"] = "sonic-3.5" }
+        // Rate / pitch only meaningful for providers that actually honour them. Skipping the
+        // fields entirely (vs sending defaults) makes the Worker side easier to reason about
+        // — Cartesia never sees them, Polly never sees pitch, Azure sees both.
+        let defaults = UserDefaults.standard
+        if voice.provider.supportsRate {
+            let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumRateKey) as? Double
+            bodyDict["rate"] = raw ?? LapAnnouncerDefaults.defaultPremiumRate
+        }
+        if voice.provider.supportsPitch {
+            let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumPitchKey) as? Double
+            bodyDict["pitch"] = raw ?? LapAnnouncerDefaults.defaultPremiumPitch
+        }
         req.httpBody = try JSONSerialization.data(withJSONObject: bodyDict)
 
         let t0 = Date()
         lastFirstAudioMs = nil
         isPlaying = true
+        streamReceiveComplete = false
         lastError = nil
 
         note("sending HTTP request")
@@ -315,16 +359,21 @@ final class PremiumSpeechSynthesizer {
             // Cartesia returns SSE with base64 PCM s16le 24kHz — schedule chunks on the
             // existing AVAudioEngine path.
             try await parseSSE(bytes: bytes, startedAt: t0)
+            // Mark stream done so the player-node buffer-completion callback knows it can
+            // flip isPlaying false once the last buffer drains.
+            streamReceiveComplete = true
+            // Edge case: zero buffers (server returned no audio chunks). Flip now so we
+            // don't leave the UI stuck in "playing".
+            if pendingBuffers == 0 { isPlaying = false }
         case .polly, .azure:
             // Polly + Azure both return chunked mp3. Decode + play with AVAudioPlayer, which
             // handles the container itself. We accumulate the whole mp3 first (5-30 KB) and
             // then call .play() — the user-perceived delay is effectively the total HTTP time,
-            // which is still <300 ms for these providers on Japan East.
+            // which is still <300 ms for these providers on Japan East. `isPlaying` is
+            // cleared from `audioPlayerDidFinishPlaying(_:successfully:)` so the picker UI
+            // sees the stop icon for the full playback duration, not just the network time.
             try await playMp3FromStream(bytes: bytes, startedAt: t0)
         }
-        // The network stream is done; whatever's still queued in playerNode/AVAudioPlayer
-        // finishes on its own. We mark isPlaying false here as a reasonable proxy.
-        isPlaying = false
     }
 
     /// Drain the mp3 chunked response into memory, then hand it to AVAudioPlayer. The first-byte
@@ -353,6 +402,7 @@ final class PremiumSpeechSynthesizer {
 
         do {
             let player = try AVAudioPlayer(data: data)
+            player.delegate = self
             player.prepareToPlay()
             mp3Player = player
             note("AVAudioPlayer ready, play()")
@@ -361,6 +411,17 @@ final class PremiumSpeechSynthesizer {
         } catch {
             log.error("AVAudioPlayer init failed: \(error.localizedDescription, privacy: .public)")
             throw PremiumTTSError.engineFailure("AVAudioPlayer init failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - AVAudioPlayerDelegate
+
+    /// Polly + Azure path's "audio truly finished" signal. The delegate fires on a background
+    /// queue, so we bounce to the main actor before writing observable state.
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in
+            self?.isPlaying = false
+            self?.note("AVAudioPlayer finished (success=\(flag))")
         }
     }
 
@@ -493,6 +554,13 @@ final class PremiumSpeechSynthesizer {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 pendingBuffers = max(0, pendingBuffers - 1)
+                // Once the SSE parser has reported "no more chunks coming" AND every scheduled
+                // buffer's audio has played back, the utterance is truly done. The picker UI
+                // observes `isPlaying` to decide when to flip the stop icon back to play.
+                if streamReceiveComplete && pendingBuffers == 0 {
+                    isPlaying = false
+                    note("PCM drained, isPlaying=false")
+                }
             }
         }
     }

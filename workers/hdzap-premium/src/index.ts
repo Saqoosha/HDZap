@@ -42,6 +42,8 @@ app.post("/tts", async (c) => {
     voice?: string;
     lang?: string;
     model?: string;
+    rate?: number;
+    pitch?: number;
   };
   try {
     body = await c.req.json();
@@ -54,6 +56,12 @@ app.post("/tts", async (c) => {
   const text = (body.text || "").trim();
   const voice = (body.voice || "").trim();
   const lang = (body.lang || "").trim();
+  // Rate (speech tempo) and pitch (semitone offset) are accepted as raw numbers from the
+  // client and clamped here — out-of-range values would otherwise produce monster/chipmunk
+  // audio that's not useful for racing. Cartesia ignores both; Polly + Azure honour them
+  // via SSML `<prosody>`.
+  const rate = clamp(body.rate ?? 1.0, 0.5, 2.5);
+  const pitch = clamp(body.pitch ?? 0.0, -10.0, 10.0);
 
   if (!ALLOWED_PROVIDERS.has(provider)) return c.json({ error: "bad-provider" }, 400);
   if (!text) return c.json({ error: "missing-text" }, 400);
@@ -69,10 +77,10 @@ app.post("/tts", async (c) => {
       return await proxyCartesia(c.env.CARTESIA_API_KEY, model, voice, lang, text);
     }
     if (provider === "polly") {
-      return await proxyPolly(voice, lang, text);
+      return await proxyPolly(voice, lang, text, rate, pitch);
     }
     if (provider === "azure") {
-      return await proxyAzure(c.env.AZURE_SPEECH_KEY, voice, lang, text);
+      return await proxyAzure(c.env.AZURE_SPEECH_KEY, voice, lang, text, rate, pitch);
     }
   } catch (e) {
     return c.json(
@@ -82,6 +90,10 @@ app.post("/tts", async (c) => {
   }
   return c.json({ error: "unreachable" }, 500);
 });
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}
 
 // MARK: - Cartesia (SSE → raw PCM s16le 24kHz)
 
@@ -184,7 +196,13 @@ async function getCognitoCreds() {
   return creds;
 }
 
-async function proxyPolly(voiceId: string, lang: string, text: string): Promise<Response> {
+async function proxyPolly(
+  voiceId: string,
+  lang: string,
+  text: string,
+  rate: number,
+  pitch: number,
+): Promise<Response> {
   const creds = await getCognitoCreds();
   const aws = new AwsClient({
     accessKeyId: creds.accessKeyId,
@@ -194,9 +212,15 @@ async function proxyPolly(voiceId: string, lang: string, text: string): Promise<
     service: "polly",
   });
 
-  // Wrap the text in YourLaps' `<prosody rate="x-fast">` style — keeps the iOS app from having
-  // to know about SSML and matches the production race-call cadence already proven on YourLaps.
-  const ssml = `<speak><prosody rate="x-fast">${escapeSsml(text)}</prosody></speak>`;
+  // Polly Neural voices accept `rate` but reject `pitch` — the latter is a Standard-engine-
+  // only feature ("Unsupported Neural feature" 400). Since our entire Polly catalog is
+  // Neural (Takumi/Kazuha/Tomoko), we just skip the pitch attribute here and let the iOS UI
+  // hide the slider for this provider. `rate` arrives as a multiplier (1.0 = baseline); we
+  // round to the closest percentage Polly understands (50%-200%).
+  void pitch; // intentionally ignored on Polly Neural
+  const ratePct = `${Math.round(rate * 100)}%`;
+  const ssml =
+    `<speak><prosody rate="${ratePct}">${escapeSsml(text)}</prosody></speak>`;
 
   const url = `https://polly.${AWS_REGION}.amazonaws.com/v1/speech`;
   const resp = await aws.fetch(url, {
@@ -245,14 +269,23 @@ async function proxyAzure(
   voiceId: string,
   lang: string,
   text: string,
+  rate: number,
+  pitch: number,
 ): Promise<Response> {
   const region = "japaneast";
   const xmlLang = lang === "ja" ? "ja-JP" : "en-US";
   const gender = azureGenderFor(voiceId);
+  // Azure accepts the same SSML `<prosody>` shape as Polly. Rate as multiplier (1.4 = 40%
+  // faster); pitch as signed percentage like "+10%". We convert semitones → percent via the
+  // familiar 100 cents = 1 semitone musical interval, with each semitone ≈ 6% on Azure's
+  // perceptual scale. Capped at ±50% server-side anyway.
+  const rateStr = rate.toFixed(2);
+  const pitchPct = `${pitch >= 0 ? "+" : ""}${Math.round(pitch * 6)}%`;
   const ssml =
     `<speak version='1.0' xml:lang='${xmlLang}'>` +
     `<voice xml:lang='${xmlLang}' xml:gender='${gender}' name='${voiceId}'>` +
-    `${escapeSsml(text)}</voice></speak>`;
+    `<prosody rate='${rateStr}' pitch='${pitchPct}'>${escapeSsml(text)}</prosody>` +
+    `</voice></speak>`;
 
   const resp = await fetch(
     `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`,

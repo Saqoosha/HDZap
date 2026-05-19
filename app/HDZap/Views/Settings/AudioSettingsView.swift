@@ -34,6 +34,30 @@ struct AudioSettingsView: View {
         = LapAnnouncerDefaults.defaultCountdownEnabled
     @AppStorage(LapAnnouncerDefaults.countdownStartSecondsKey) private var countdownStartSeconds
         = LapAnnouncerDefaults.defaultCountdownStartSeconds
+    // Premium engine selection — production-facing (not DEBUG) so the operator can opt in to
+    // the cloud TTS path during a race. Empty `premiumVoiceId` means "no voice picked yet";
+    // LapAnnouncer treats that as a fallthrough back to the system path.
+    @AppStorage(LapAnnouncerDefaults.engineKey) private var ttsEngine
+        = LapAnnouncerDefaults.defaultEngine
+    @AppStorage(LapAnnouncerDefaults.premiumVoiceIdentifierKey) private var premiumLapVoiceId
+        = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
+    @AppStorage(LapAnnouncerDefaults.premiumRateKey) private var premiumRate: Double
+        = LapAnnouncerDefaults.defaultPremiumRate
+    @AppStorage(LapAnnouncerDefaults.premiumPitchKey) private var premiumPitch: Double
+        = LapAnnouncerDefaults.defaultPremiumPitch
+
+    /// Trailing-text label for the NavigationLink to the Premium voice picker. Shows the
+    /// short name (post-`Cartesia · ` / `Polly · ` / `Azure · ` prefix) so the row stays
+    /// scannable; the picker itself groups by provider so we don't need the prefix here.
+    private var currentPremiumVoiceLabel: String {
+        guard let v = PremiumVoiceCatalog.voices.first(where: { $0.id == premiumLapVoiceId }) else {
+            return "Choose voice"
+        }
+        if let dot = v.label.range(of: " · ") {
+            return String(v.label[dot.upperBound...])
+        }
+        return v.label
+    }
 
     var body: some View {
         // Re-snapshot the voice list on every body eval — language picker
@@ -92,45 +116,129 @@ struct AudioSettingsView: View {
                         }
                     }
 
-                    Picker("Voice", selection: $voiceIdentifier) {
-                        Text("System default").tag(LapAnnouncerDefaults.defaultVoiceIdentifier)
-                        ForEach(voices) { voice in
-                            Text(voice.displayName).tag(voice.id)
+                    // Engine selector — switches the entire announce path between the built-in
+                    // AVSpeechSynthesizer (free, no network) and the hdzap-premium Worker
+                    // (Cartesia / Polly / Azure). When Premium is chosen the system voice/rate/
+                    // pitch controls below stay visible so the operator can flip back without
+                    // losing their old settings; LapAnnouncer's routing key is `ttsEngine`.
+                    Picker("Engine", selection: $ttsEngine) {
+                        Text("System").tag("system")
+                        Text("Premium (cloud)").tag("premium")
+                    }
+
+                    if ttsEngine == "premium" {
+                        // Sub-view for the picker — a 32-voice flat `Picker` was unmanageable.
+                        // The drill-in lists voices grouped by provider section, with a "no
+                        // voice" escape row at the top so the operator can clear the choice
+                        // without flipping the engine back to System.
+                        NavigationLink {
+                            PremiumVoicePickerView(language: language.rawValue)
+                        } label: {
+                            HStack {
+                                Text("Premium voice")
+                                Spacer()
+                                Text(currentPremiumVoiceLabel)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                        }
+                        if premiumLapVoiceId.isEmpty {
+                            Text("Pick a Premium voice or LAP announcements fall back to the System engine.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+
+                        // Per-provider prosody sliders. Polly Neural rejects pitch outright
+                        // ("Unsupported Neural feature" 400), and Cartesia Sonic 3.5 disabled
+                        // both controls in preview, so we drive visibility off the voice's
+                        // provider capabilities rather than hard-coding by name.
+                        let selectedProvider = PremiumVoiceCatalog.voices.first {
+                            $0.id == premiumLapVoiceId
+                        }?.provider
+
+                        if selectedProvider?.supportsRate == true {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Rate")
+                                    Spacer()
+                                    Text(String(format: "%.2f×", premiumRate))
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                }
+                                Slider(
+                                    value: $premiumRate,
+                                    in: LapAnnouncerDefaults.minPremiumRate
+                                        ... LapAnnouncerDefaults.maxPremiumRate,
+                                    step: 0.05
+                                )
+                            }
+                        }
+
+                        if selectedProvider?.supportsPitch == true {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Pitch")
+                                    Spacer()
+                                    Text(String(format: "%+.1f st", premiumPitch))
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                }
+                                Slider(
+                                    value: $premiumPitch,
+                                    in: LapAnnouncerDefaults.minPremiumPitch
+                                        ... LapAnnouncerDefaults.maxPremiumPitch,
+                                    step: 0.5
+                                )
+                            }
+                        }
+
+                        if selectedProvider == .cartesia {
+                            Text("Cartesia Sonic 3.5 (preview) doesn't honour rate / pitch controls yet.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Picker("Voice", selection: $voiceIdentifier) {
+                            Text("System default").tag(LapAnnouncerDefaults.defaultVoiceIdentifier)
+                            ForEach(voices) { voice in
+                                Text(voice.displayName).tag(voice.id)
+                            }
                         }
                     }
 
-                    if voices.isEmpty {
-                        // No voices installed at all for the selected language —
-                        // most common cause is the user picked a language whose
-                        // base voice was never bundled (rare) or trimmed during
-                        // an iOS reinstall. Point them at Settings and surface
-                        // the issue so they don't blame the announcer.
-                        Text("No voices installed for this language. Install one from iOS Settings → Accessibility → Spoken Content → Voices.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    } else if !hasPremium && language == .japanese {
-                        // Japanese-specific nudge: Kyoko / Otoya / O-ren
-                        // Enhanced are markedly better than the compact
-                        // base voices. Apple's "Siri Voice 1/2" bundles
-                        // look like the obvious top tier in iOS Settings,
-                        // but they're locked out of AVSpeechSynthesizer for
-                        // third-party apps (selecting one falls back to
-                        // a substitute), so we deliberately don't recommend
-                        // them here.
-                        Text("Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Spoken Content → Voices for noticeably better quality.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    // System-engine-only banners — install nudge, voice-missing notice. None of
+                    // these apply when Premium is selected (the cloud voices are always
+                    // available without local installs), so we gate them on the engine pick.
+                    if ttsEngine == "system" {
+                        if voices.isEmpty {
+                            Text("No voices installed for this language. Install one from iOS Settings → Accessibility → Spoken Content → Voices.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        } else if !hasPremium && language == .japanese {
+                            // Japanese-specific nudge: Kyoko / Otoya / O-ren
+                            // Enhanced are markedly better than the compact
+                            // base voices. Apple's "Siri Voice 1/2" bundles
+                            // look like the obvious top tier in iOS Settings,
+                            // but they're locked out of AVSpeechSynthesizer for
+                            // third-party apps (selecting one falls back to
+                            // a substitute), so we deliberately don't recommend
+                            // them here.
+                            Text("Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Spoken Content → Voices for noticeably better quality.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
-                    if voiceMissing {
-                        // The previously-picked voice was uninstalled (or the
-                        // user restored to a different device that doesn't have
-                        // it). LapAnnouncer also logs and falls back to the
-                        // system default for the current language; this banner
-                        // is purely UX so the user knows why the voice changed.
-                        Text("Selected voice is no longer installed — falling back to the system default.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                        if voiceMissing {
+                            Text("Selected voice is no longer installed — falling back to the system default.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    } else if let err = announcer.premiumSynth.lastError {
+                        // Surface premium errors (bearer missing, network, upstream 5xx) so the
+                        // operator doesn't see silent fallback to System and wonder what went
+                        // wrong. The router still falls through, so the race keeps going.
+                        Text(err).font(.caption).foregroundStyle(.red)
                     }
 
                     if let audioError = announcer.lastAudioError {
@@ -144,34 +252,43 @@ struct AudioSettingsView: View {
                             .foregroundStyle(.red)
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Rate")
-                            Spacer()
-                            Text(String(format: "%.2f", ttsRate))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
+                    // Rate / pitch are AVSpeechUtterance properties — they don't carry over to
+                    // the cloud TTS path. Cartesia/Polly/Azure each have their own prosody
+                    // controls (SSML on Polly, "voice settings" on Cartesia, none on Azure
+                    // streaming endpoint), and exposing the System sliders while Premium is
+                    // active would be misleading. Hide them when Premium is on; their values
+                    // persist in UserDefaults so flipping back to System brings them right
+                    // back without a reset.
+                    if ttsEngine == "system" {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Rate")
+                                Spacer()
+                                Text(String(format: "%.2f", ttsRate))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            Slider(
+                                value: $ttsRate,
+                                in: Double(LapAnnouncerDefaults.minRate)...Double(LapAnnouncerDefaults.maxRate),
+                                step: 0.05
+                            )
                         }
-                        Slider(
-                            value: $ttsRate,
-                            in: Double(LapAnnouncerDefaults.minRate)...Double(LapAnnouncerDefaults.maxRate),
-                            step: 0.05
-                        )
-                    }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Pitch")
-                            Spacer()
-                            Text(String(format: "%.2f", ttsPitch))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Pitch")
+                                Spacer()
+                                Text(String(format: "%.2f", ttsPitch))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            Slider(
+                                value: $ttsPitch,
+                                in: Double(LapAnnouncerDefaults.minPitch)...Double(LapAnnouncerDefaults.maxPitch),
+                                step: 0.05
+                            )
                         }
-                        Slider(
-                            value: $ttsPitch,
-                            in: Double(LapAnnouncerDefaults.minPitch)...Double(LapAnnouncerDefaults.maxPitch),
-                            step: 0.05
-                        )
                     }
 
                     HStack {

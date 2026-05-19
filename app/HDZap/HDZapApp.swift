@@ -21,6 +21,10 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.voiceIdentifierKey: LapAnnouncerDefaults.defaultVoiceIdentifier,
             LapAnnouncerDefaults.countdownEnabledKey: LapAnnouncerDefaults.defaultCountdownEnabled,
             LapAnnouncerDefaults.countdownStartSecondsKey: LapAnnouncerDefaults.defaultCountdownStartSeconds,
+            LapAnnouncerDefaults.engineKey: LapAnnouncerDefaults.defaultEngine,
+            LapAnnouncerDefaults.premiumVoiceIdentifierKey: LapAnnouncerDefaults.defaultPremiumVoiceIdentifier,
+            LapAnnouncerDefaults.premiumRateKey: LapAnnouncerDefaults.defaultPremiumRate,
+            LapAnnouncerDefaults.premiumPitchKey: LapAnnouncerDefaults.defaultPremiumPitch,
         ])
         #if DEBUG
         // Screenshot-mode override: force the session-limit + target-lap

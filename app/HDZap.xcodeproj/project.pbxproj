@@ -25,6 +25,7 @@
 		7F7163E490E1A2801986C143 /* AudioSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AB489293AF90A66653F7E8 /* AudioSettingsView.swift */; };
 		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
 		8CADAC698D61819E5F246C78 /* BatteryStatusRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FFFF75A4A27EB06B6DA147 /* BatteryStatusRow.swift */; };
+		935828350E187F0AF20503C6 /* PremiumVoicePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA61CCE32759AA19858FD543 /* PremiumVoicePickerView.swift */; };
 		9DE8F86CE8258154BB0C4D55 /* OSDLayoutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B161428CF02B06F13538AF4 /* OSDLayoutSettingsView.swift */; };
 		AB4C544608ABC7812A562C8B /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48C631CA51BB0A3E899833E /* AppearanceSettingsView.swift */; };
 		B7CE912801EC33801585517E /* LapAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */; };
@@ -69,6 +70,7 @@
 		B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettings.swift; sourceTree = "<group>"; };
 		B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RaceRecord+FlightBattery.swift"; sourceTree = "<group>"; };
+		CA61CCE32759AA19858FD543 /* PremiumVoicePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumVoicePickerView.swift; sourceTree = "<group>"; };
 		CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
 		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
@@ -146,6 +148,7 @@
 				1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */,
 				7B161428CF02B06F13538AF4 /* OSDLayoutSettingsView.swift */,
 				49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */,
+				CA61CCE32759AA19858FD543 /* PremiumVoicePickerView.swift */,
 				5EBC7D297DD8CBEF7C617161 /* SettingsView.swift */,
 			);
 			path = Settings;
@@ -275,6 +278,7 @@
 				9DE8F86CE8258154BB0C4D55 /* OSDLayoutSettingsView.swift in Sources */,
 				523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */,
 				FAE09644E7798A86BE837D66 /* PremiumSpeechSynthesizer.swift in Sources */,
+				935828350E187F0AF20503C6 /* PremiumVoicePickerView.swift in Sources */,
 				3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */,
 				D3B6435AACBDBC150667EE1C /* RaceFlightBatterySample.swift in Sources */,
 				C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */,
