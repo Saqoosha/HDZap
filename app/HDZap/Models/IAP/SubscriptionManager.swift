@@ -36,6 +36,11 @@ enum SubscriptionStatus: Equatable {
 final class SubscriptionManager {
     private(set) var products: [Product] = []
     private(set) var status: SubscriptionStatus = .unknown
+    /// JWS representation of the active entitlement transaction. The Worker's `/tts`
+    /// endpoint verifies this against Apple Root CA G3 to authorize Premium audio — when
+    /// non-nil, callers should ship it as `Authorization: Bearer <jws>`. Lives next to
+    /// `status` because they're updated together (`refreshEntitlement`).
+    private(set) var currentJWS: String?
     /// Surface for the paywall — "purchase didn't complete", "restore found nothing", etc.
     private(set) var lastError: String?
     /// In-flight purchase so the paywall can show a spinner instead of letting the operator
@@ -138,6 +143,7 @@ final class SubscriptionManager {
     /// Apple guarantees the most recent transaction for a subscription group wins.
     func refreshEntitlement() async {
         var latest: SubscriptionStatus = .none
+        var latestJWS: String?
         for await result in Transaction.currentEntitlements {
             guard case .verified(let tx) = result,
                   SubscriptionProductID.all.contains(tx.productID) else { continue }
@@ -154,9 +160,14 @@ final class SubscriptionManager {
             } else {
                 latest = .active(expires: expires)
             }
+            // The Worker needs the original JWS (not the decoded payload) to verify
+            // signature + cert chain. `result.jwsRepresentation` is on the
+            // `VerificationResult`, not the inner `Transaction`, so reach back for it.
+            latestJWS = result.jwsRepresentation
         }
         status = latest
-        log.notice("entitlement refresh: \(String(describing: self.status), privacy: .public)")
+        currentJWS = latestJWS
+        log.notice("entitlement refresh: \(String(describing: self.status), privacy: .public) jws=\(latestJWS != nil ? "yes" : "no", privacy: .public)")
     }
 
     private func handle(verificationResult: VerificationResult<Transaction>) async {

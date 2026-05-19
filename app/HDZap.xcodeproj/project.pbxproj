@@ -21,9 +21,11 @@
 		374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */; };
 		4BD1A6777B94B70BDAD20186 /* RaceRecord+FlightBattery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */; };
 		523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */; };
+		6A349E284EC8FC622DBD89B6 /* BuildSecrets.swift.tpl in Resources */ = {isa = PBXBuildFile; fileRef = DF97D1680A0F537ABDC0D416 /* BuildSecrets.swift.tpl */; };
 		6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DB96B10D57102797F555BE /* BluetoothManager.swift */; };
 		7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFF7583FD58A10FE7357025 /* HDZapApp.swift */; };
 		7F7163E490E1A2801986C143 /* AudioSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AB489293AF90A66653F7E8 /* AudioSettingsView.swift */; };
+		8721348DA6F796D2E7605D1F /* BuildSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5CB02666324477E3DEE14B /* BuildSecrets.swift */; };
 		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
 		8CADAC698D61819E5F246C78 /* BatteryStatusRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FFFF75A4A27EB06B6DA147 /* BatteryStatusRow.swift */; };
 		91E9B43A34A529198F1F89BB /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A430E5AE0F9117C107E99D /* PaywallView.swift */; };
@@ -70,6 +72,7 @@
 		7B161428CF02B06F13538AF4 /* OSDLayoutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettingsView.swift; sourceTree = "<group>"; };
 		8FCA8EAB8E0451CF25688633 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
 		90AB489293AF90A66653F7E8 /* AudioSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSettingsView.swift; sourceTree = "<group>"; };
+		9A5CB02666324477E3DEE14B /* BuildSecrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSecrets.swift; sourceTree = "<group>"; };
 		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettings.swift; sourceTree = "<group>"; };
 		B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -80,6 +83,7 @@
 		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
 		DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumSpeechSynthesizer.swift; sourceTree = "<group>"; };
+		DF97D1680A0F537ABDC0D416 /* BuildSecrets.swift.tpl */ = {isa = PBXFileReference; path = BuildSecrets.swift.tpl; sourceTree = "<group>"; };
 		E48C631CA51BB0A3E899833E /* AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsView.swift; sourceTree = "<group>"; };
 		EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceRecord.swift; sourceTree = "<group>"; };
 		FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceDetailView.swift; sourceTree = "<group>"; };
@@ -148,6 +152,8 @@
 		75E578D3CF47B760E0B94656 /* Speech */ = {
 			isa = PBXGroup;
 			children = (
+				9A5CB02666324477E3DEE14B /* BuildSecrets.swift */,
+				DF97D1680A0F537ABDC0D416 /* BuildSecrets.swift.tpl */,
 				DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */,
 			);
 			path = Speech;
@@ -281,6 +287,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */,
+				6A349E284EC8FC622DBD89B6 /* BuildSecrets.swift.tpl in Resources */,
 				C1F30C12C6B7F601E5B9DEC5 /* HDZapPremium.storekit in Resources */,
 				374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */,
 				F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */,
@@ -299,6 +306,7 @@
 				03B0D91B870A379CD442D441 /* BackpackTelemetryDebugView.swift in Sources */,
 				8CADAC698D61819E5F246C78 /* BatteryStatusRow.swift in Sources */,
 				6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */,
+				8721348DA6F796D2E7605D1F /* BuildSecrets.swift in Sources */,
 				EA2F8003A1A5258DBA937A5F /* ConnectionSettingsView.swift in Sources */,
 				8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */,
 				34305017E1FD46A91F2686E9 /* DeviceRenameView.swift in Sources */,

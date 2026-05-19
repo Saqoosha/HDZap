@@ -57,8 +57,9 @@ struct PremiumVoiceOption: Identifiable, Hashable {
 }
 
 /// All Premium TTS voices that ship in the dev panel — sourced from live API listings on
-/// 2026-05-19 (Cartesia 22 JA, Polly 3 JA Neural, Azure 7 JA Neural). The full English library
-/// is huge; we stick to handpicked picks for the race-announcer / friendly-narrator personas.
+/// 2026-05-19 (Cartesia 22 JA + 3 EN, Polly 3 JA + 11 EN Neural, Azure 7 JA + 9 EN Neural).
+/// The full English library is huge; we stick to handpicked picks for the race-announcer /
+/// friendly-narrator personas (US/UK/AU accents covered across providers).
 enum PremiumVoiceCatalog {
     static let voices: [PremiumVoiceOption] = [
         // ── Cartesia JA (all 22) ───────────────────────────────────────────────────
@@ -100,6 +101,32 @@ enum PremiumVoiceCatalog {
         .init(id: "2f22b9bc-b0eb-4cb6-b5ae-0c099a0fdfad", label: "Cartesia · Scott - Sportscaster",      lang: "en", provider: .cartesia),
         .init(id: "820a3788-2b37-4d21-847a-b65d8a68c99a", label: "Cartesia · Tyler - Friendly Salesman", lang: "en", provider: .cartesia),
         .init(id: "62305e79-9d39-4643-b003-5e0b096fe4f4", label: "Cartesia · Madison - Best Friend",     lang: "en", provider: .cartesia),
+        // ── Polly EN (Neural, handpicked) ───────────────────────────────────────────
+        // Newscaster-style (Matthew, Joanna, Stephen, Ruth) reads numbers cleanest for
+        // race calls; conversational picks (Joey, Brian, Arthur) round out the menu.
+        .init(id: "Matthew",  label: "Polly · Matthew (US male, newscaster)", lang: "en", provider: .polly),
+        .init(id: "Stephen",  label: "Polly · Stephen (US male, newscaster)", lang: "en", provider: .polly),
+        .init(id: "Joey",     label: "Polly · Joey (US male)",                lang: "en", provider: .polly),
+        .init(id: "Joanna",   label: "Polly · Joanna (US female, newscaster)", lang: "en", provider: .polly),
+        .init(id: "Ruth",     label: "Polly · Ruth (US female, newscaster)",  lang: "en", provider: .polly),
+        .init(id: "Kendra",   label: "Polly · Kendra (US female)",            lang: "en", provider: .polly),
+        .init(id: "Brian",    label: "Polly · Brian (UK male)",               lang: "en", provider: .polly),
+        .init(id: "Arthur",   label: "Polly · Arthur (UK male)",              lang: "en", provider: .polly),
+        .init(id: "Amy",      label: "Polly · Amy (UK female)",               lang: "en", provider: .polly),
+        .init(id: "Emma",     label: "Polly · Emma (UK female)",              lang: "en", provider: .polly),
+        .init(id: "Olivia",   label: "Polly · Olivia (AU female)",            lang: "en", provider: .polly),
+        // ── Azure EN (Neural, handpicked) ───────────────────────────────────────────
+        // Davis / Tony / Guy are the strongest US-male picks for race calls; Aria + Jenny
+        // are Azure's most natural US females. Ryan + Sonia add a UK option.
+        .init(id: "en-US-DavisNeural",  label: "Azure · Davis (US male)",   lang: "en", provider: .azure),
+        .init(id: "en-US-TonyNeural",   label: "Azure · Tony (US male)",    lang: "en", provider: .azure),
+        .init(id: "en-US-GuyNeural",    label: "Azure · Guy (US male)",     lang: "en", provider: .azure),
+        .init(id: "en-US-JasonNeural",  label: "Azure · Jason (US male)",   lang: "en", provider: .azure),
+        .init(id: "en-US-AriaNeural",   label: "Azure · Aria (US female)",  lang: "en", provider: .azure),
+        .init(id: "en-US-JennyNeural",  label: "Azure · Jenny (US female)", lang: "en", provider: .azure),
+        .init(id: "en-US-SaraNeural",   label: "Azure · Sara (US female)",  lang: "en", provider: .azure),
+        .init(id: "en-GB-RyanNeural",   label: "Azure · Ryan (UK male)",    lang: "en", provider: .azure),
+        .init(id: "en-GB-SoniaNeural",  label: "Azure · Sonia (UK female)", lang: "en", provider: .azure),
     ]
 
     static func voices(for lang: String) -> [PremiumVoiceOption] {
@@ -142,6 +169,14 @@ enum PremiumTTSError: Error, LocalizedError {
 @MainActor
 @Observable
 final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
+    /// Returns the Apple-signed JWS (from `SubscriptionManager.currentJWS`) when the
+    /// operator has an active entitlement, else nil. Wired up in `HDZapApp` after both
+    /// the announcer and SubscriptionManager exist. When non-nil, the JWS is sent as
+    /// the Bearer token and the Worker validates it against Apple Root CA G3 — the only
+    /// path that should be hit during real race-time playback. When nil, the synth falls
+    /// back to `BuildSecrets.workerBearer` (the preview path the picker uses).
+    var jwsProvider: () -> String? = { nil }
+
     /// Cartesia returns `pcm_s16le` at 24kHz mono. We convert to Float32 on the fly because
     /// AVAudioEngine's mixer is happiest with floats — going through Int16 hit silent failures
     /// on iOS 18/26 where `int16ChannelData` returned nil and the buffer scheduled as silence.
@@ -272,10 +307,32 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
         let defaults = UserDefaults.standard
         let urlString = defaults.string(forKey: PremiumTTSDevDefaults.workerURLKey)
             ?? PremiumTTSDevDefaults.defaultWorkerURL
-        let bearer = (defaults.string(forKey: PremiumTTSDevDefaults.bearerKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Auth precedence:
+        //   1. Apple-signed JWS from the active entitlement — the real subscriber path.
+        //      Worker verifies it against Apple Root CA G3, so a leaked token is
+        //      cryptographically useless to someone outside this Apple ID.
+        //   2. Dev-panel bearer — runtime override for testing the preview path against
+        //      a rotated Worker secret without rebuilding.
+        //   3. Baked-in `BuildSecrets.workerBearer` — the default preview-path bearer
+        //      every subscriber ships with. Used pre-subscription (auditioning voices)
+        //      and in the dev panel's "Test voice" button.
+        let jws = jwsProvider() ?? ""
+        let panelBearer = (defaults.string(forKey: PremiumTTSDevDefaults.bearerKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let bearer: String
+        if !jws.isEmpty {
+            bearer = jws
+            note("auth=jws")
+        } else if !panelBearer.isEmpty {
+            bearer = panelBearer
+            note("auth=panel-bearer")
+        } else {
+            bearer = BuildSecrets.workerBearer
+            note("auth=baked-bearer")
+        }
         guard !bearer.isEmpty else {
             note("bearer empty")
-            throw PremiumTTSError.missingConfig("Worker bearer not set (paste it in the dev panel)")
+            throw PremiumTTSError.missingConfig("Worker bearer not set (render BuildSecrets.swift via `op inject`, or paste in the dev panel)")
         }
         guard let url = URL(string: urlString) else { note("invalid URL"); throw PremiumTTSError.invalidURL }
 

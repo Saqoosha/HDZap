@@ -63,6 +63,14 @@ struct HDZapApp: App {
                     // BLE permissions are ready, which can spew "transaction observer not
                     // attached in time" warnings on first launch.
                     subscription.start()
+                    // Wire the Premium synth to the entitlement JWS. The closure captures
+                    // `subscription` weakly via the @Observable manager (it's a final
+                    // class), so the synth gets a fresh JWS each call without holding a
+                    // strong reference cycle. Wiring lives here because both objects are
+                    // available together for the first time.
+                    lapAnnouncer.premiumSynth.jwsProvider = { [weak subscription] in
+                        subscription?.currentJWS
+                    }
                 }
         }
     }
