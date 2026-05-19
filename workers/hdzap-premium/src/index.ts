@@ -1,12 +1,23 @@
 import { Hono } from "hono";
 import { AwsClient } from "aws4fetch";
+import { AppleJwsError, verifyAppleJws } from "./appleJws";
 
 type Env = {
   CARTESIA_API_KEY: string;
   AZURE_SPEECH_KEY: string;
-  // Stub auth: a single shared bearer until StoreKit JWS verification lands.
-  // Set via `wrangler secret put DEV_BEARER` for now.
+  /**
+   * Shared "preview" bearer for non-subscribers — gates the limited preview path used by
+   * the in-app voice picker before a subscription exists. Subscribers send JWS instead and
+   * get the unrestricted path; the bearer path stays narrow (50-char text cap) so a leaked
+   * value can't be used to ship a full free competitor.
+   */
   DEV_BEARER: string;
+  /**
+   * When "true" (string), accept self-signed JWS from Xcode's local `.storekit`
+   * configuration — these have `kid: "Apple_Xcode_Key"` and don't chain to Apple Root CA G3,
+   * so they're only safe to honour in dev/staging. Production deploys leave this unset.
+   */
+  ALLOW_XCODE_LOCAL_JWS?: string;
 };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -15,9 +26,24 @@ const ALLOWED_PROVIDERS = new Set(["cartesia", "polly", "azure"]);
 const ALLOWED_CARTESIA_MODELS = new Set(["sonic-3.5", "sonic-3", "sonic-2", "sonic"]);
 const ALLOWED_LANGS = new Set(["ja", "en"]);
 
-// Trust-but-verify: a fixed maximum so a misbehaving client (or someone who exfiltrates the dev
-// bearer) can't bill us for kilobyte-long transcripts. Bumped if real lap summaries grow.
-const MAX_TRANSCRIPT_CHARS = 300;
+// Two-tier text limits: JWS-authed callers (real subscribers) get a generous limit for
+// final-lap summaries; bearer-authed preview callers get a tight cap that's just enough
+// for "ラップ3、12.34、ベストラップ" -class sample sentences. A leaked bearer can't be turned
+// into a "free TTS-as-a-service" with a 50-char cap on every request.
+const MAX_TRANSCRIPT_CHARS_JWS = 300;
+const MAX_TRANSCRIPT_CHARS_BEARER = 60;
+
+/** Apple expects these bundle + product IDs exactly. Update both sides if Apple changes. */
+const APP_BUNDLE_ID = "sh.saqoo.HDZap";
+const ALLOWED_PRODUCT_IDS = new Set([
+  "sh.saqoo.HDZap.premium.monthly",
+  "sh.saqoo.HDZap.premium.yearly",
+]);
+/**
+ * Apple's billing-retry grace is up to ~16 days after `expiresDate`. Honour it so a real
+ * subscriber whose card temporarily declined doesn't lose Premium audio mid-race.
+ */
+const GRACE_PERIOD_MS = 16 * 24 * 60 * 60 * 1000;
 
 // AWS region + Cognito Identity Pool. The pool grants unauthenticated public access to Polly
 // (same pool YourLaps uses), so we don't need IAM user keys baked into the Worker — Cognito
@@ -29,11 +55,52 @@ app.get("/", (c) => c.text("hdzap-premium worker — POST /tts"));
 app.get("/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
 
 app.post("/tts", async (c) => {
-  // Stub auth — replaced by JWS verification later. Reject early when bearer is missing or wrong.
+  // Two-tier auth: real subscribers ship Apple-signed JWS; non-subscribers use the shared
+  // dev bearer for in-app voice previews. The JWS path is Apple-cryptographic-proof, the
+  // bearer path is rate-limited by text length so a leaked bearer can't bill us into the
+  // ground (60 chars max + Cartesia/Polly/Azure caps).
   const auth = c.req.header("Authorization") || "";
-  const token = auth.replace(/^Bearer\s+/i, "");
-  if (!c.env.DEV_BEARER || token !== c.env.DEV_BEARER) {
-    return c.json({ error: "unauthorized" }, 401);
+  const token = auth.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return c.json({ error: "unauthorized", reason: "missing-token" }, 401);
+
+  // JWS has 3 dot-separated base64url segments; the bearer is a single opaque random
+  // string. This shape check is a routing hint, not a security boundary — we still
+  // cryptographically verify the JWS below.
+  const looksLikeJws = token.split(".").length === 3;
+  let authMode: "jws" | "bearer";
+  let userId: string | null = null;
+  let maxChars: number;
+
+  if (looksLikeJws) {
+    try {
+      const payload = await verifyAppleJws(
+        token,
+        APP_BUNDLE_ID,
+        ALLOWED_PRODUCT_IDS,
+        GRACE_PERIOD_MS,
+        { allowXcodeLocalJws: c.env.ALLOW_XCODE_LOCAL_JWS === "true" },
+      );
+      authMode = "jws";
+      userId = payload.originalTransactionId;
+      maxChars = MAX_TRANSCRIPT_CHARS_JWS;
+      console.log("auth=jws", { userId, productId: payload.productId, env: payload.environment });
+    } catch (e) {
+      const code = e instanceof AppleJwsError ? e.code : "internal";
+      const message = (e as Error).message;
+      console.error("jws-verify-failed", { code, message });
+      if (e instanceof AppleJwsError) {
+        return c.json({ error: `jws-${e.code}`, message: e.message }, 401);
+      }
+      return c.json({ error: "jws-internal", message }, 401);
+    }
+  } else {
+    if (!c.env.DEV_BEARER || token !== c.env.DEV_BEARER) {
+      console.error("auth=bearer-rejected", { tokenLen: token.length });
+      return c.json({ error: "unauthorized", reason: "bad-bearer" }, 401);
+    }
+    authMode = "bearer";
+    maxChars = MAX_TRANSCRIPT_CHARS_BEARER;
+    console.log("auth=bearer");
   }
 
   let body: {
@@ -65,10 +132,12 @@ app.post("/tts", async (c) => {
 
   if (!ALLOWED_PROVIDERS.has(provider)) return c.json({ error: "bad-provider" }, 400);
   if (!text) return c.json({ error: "missing-text" }, 400);
-  if (text.length > MAX_TRANSCRIPT_CHARS)
-    return c.json({ error: "text-too-long", limit: MAX_TRANSCRIPT_CHARS }, 400);
+  if (text.length > maxChars)
+    return c.json({ error: "text-too-long", limit: maxChars, authMode }, 400);
   if (!voice) return c.json({ error: "missing-voice" }, 400);
   if (!ALLOWED_LANGS.has(lang)) return c.json({ error: "bad-lang" }, 400);
+
+  void userId; // reserved for per-user rate limiting via KV — wire up in a follow-up.
 
   try {
     if (provider === "cartesia") {
