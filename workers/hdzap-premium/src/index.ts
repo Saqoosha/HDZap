@@ -28,6 +28,12 @@ type Env = {
   ALLOW_XCODE_LOCAL_JWS?: string;
   /** Per-IP daily request counter. Keys: `rl:<ip>:<YYYY-MM-DD>`, TTL 48h. */
   RATELIMIT: KVNamespace;
+  /**
+   * Cross-user shared TTS audio cache. Keys are hex SHA-256 of the canonical request
+   * (provider + voice + lang + rate + pitch + model + text). First caller pays the
+   * provider; everyone afterwards streams from R2 with the same content.
+   */
+  TTS_CACHE: R2Bucket;
 };
 
 /**
@@ -180,14 +186,44 @@ app.post("/tts", async (c) => {
 
   void userId; // reserved for per-user rate limiting via KV — wire up in a follow-up.
 
+  // Build the cache key from every parameter that changes the audio. Two callers with
+  // identical params share one cache entry regardless of who they are — that's the whole
+  // point of R2 caching here vs. per-user storage.
+  const cartesiaModel = provider === "cartesia"
+    ? (body.model || "sonic-3.5").trim()
+    : "";
+  if (provider === "cartesia" && !ALLOWED_CARTESIA_MODELS.has(cartesiaModel)) {
+    return c.json({ error: "bad-model" }, 400);
+  }
+  const cacheKey = await buildCacheKey({
+    provider,
+    voice,
+    lang,
+    rate,
+    pitch,
+    model: cartesiaModel,
+    text,
+  });
+
+  // Cache hit → stream straight from R2. The provider-specific Content-Type lives in
+  // the object's httpMetadata so we don't have to re-derive it from `provider` here.
+  const hit = await c.env.TTS_CACHE.get(cacheKey);
+  if (hit) {
+    console.log("r2-cache=hit", { key: cacheKey, provider, size: hit.size });
+    return new Response(hit.body, {
+      status: 200,
+      headers: responseHeadersFor(provider, "hit"),
+    });
+  }
+
+  // Cache miss — call the provider, then tee the body so the client gets streaming
+  // playback while R2 gets a written copy for every subsequent caller.
+  let upstream: Response;
   try {
     if (provider === "cartesia") {
-      const model = (body.model || "sonic-3.5").trim();
-      if (!ALLOWED_CARTESIA_MODELS.has(model)) return c.json({ error: "bad-model" }, 400);
-      return await proxyCartesia(c.env.CARTESIA_API_KEY, model, voice, lang, text);
-    }
-    if (provider === "polly") {
-      return await proxyPolly(
+      upstream = await proxyCartesia(c.env.CARTESIA_API_KEY, cartesiaModel, voice, lang, text);
+    } else if (provider === "polly") {
+      upstream = await proxyPolly(
         c.env.POLLY_ACCESS_KEY_ID,
         c.env.POLLY_SECRET_ACCESS_KEY,
         voice,
@@ -196,9 +232,10 @@ app.post("/tts", async (c) => {
         rate,
         pitch,
       );
-    }
-    if (provider === "azure") {
-      return await proxyAzure(c.env.AZURE_SPEECH_KEY, voice, lang, text, rate, pitch);
+    } else if (provider === "azure") {
+      upstream = await proxyAzure(c.env.AZURE_SPEECH_KEY, voice, lang, text, rate, pitch);
+    } else {
+      return c.json({ error: "unreachable" }, 500);
     }
   } catch (e) {
     return c.json(
@@ -206,11 +243,109 @@ app.post("/tts", async (c) => {
       502
     );
   }
-  return c.json({ error: "unreachable" }, 500);
+
+  // Don't cache provider errors — they'd poison the entry and serve a 4xx forever.
+  if (!upstream.ok || !upstream.body) {
+    return upstream;
+  }
+
+  console.log("r2-cache=miss", { key: cacheKey, provider });
+  // tee the body so the client keeps streaming on its branch; the cache-write branch we
+  // drain into an ArrayBuffer first because R2 rejects unknown-length ReadableStreams
+  // ("Provided readable stream must have a known length"). Polly/Azure mp3 + Cartesia
+  // SSE for a single utterance are both small (<100 KB), so buffering one isn't a
+  // memory concern.
+  const [toClient, toR2] = upstream.body.tee();
+  c.executionCtx.waitUntil((async () => {
+    try {
+      const buf = await new Response(toR2).arrayBuffer();
+      await c.env.TTS_CACHE.put(cacheKey, buf, {
+        httpMetadata: { contentType: contentTypeFor(provider) },
+        customMetadata: {
+          provider,
+          voice,
+          lang,
+          chars: String(text.length),
+        },
+      });
+      console.log("r2-cache=written", { key: cacheKey, size: buf.byteLength });
+    } catch (e) {
+      // R2 write failures shouldn't break the client response — the next caller just
+      // pays the provider again. Surface in logs so we notice systemic outages.
+      console.error("r2-cache=write-failed", { key: cacheKey, message: (e as Error).message });
+    }
+  })());
+
+  return new Response(toClient, {
+    status: 200,
+    headers: responseHeadersFor(provider, "miss"),
+  });
 });
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
+}
+
+/**
+ * Canonical hex SHA-256 of every parameter that affects the generated audio. Stable across
+ * callers — same params = same key = one shared R2 entry. The `|` separator is fine
+ * because none of the field values (provider/voice/lang/model are enum-like, numbers are
+ * floats, text is user input but `|` is rare in race phrases) can collide ambiguously at
+ * this granularity.
+ */
+async function buildCacheKey(req: {
+  provider: string;
+  voice: string;
+  lang: string;
+  rate: number;
+  pitch: number;
+  model: string;
+  text: string;
+}): Promise<string> {
+  const canonical = [
+    req.provider,
+    req.voice,
+    req.lang,
+    req.rate.toFixed(3),
+    req.pitch.toFixed(3),
+    req.model,
+    req.text,
+  ].join("|");
+  const buf = new TextEncoder().encode(canonical);
+  const hash = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * What `Content-Type` we serve for each provider — Cartesia ships raw-PCM-over-SSE,
+ * Polly + Azure ship chunked mp3. The cache miss path also stuffs this into the R2
+ * object's `httpMetadata.contentType` so hits don't need a parallel lookup table.
+ */
+function contentTypeFor(provider: string): string {
+  return provider === "cartesia" ? "text/event-stream" : "audio/mpeg";
+}
+
+/**
+ * Full response header set we send to the iOS client. Cartesia needs the SSE-streaming
+ * hints (`X-Accel-Buffering: no`) so intermediaries don't buffer; mp3 doesn't. Both modes
+ * tag `X-HDZap-Cache` so the client can log hit/miss without parsing the body.
+ */
+function responseHeadersFor(provider: string, cacheStatus: "hit" | "miss"): Record<string, string> {
+  const base: Record<string, string> = {
+    "Content-Type": contentTypeFor(provider),
+    "Cache-Control": "no-store",
+    "X-HDZap-Provider": provider,
+    "X-HDZap-Cache": cacheStatus,
+  };
+  if (provider === "cartesia") {
+    base["X-HDZap-Format"] = "pcm-sse";
+    base["X-Accel-Buffering"] = "no";
+  } else {
+    base["X-HDZap-Format"] = "mp3";
+  }
+  return base;
 }
 
 /**
