@@ -5,6 +5,8 @@ import SwiftUI
 /// missing-voice banners have room to render without crowding the root.
 struct AudioSettingsView: View {
     @Environment(LapAnnouncer.self) private var announcer
+    @Environment(SubscriptionManager.self) private var subscription
+    @State private var showingPaywall = false
 #if DEBUG
     // Premium TTS test harness — only compiled into Debug builds. Production code will
     // create the synth via SubscriptionManager + SpeechRouter; this @State instance is just
@@ -121,9 +123,27 @@ struct AudioSettingsView: View {
                     // (Cartesia / Polly / Azure). When Premium is chosen the system voice/rate/
                     // pitch controls below stay visible so the operator can flip back without
                     // losing their old settings; LapAnnouncer's routing key is `ttsEngine`.
+                    //
+                    // The Premium row is gated on `SubscriptionManager.isEntitled`. A non-
+                    // subscriber tapping "Premium" pops the paywall instead of flipping the
+                    // engine — and we snap the setting back to "system" until they finish
+                    // purchase, so a cancelled paywall doesn't leave them on the Premium row
+                    // with no entitlement.
                     Picker("Engine", selection: $ttsEngine) {
                         Text("System").tag("system")
-                        Text("Premium (cloud)").tag("premium")
+                        if subscription.isEntitled {
+                            Text("Premium (cloud)").tag("premium")
+                        } else {
+                            Text("Premium — Subscribe ›").tag("premium-locked")
+                        }
+                    }
+                    .onChange(of: ttsEngine) { _, newValue in
+                        if newValue == "premium-locked" {
+                            // Snap back and show the paywall — we never persist the locked
+                            // tag, so a cancelled purchase leaves `ttsEngine == "system"`.
+                            ttsEngine = "system"
+                            showingPaywall = true
+                        }
                     }
 
                     if ttsEngine == "premium" {
@@ -337,6 +357,18 @@ struct AudioSettingsView: View {
         }
         .navigationTitle("Lap announcer")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView()
+        }
+        .onChange(of: subscription.isEntitled) { _, nowEntitled in
+            // Roll back to System if the subscription lapsed while the engine was set to
+            // Premium. Without this the Picker would render a `premium` tag with no matching
+            // option in the menu (we hide it for non-subscribers), and the LapAnnouncer
+            // would keep trying to route to Premium until the operator manually switched.
+            if !nowEntitled && ttsEngine == "premium" {
+                ttsEngine = "system"
+            }
+        }
     }
 
 #if DEBUG

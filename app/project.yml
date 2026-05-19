@@ -35,3 +35,13 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIRequiresFullScreen: YES
         UILaunchScreen: {}
+schemes:
+  HDZap:
+    build:
+      targets:
+        HDZap: all
+    run:
+      # Local StoreKit configuration — Xcode swaps the real App Store transactions for the
+      # fake products defined in the .storekit file when this scheme is active. Doesn't
+      # affect Release / TestFlight builds, which always go through real StoreKit servers.
+      storeKitConfiguration: HDZap/Resources/StoreKit/HDZapPremium.storekit

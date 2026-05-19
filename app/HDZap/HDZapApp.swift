@@ -7,6 +7,9 @@ struct HDZapApp: App {
     @State private var lapAnnouncer = LapAnnouncer()
     @State private var raceHistory = RaceHistoryStore()
     @State private var osdLayout = OSDLayoutSettings()
+    /// One subscription manager shared across the whole app. The init triggers
+    /// `Transaction.updates` listener registration via `start()` in onAppear — see body.
+    @State private var subscription = SubscriptionManager()
 
     init() {
         UserDefaults.standard.register(defaults: [
@@ -53,6 +56,14 @@ struct HDZapApp: App {
                 .environment(lapAnnouncer)
                 .environment(raceHistory)
                 .environment(osdLayout)
+                .environment(subscription)
+                .task {
+                    // Start the StoreKit2 listener once the SwiftUI scene is on screen — earlier
+                    // (e.g. in the App init) would risk firing before the audio session /
+                    // BLE permissions are ready, which can spew "transaction observer not
+                    // attached in time" warnings on first launch.
+                    subscription.start()
+                }
         }
     }
 }

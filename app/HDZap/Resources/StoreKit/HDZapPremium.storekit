@@ -1,0 +1,104 @@
+{
+  "identifier" : "HDZapPremium",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_applicationInternalID" : "6766197336",
+    "_developerTeamID" : "VCFY2GFR89",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "ja_JP",
+    "_storefront" : "JPN",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21678901",
+      "localizations" : [
+        {
+          "description" : "Premium AI announcer voices for race-time call-outs.",
+          "displayName" : "HDZap Premium",
+          "locale" : "en_US"
+        },
+        {
+          "description" : "リアルな AI 実況音声でラップタイムを読み上げ。",
+          "displayName" : "HDZap Premium",
+          "locale" : "ja_JP"
+        }
+      ],
+      "name" : "HDZap Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "450",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "10000001",
+          "introductoryOffer" : {
+            "displayPrice" : "0",
+            "internalID" : "20000001",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Cloud-powered realistic AI announcer voices for lap times. Pick from 35+ voices across AWS Polly, Azure, and Cartesia.",
+              "displayName" : "HDZap Premium Monthly",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "クラウド駆動のリアルな AI 実況音声でラップタイム読み上げ。AWS / Azure / Cartesia の 35+ ボイスから選べる。",
+              "displayName" : "HDZap Premium 月額",
+              "locale" : "ja_JP"
+            }
+          ],
+          "productID" : "sh.saqoo.HDZap.premium.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "HDZap Premium Monthly",
+          "subscriptionGroupID" : "21678901",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "4000",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "10000002",
+          "introductoryOffer" : {
+            "displayPrice" : "0",
+            "internalID" : "20000002",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Cloud-powered realistic AI announcer voices for lap times. Save 27% versus monthly billing.",
+              "displayName" : "HDZap Premium Yearly",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "クラウド駆動のリアルな AI 実況音声でラップタイム読み上げ。月額より 27% お得。",
+              "displayName" : "HDZap Premium 年額",
+              "locale" : "ja_JP"
+            }
+          ],
+          "productID" : "sh.saqoo.HDZap.premium.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "HDZap Premium Yearly",
+          "subscriptionGroupID" : "21678901",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
