@@ -6,6 +6,14 @@ type Env = {
   CARTESIA_API_KEY: string;
   AZURE_SPEECH_KEY: string;
   /**
+   * IAM user (`hdzap-premium-polly`) scoped to a single permission:
+   * `polly:SynthesizeSpeech`. The Worker signs Polly requests with SigV4 using these long-
+   * lived keys — much simpler than the Cognito identity-pool path the iOS-direct version
+   * of YourLaps needed, since the Worker is itself a trusted server.
+   */
+  POLLY_ACCESS_KEY_ID: string;
+  POLLY_SECRET_ACCESS_KEY: string;
+  /**
    * Shared "preview" bearer for non-subscribers — gates the limited preview path used by
    * the in-app voice picker before a subscription exists. Subscribers send JWS instead and
    * get the unrestricted path; the bearer path stays narrow (50-char text cap) so a leaked
@@ -45,11 +53,10 @@ const ALLOWED_PRODUCT_IDS = new Set([
  */
 const GRACE_PERIOD_MS = 16 * 24 * 60 * 60 * 1000;
 
-// AWS region + Cognito Identity Pool. The pool grants unauthenticated public access to Polly
-// (same pool YourLaps uses), so we don't need IAM user keys baked into the Worker — Cognito
-// hands out short-lived temp credentials per Worker instance.
+// AWS region the IAM user's keys are scoped against and where Polly synthesises speech.
+// Tokyo is closest to the JP user base; en-US voices stream from the same region without
+// added latency since Polly Neural runs in every Polly region.
 const AWS_REGION = "ap-northeast-1";
-const COGNITO_POOL_ID = "ap-northeast-1:5bdffc81-8338-478e-8800-946e78f74614";
 
 app.get("/", (c) => c.text("hdzap-premium worker — POST /tts"));
 app.get("/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
@@ -146,7 +153,15 @@ app.post("/tts", async (c) => {
       return await proxyCartesia(c.env.CARTESIA_API_KEY, model, voice, lang, text);
     }
     if (provider === "polly") {
-      return await proxyPolly(voice, lang, text, rate, pitch);
+      return await proxyPolly(
+        c.env.POLLY_ACCESS_KEY_ID,
+        c.env.POLLY_SECRET_ACCESS_KEY,
+        voice,
+        lang,
+        text,
+        rate,
+        pitch,
+      );
     }
     if (provider === "azure") {
       return await proxyAzure(c.env.AZURE_SPEECH_KEY, voice, lang, text, rate, pitch);
@@ -211,72 +226,21 @@ async function proxyCartesia(
 
 // MARK: - AWS Polly (chunked mp3)
 
-/**
- * Module-level Cognito creds cache. A Worker isolate can serve many requests; reusing the
- * temp creds across the isolate's lifetime cuts the 2-RTT Cognito handshake out of the hot
- * path. We refresh ~60s before expiry to stay safely inside the validity window.
- */
-let cachedCognitoCreds:
-  | { accessKeyId: string; secretAccessKey: string; sessionToken: string; expiresAt: number }
-  | null = null;
-
-async function getCognitoCreds() {
-  if (cachedCognitoCreds && Date.now() < cachedCognitoCreds.expiresAt - 60_000) {
-    return cachedCognitoCreds;
-  }
-
-  // Step 1: GetId — pool-level call that returns an opaque identity handle.
-  const getIdResp = await fetch(`https://cognito-identity.${AWS_REGION}.amazonaws.com/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-amz-json-1.1",
-      "X-Amz-Target": "AWSCognitoIdentityService.GetId",
-    },
-    body: JSON.stringify({ IdentityPoolId: COGNITO_POOL_ID }),
-  });
-  if (!getIdResp.ok) {
-    throw new Error(`Cognito GetId failed: ${getIdResp.status} ${await getIdResp.text()}`);
-  }
-  const { IdentityId } = (await getIdResp.json()) as { IdentityId: string };
-
-  // Step 2: GetCredentialsForIdentity — swap the identity handle for STS-style temp creds.
-  const credResp = await fetch(`https://cognito-identity.${AWS_REGION}.amazonaws.com/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-amz-json-1.1",
-      "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
-    },
-    body: JSON.stringify({ IdentityId }),
-  });
-  if (!credResp.ok) {
-    throw new Error(`Cognito GetCredentialsForIdentity failed: ${credResp.status}`);
-  }
-  const credBody = (await credResp.json()) as {
-    Credentials: { AccessKeyId: string; SecretKey: string; SessionToken: string; Expiration: number };
-  };
-  const creds = {
-    accessKeyId: credBody.Credentials.AccessKeyId,
-    secretAccessKey: credBody.Credentials.SecretKey,
-    sessionToken: credBody.Credentials.SessionToken,
-    // Cognito returns Expiration as a Unix timestamp (seconds), not ms.
-    expiresAt: credBody.Credentials.Expiration * 1000,
-  };
-  cachedCognitoCreds = creds;
-  return creds;
-}
-
 async function proxyPolly(
+  accessKeyId: string,
+  secretAccessKey: string,
   voiceId: string,
   lang: string,
   text: string,
   rate: number,
   pitch: number,
 ): Promise<Response> {
-  const creds = await getCognitoCreds();
+  // The IAM user is restricted to `polly:SynthesizeSpeech` only — no session token needed
+  // since the keys are long-lived (rotated via 1Password + `wrangler secret put` when we
+  // suspect compromise). aws4fetch signs the request with SigV4.
   const aws = new AwsClient({
-    accessKeyId: creds.accessKeyId,
-    secretAccessKey: creds.secretAccessKey,
-    sessionToken: creds.sessionToken,
+    accessKeyId,
+    secretAccessKey,
     region: AWS_REGION,
     service: "polly",
   });
