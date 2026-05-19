@@ -178,11 +178,12 @@ Connect the iPhone to the M5StickS3 over Bluetooth.
 
 1. Power on the M5StickS3 (the LCD should be lit).
 2. Open the HDZap app on the iPhone, then tap the **gear icon (⚙️)** in the top right to open the Settings sheet.
-3. Under the **Device** section tap **M5StickS3** to drill into the connection screen.
-4. Tap **Scan**. Nearby M5StickS3 devices appear under **Other devices**.
-5. Tap **Connect** next to the device named **HDZapBridge** (or whatever name you previously gave it — see [Renaming the M5StickS3](#renaming-the-m5sticks3-optional) below).
+3. Under the **Device** section, flip on **Use bridge** if it isn't already. On a fresh install the toggle is off and the **M5StickS3**, **Goggle pairing**, and **OSD layout** rows stay hidden until you turn it on; iOS also asks for Bluetooth permission the first time you flip it on.
+4. Tap **M5StickS3** to drill into the connection screen.
+5. Tap **Scan**. Nearby M5StickS3 devices appear under **Other devices**.
+6. Tap **Connect** next to the device named **HDZapBridge** (or whatever name you previously gave it — see [Renaming the M5StickS3](#renaming-the-m5sticks3-optional) below).
 
-6. On a successful connection:
+7. On a successful connection:
    - A green dot appears in the **Connected** section with the device name and a Disconnect button
    - The battery percentage, charging icon, and a **Version** row (app + firmware) appear below the name
    - The M5StickS3's LCD also shows the connected state
@@ -475,7 +476,14 @@ The card includes:
 - **Target lap**: e.g. 5L
 - **Target pace**: derived from race time and target lap (read-only)
 
+### Device → Use bridge
+
+- **Use bridge**: master switch for the M5StickS3 bridge integration. **Off by default on a fresh install** — flip it on if you have a flashed M5StickS3, and the **M5StickS3**, **Goggle pairing**, and **OSD layout** drilldowns appear below this toggle (the first flip-on also triggers the iOS Bluetooth permission prompt). Turning it off hides the three drilldowns and replaces them with a hint that a bridge is needed to mirror lap times on the goggle.
+- Existing users who already have a goggle pairing keep this on automatically after upgrading — the toggle preserves their setup rather than asking them to opt back in.
+
 ### Device → M5StickS3 (Connection)
+
+Only visible when **Use bridge** is on.
 
 - **Status dot + device name** at the top of the list.
 - **Connected**: device name, identifier prefix, battery percentage / charging icon, **Disconnect** button.
@@ -504,9 +512,11 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 ### App → Lap announcer (Audio)
 
-- **Announce lap times**: on / off
-- **Say "best lap" on new best**: prefix the announcement with "best lap" when a lap sets a new fastest
+- **Announce lap times**: on / off. Also triggers a "Last lap!" voice cue at the moment the session timer hits zero (or "ファイナルラップです" when the language is set to Japanese).
 - **Language**: Japanese, English, etc.
+- **Say "best lap" on new best**: prefix the announcement with "best lap" when a lap sets a new fastest
+- **Count down final seconds**: off by default. When on, the announcer counts down the closing seconds of the session window using the selected voice ("ten, nine, ..." in English, "じゅう、きゅう..." in Japanese).
+- **Start at**: 5–15 s — when the countdown begins. Default 10. Only shown when **Count down final seconds** is on.
 - **Voice**: system default + any installed voices
 - **Rate**: speech speed
 - **Pitch**: voice pitch

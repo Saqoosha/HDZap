@@ -43,6 +43,18 @@ final class RaceHistoryStore {
             self.setupError = "Couldn't locate Application Support: \(error.localizedDescription)"
             log.fault("RaceHistoryStore setup failed: \(String(describing: error), privacy: .public)")
         }
+        #if DEBUG
+        // Screenshot mode would race against `loadFromDiskAsync()`:
+        // TimerView's `.onAppear` seeds five known records, but the
+        // detached load could land after that and overwrite them with
+        // whatever's already on disk in the simulator's container.
+        // Skip the load entirely so the seed wins unconditionally.
+        // `seedForScreenshot` bypasses `commit()`, so the developer's
+        // real `race-history.json` is never written either.
+        if ProcessInfo.processInfo.arguments.contains("-screenshotHistory") {
+            return
+        }
+        #endif
         loadFromDiskAsync()
     }
 
@@ -71,6 +83,16 @@ final class RaceHistoryStore {
     /// Drop a previously surfaced error from the UI without touching the
     /// records — pairs with the BLE error-log "dismiss" idiom.
     func clearLastPersistError() { lastPersistError = nil }
+
+    #if DEBUG
+    /// Seed in-memory records for App Store screenshot capture. Skips disk
+    /// persistence so a screenshot run can't overwrite the developer's
+    /// real history. Sorted newest-first to match the live store's
+    /// `records` contract. See docs/screenshot-capture.md.
+    func seedForScreenshot(_ next: [RaceRecord]) {
+        records = next.sorted(by: { $0.endedAt > $1.endedAt })
+    }
+    #endif
 
     // MARK: - Persistence
 
