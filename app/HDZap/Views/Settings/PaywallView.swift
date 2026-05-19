@@ -16,13 +16,29 @@ import SwiftUI
 /// included providers) that the off-the-shelf views don't accommodate.
 struct PaywallView: View {
     @Environment(SubscriptionManager.self) private var subscription
+    @Environment(LapAnnouncer.self) private var announcer
     @Environment(\.dismiss) private var dismiss
+    /// "products still loading" / "loaded N products" / "timed out, no products". Drives the
+    /// product cards section so a stuck StoreKit configuration (e.g. running via devicectl
+    /// instead of Xcode's Run button, no real ASC products yet) doesn't leave the operator
+    /// staring at an indefinite spinner.
+    @State private var productLoadState: ProductLoadState = .loading
+    /// Which sample voice (if any) is currently auditioning. Cleared when the synth's
+    /// `isPlaying` flips false so the row icon flips back to play.
+    @State private var previewingVoiceId: String?
+
+    private enum ProductLoadState {
+        case loading
+        case loaded
+        case empty   // store reachable but returned no products (most often: ASC not configured)
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     header
+                    voiceSamples
                     valueProps
                     productPickers
                     actionButtons
@@ -39,16 +55,36 @@ struct PaywallView: View {
             }
         }
         .task {
-            // Refresh whenever the paywall opens — products + entitlement might have changed
-            // since launch (subscription renewed in the background, restore done elsewhere).
-            await subscription.loadProducts()
-            await subscription.refreshEntitlement()
+            await loadProductsWithTimeout()
         }
         .onChange(of: subscription.isEntitled) { _, nowEntitled in
             // Auto-dismiss the moment the user is entitled — they don't need to look at the
             // paywall after a successful purchase.
             if nowEntitled { dismiss() }
         }
+        .onChange(of: announcer.premiumSynth.isPlaying) { _, isPlaying in
+            if !isPlaying { previewingVoiceId = nil }
+        }
+        .onDisappear {
+            if announcer.premiumSynth.isPlaying {
+                announcer.premiumSynth.cancel()
+            }
+            previewingVoiceId = nil
+        }
+    }
+
+    /// Refresh products + entitlement, but cap how long we show the spinner. If StoreKit
+    /// returns nothing after 5 seconds we flip to the `.empty` state so the UI explains what
+    /// to do (open in Xcode for sandbox, or wait for App Store Connect to approve the IAPs).
+    private func loadProductsWithTimeout() async {
+        productLoadState = .loading
+        async let load: Void = {
+            await subscription.loadProducts()
+            await subscription.refreshEntitlement()
+        }()
+        async let timeout: Void = Task.sleep(for: .seconds(5))
+        _ = await (load, try? timeout)
+        productLoadState = subscription.products.isEmpty ? .empty : .loaded
     }
 
     private var header: some View {
@@ -76,11 +112,12 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var productPickers: some View {
-        if subscription.products.isEmpty {
+        switch productLoadState {
+        case .loading:
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding()
-        } else {
+        case .loaded:
             VStack(spacing: 12) {
                 ForEach(subscription.products, id: \.id) { product in
                     ProductCard(product: product, isPurchasing: subscription.purchasing == product.id) {
@@ -88,8 +125,62 @@ struct PaywallView: View {
                     }
                 }
             }
+        case .empty:
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Subscription products are not available right now.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                Text("Two reasons this can happen:\n• The app is running outside Xcode's local StoreKit sandbox. Run from Xcode (Cmd+R) to test the paywall against the bundled .storekit config.\n• The App Store Connect products are still in review / Missing Metadata. They have to be approved before they appear in real builds.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Try again") {
+                    Task { await loadProductsWithTimeout() }
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 4)
+            }
+            .padding()
+            .background(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.orange.opacity(0.4)))
         }
     }
+
+    /// A tiny "try-before-you-buy" section: three handpicked voices across the three
+    /// providers, each with a play button that triggers the same Premium synth the rest of
+    /// the app uses. Lets the operator audition the sound quality before committing — the
+    /// engine gate previously hid the entire voice picker behind the subscription, leaving
+    /// non-subscribers with no way to hear what they were paying for.
+    @ViewBuilder
+    private var voiceSamples: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Listen first")
+                .font(.headline)
+            Text("Tap a voice to hear it speak 「ラップ3、12.34、ベストラップ」.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 8) {
+                ForEach(PaywallView.sampleVoices) { voice in
+                    PaywallSampleRow(
+                        voice: voice,
+                        isPreviewing: previewingVoiceId == voice.id
+                            && announcer.premiumSynth.isPlaying,
+                        onTap: { togglePreview(voice) }
+                    )
+                }
+            }
+        }
+    }
+
+    /// Curated 3-voice teaser, one per provider. IDs sourced from `PremiumVoiceCatalog`.
+    fileprivate static let sampleVoices: [PremiumVoiceOption] = [
+        // Cartesia Takeshi — most expressive option, user-rated 5/5.
+        PremiumVoiceCatalog.voices.first { $0.id == "06950fa3-534d-46b3-93bb-f852770ea0b5" }!,
+        // Azure Daichi — clean broadcast male, fastest among the high-quality options.
+        PremiumVoiceCatalog.voices.first { $0.id == "ja-JP-DaichiNeural" }!,
+        // Polly Takumi — lowest-latency option, classic ELT race-call cadence with x-fast.
+        PremiumVoiceCatalog.voices.first { $0.id == "Takumi" }!,
+    ]
 
     private var actionButtons: some View {
         VStack(spacing: 8) {
@@ -142,6 +233,24 @@ struct PaywallView: View {
         "Payment is charged to your Apple ID account after a 7-day free trial."
     }
 
+    /// Sample text used when auditioning. Same string as the in-app picker — short enough
+    /// to be quick, long enough to expose the number-reading bug providers used to have.
+    private static let sampleText = "ラップ3、12.34、ベストラップ"
+
+    private func togglePreview(_ voice: PremiumVoiceOption) {
+        if previewingVoiceId == voice.id, announcer.premiumSynth.isPlaying {
+            announcer.premiumSynth.cancel()
+            previewingVoiceId = nil
+        } else {
+            previewingVoiceId = voice.id
+            announcer.premiumSynth.speakAsync(
+                text: PaywallView.sampleText,
+                lang: voice.lang,
+                voice: voice
+            )
+        }
+    }
+
     private func purchase(_ product: Product) async {
         do {
             _ = try await subscription.purchase(product)
@@ -151,6 +260,54 @@ struct PaywallView: View {
             // Surface so the operator can retry.
             // SubscriptionManager.lastError is set inside catch paths too — we don't need
             // to re-set it here.
+        }
+    }
+}
+
+/// Inline preview row used by the paywall's "Listen first" section. Visually distinct from
+/// `PremiumVoicePickerView.VoiceRow` (no select target, no checkmark) because the paywall
+/// can't commit a selection — the operator hasn't subscribed yet.
+private struct PaywallSampleRow: View {
+    let voice: PremiumVoiceOption
+    let isPreviewing: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                Image(systemName: isPreviewing ? "stop.circle.fill" : "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(voice.label)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                    Text(voice.providerHint)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.secondary.opacity(0.08))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private extension PremiumVoiceOption {
+    /// "Cartesia · Expressive male" → "Expressive male". Same de-prefixing logic as the
+    /// picker view but inlined here to keep the paywall self-contained.
+    var providerHint: String {
+        switch provider {
+        case .cartesia: return "Cartesia · most expressive"
+        case .polly:    return "AWS Polly · lowest latency"
+        case .azure:    return "Azure · broadcast-style"
         }
     }
 }

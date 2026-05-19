@@ -7,6 +7,10 @@ struct AudioSettingsView: View {
     @Environment(LapAnnouncer.self) private var announcer
     @Environment(SubscriptionManager.self) private var subscription
     @State private var showingPaywall = false
+    /// Programmatic navigation trigger — set true when the operator taps the locked
+    /// "Premium — Subscribe ›" tag in the Engine picker so we can push the voice picker
+    /// (the conversion surface) instead of popping a modal paywall.
+    @State private var navigateToPicker = false
 #if DEBUG
     // Premium TTS test harness — only compiled into Debug builds. Production code will
     // create the synth via SubscriptionManager + SpeechRouter; this @State instance is just
@@ -139,10 +143,35 @@ struct AudioSettingsView: View {
                     }
                     .onChange(of: ttsEngine) { _, newValue in
                         if newValue == "premium-locked" {
-                            // Snap back and show the paywall — we never persist the locked
-                            // tag, so a cancelled purchase leaves `ttsEngine == "system"`.
+                            // Snap back and push the picker — the picker hosts the
+                            // subscribers-only banner + sample previews so non-entitled
+                            // operators can audition before being asked to pay. They never
+                            // see "premium-locked" persisted.
                             ttsEngine = "system"
-                            showingPaywall = true
+                            navigateToPicker = true
+                        }
+                    }
+
+                    // Non-subscriber preview entry — sits under the Engine picker so the
+                    // operator who's curious about Premium voices can browse + audition
+                    // without committing to a purchase. The picker itself surfaces the
+                    // paywall via its in-list banner.
+                    if !subscription.isEntitled {
+                        NavigationLink {
+                            PremiumVoicePickerView(language: language.rawValue)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "waveform.circle.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(.tint)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Listen to Premium voices")
+                                        .font(.subheadline.bold())
+                                    Text("Free preview — subscribe to use on track")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
 
@@ -359,6 +388,9 @@ struct AudioSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingPaywall) {
             PaywallView()
+        }
+        .navigationDestination(isPresented: $navigateToPicker) {
+            PremiumVoicePickerView(language: ttsLanguageRaw)
         }
         .onChange(of: subscription.isEntitled) { _, nowEntitled in
             // Roll back to System if the subscription lapsed while the engine was set to

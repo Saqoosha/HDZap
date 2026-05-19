@@ -19,11 +19,21 @@ struct PremiumVoicePickerView: View {
     // The synth that's wired into the rest of the app — we reuse it so the preview
     // plays through the same audio session + AVAudioPlayer as a real lap call.
     @Environment(LapAnnouncer.self) private var announcer
+    /// Drives the "subscribers only" banner + selection-gating. Non-entitled operators can
+    /// browse + audition voices freely (Worker's dev bearer is sufficient), but committing
+    /// a selection pops the paywall instead of writing the AppStorage key.
+    @Environment(SubscriptionManager.self) private var subscription
 
     /// Voice that's currently auditioning. While non-nil, that row shows a stop icon
     /// instead of play; other rows stay play. Cleared when the synth's `isPlaying`
     /// flips false (network finished, AVAudioPlayer about to drain).
     @State private var previewingVoiceId: String?
+    /// Modal paywall sheet — shown when a non-entitled operator taps a voice row to commit
+    /// it. We use a sheet (not a NavigationLink) so the picker scroll position survives
+    /// the paywall round-trip; if they subscribe, dismiss the paywall and commit the
+    /// pending voice ID; if they cancel, the picker stays put.
+    @State private var showingPaywall = false
+    @State private var pendingSelectionId: String?
 
     /// Sample text used when the operator taps the inline ▶ button. Matches the typical
     /// race-time utterance length so they can judge cadence + number reading, not just
@@ -47,6 +57,17 @@ struct PremiumVoicePickerView: View {
         // System) — surfacing a second way out of the catalog here was confusing, so this
         // sub-view's only job is to pick one.
         List {
+            if !subscription.isEntitled {
+                // Conversion banner — non-subscribers can browse + preview the full catalog,
+                // but selection commits go through the paywall. Lives at the top of the list
+                // so it scrolls with the rows (an always-visible toolbar would crowd the
+                // navigation bar on smaller phones).
+                Section {
+                    SubscribersOnlyBanner(onSubscribe: { showingPaywall = true })
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+            }
             ForEach(voicesByProvider, id: \.0) { provider, voices in
                 Section {
                     ForEach(voices) { voice in
@@ -56,9 +77,17 @@ struct PremiumVoicePickerView: View {
                             isSelected: voice.id == selectedId,
                             isPreviewing: previewingVoiceId == voice.id
                                 && announcer.premiumSynth.isPlaying,
+                            isLocked: !subscription.isEntitled,
                             onSelect: {
-                                selectedId = voice.id
-                                dismiss()
+                                if subscription.isEntitled {
+                                    selectedId = voice.id
+                                    dismiss()
+                                } else {
+                                    // Stash the tapped voice — if the operator completes
+                                    // purchase, we'll commit it on entitlement change.
+                                    pendingSelectionId = voice.id
+                                    showingPaywall = true
+                                }
                             },
                             onPreview: {
                                 // Tapping the icon during preview cancels it. Otherwise kick
@@ -101,6 +130,56 @@ struct PremiumVoicePickerView: View {
             }
             previewingVoiceId = nil
         }
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView()
+        }
+        .onChange(of: subscription.isEntitled) { _, nowEntitled in
+            // Purchase completed while the paywall sheet was up — commit whatever voice
+            // they tapped right before showing the paywall. Cleanly auto-dismisses the
+            // picker so they're dropped back at AudioSettingsView with the new voice live.
+            guard nowEntitled, let id = pendingSelectionId else { return }
+            selectedId = id
+            pendingSelectionId = nil
+            dismiss()
+        }
+    }
+}
+
+/// "Subscribers only" banner shown at the top of the picker for non-entitled operators.
+/// Visually distinct from the voice rows (filled tint card vs. plain row) so it reads as a
+/// CTA rather than another voice. Tapping anywhere on it opens the paywall.
+private struct SubscribersOnlyBanner: View {
+    let onSubscribe: () -> Void
+
+    var body: some View {
+        Button(action: onSubscribe) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "lock.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Subscribers only")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                    Text("Listen to any voice with the ▶ button. To use a voice on the track, subscribe to HDZap Premium.")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.9))
+                    Text("Subscribe ›")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.top, 2)
+                }
+                Spacer()
+            }
+            .padding(14)
+            .background(Color.accentColor)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -114,13 +193,17 @@ private struct VoiceRow: View {
     /// True only when THIS row's sample is currently auditioning — flips the icon to
     /// `stop.circle.fill` so the operator has a visible "tap to cancel" affordance.
     let isPreviewing: Bool
+    /// Non-entitled mode: a row tap pops the paywall instead of committing. Drives the
+    /// trailing 🔒 hint so the operator knows a paid action is upcoming.
+    let isLocked: Bool
     let onSelect: () -> Void
     let onPreview: () -> Void
 
     var body: some View {
         HStack {
             // The selection target — most of the row's width. Tapping anywhere here picks
-            // the voice; the trailing ▶ button is the only sub-region that doesn't.
+            // the voice (or, for non-subscribers, pops the paywall); the trailing ▶ button
+            // is the only sub-region that doesn't.
             Button(action: onSelect) {
                 HStack(spacing: 8) {
                     if isSelected {
@@ -130,6 +213,11 @@ private struct VoiceRow: View {
                     Text(displayLabel)
                         .foregroundStyle(.primary)
                     Spacer()
+                    if isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .contentShape(Rectangle())
             }
