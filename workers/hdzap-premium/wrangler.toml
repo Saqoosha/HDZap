@@ -7,5 +7,13 @@ compatibility_flags = ["nodejs_compat"]
 # No special bindings yet — we'll add KV (ENTITLEMENTS, USAGE_COUNTERS) and Apple webhook
 # routes when adding JWS verification.
 
+[vars]
+# Accept Xcode-local `.storekit` test JWS (kid: "Apple_Xcode_Key", self-signed leaf).
+# These don't chain to Apple Root CA G3, so they only work for dev builds running with a
+# StoreKit configuration file selected in the scheme. Real Sandbox/TestFlight/Production
+# JWS still goes through the full Apple-signed path. Flip to "false" (or remove this) when
+# deploying for App Store release.
+ALLOW_XCODE_LOCAL_JWS = "true"
+
 [observability]
 enabled = true
