@@ -15,6 +15,14 @@ compatibility_flags = ["nodejs_compat"]
 binding = "RATELIMIT"
 id = "5d72e23bb7f047a1a14dbf7a767965b5"
 
+# Cross-user shared TTS audio cache. Keys are SHA-256 hex of
+# `provider|voice|lang|rate|pitch|model|text`, so two callers asking the same provider
+# for the same parameters reuse one generation across all clients globally. First caller
+# pays the provider; everyone after them streams from R2 (~150 ms TTFA, $0 marginal).
+[[r2_buckets]]
+binding = "TTS_CACHE"
+bucket_name = "hdzap-tts-cache"
+
 [vars]
 # Accept Xcode-local `.storekit` test JWS (kid: "Apple_Xcode_Key", self-signed leaf).
 # These don't chain to Apple Root CA G3, so they only work for dev builds running with a
