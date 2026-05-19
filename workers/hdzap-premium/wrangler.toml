@@ -7,6 +7,14 @@ compatibility_flags = ["nodejs_compat"]
 # No special bindings yet — we'll add KV (ENTITLEMENTS, USAGE_COUNTERS) and Apple webhook
 # routes when adding JWS verification.
 
+# Daily per-IP request counter for the /tts endpoint. Two tiers in code: bearer-only
+# callers get a tight cap (preview path can't be turned into a free competitor), JWS-
+# authed subscribers get a much higher cap (real race-time usage). Keys are
+# `rl:<ip>:<date>`; entries TTL out after 48h so the namespace stays small.
+[[kv_namespaces]]
+binding = "RATELIMIT"
+id = "5d72e23bb7f047a1a14dbf7a767965b5"
+
 [vars]
 # Accept Xcode-local `.storekit` test JWS (kid: "Apple_Xcode_Key", self-signed leaf).
 # These don't chain to Apple Root CA G3, so they only work for dev builds running with a
