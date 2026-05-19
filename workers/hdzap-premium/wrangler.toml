@@ -23,13 +23,14 @@ id = "5d72e23bb7f047a1a14dbf7a767965b5"
 binding = "TTS_CACHE"
 bucket_name = "hdzap-tts-cache"
 
-[vars]
-# Accept Xcode-local `.storekit` test JWS (kid: "Apple_Xcode_Key", self-signed leaf).
-# These don't chain to Apple Root CA G3, so they only work for dev builds running with a
-# StoreKit configuration file selected in the scheme. Real Sandbox/TestFlight/Production
-# JWS still goes through the full Apple-signed path. Flip to "false" (or remove this) when
-# deploying for App Store release.
-ALLOW_XCODE_LOCAL_JWS = "true"
+# NOTE: ALLOW_XCODE_LOCAL_JWS is intentionally NOT declared here. It's set as a Worker
+# secret (`wrangler secret put ALLOW_XCODE_LOCAL_JWS`) when we want the Worker to honour
+# self-signed Xcode `.storekit`-test JWS (kid: "Apple_Xcode_Key") during dev. Keeping the
+# flag out of the public repo means an attacker reading wrangler.toml can't tell whether
+# Xcode-local JWS is currently accepted — they'd have to probe the live Worker to find out.
+# Real Sandbox / TestFlight / Production JWS always goes through the full Apple Root CA G3
+# chain check regardless, so the production attack surface doesn't change. Delete the
+# secret before App Store release.
 
 [observability]
 enabled = true
