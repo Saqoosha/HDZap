@@ -8,6 +8,7 @@
     "tail": "wrangler tail"
   },
   "dependencies": {
+    "aws4fetch": "^1.0.20",
     "hono": "^4.6.0"
   },
   "devDependencies": {
