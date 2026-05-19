@@ -282,10 +282,13 @@ struct AudioSettingsView: View {
             HStack {
                 // Always enabled — the synth itself surfaces "bearer missing" as a visible error.
                 // Disabling the button silently was hiding the real state from the operator.
-                Button(premiumSynth.isPlaying ? "Speaking…" : "Speak via Cartesia") {
+                Button(premiumSynth.isPlaying ? "Speaking…" : "Speak") {
                     premiumErrorBanner = nil
-                    let lang = PremiumVoiceCatalog.voices.first { $0.id == premiumVoiceId }?.lang ?? "ja"
-                    premiumSynth.speakAsync(text: premiumTestText, lang: lang, voice: premiumVoiceId)
+                    // Map the persisted picker selection back to a full PremiumVoiceOption so the
+                    // synth knows the provider / lang without us re-deriving them here.
+                    if let v = PremiumVoiceCatalog.voices.first(where: { $0.id == premiumVoiceId }) {
+                        premiumSynth.speakAsync(text: premiumTestText, lang: v.lang, voice: v)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
 
