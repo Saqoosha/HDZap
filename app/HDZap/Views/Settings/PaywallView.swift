@@ -99,15 +99,36 @@ struct PaywallView: View {
 
     private var valueProps: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ValueRow(icon: "sparkles", title: "Natural number reading",
+            ValueRow(icon: "sparkles",
+                     title: Self.isJa ? "自然な数字の読み上げ" : "Natural number reading",
                      subtitle: Self.numberReadingSubtitle)
-            ValueRow(icon: "waveform.path.ecg", title: "Broadcast-grade audio",
-                     subtitle: "Neural voices indistinguishable from professional race announcers. Clear over the iPhone speaker and over Bluetooth to goggles.")
-            ValueRow(icon: "person.2.fill", title: "Pick your announcer",
-                     subtitle: "Calm narrator, race sportscaster, energetic character — auditioned per voice in Settings.")
-            ValueRow(icon: "slider.horizontal.3", title: "Tune the pace",
-                     subtitle: "Rate slider for Polly + Azure. Pitch slider for Azure. Cartesia plays natural.")
+            ValueRow(icon: "waveform.path.ecg",
+                     title: Self.isJa ? "放送局グレードの音質" : "Broadcast-grade audio",
+                     subtitle: Self.isJa
+                        ? "プロのレース実況と区別がつかないニューラルボイス。iPhone スピーカーでもゴーグル接続の Bluetooth でもクリアに聞こえます。"
+                        : "Neural voices indistinguishable from professional race announcers. Clear over the iPhone speaker and over Bluetooth to goggles.")
+            ValueRow(icon: "person.2.fill",
+                     title: Self.isJa ? "実況キャラを選べる" : "Pick your announcer",
+                     subtitle: Self.isJa
+                        ? "落ち着いたナレーター、レース実況、エネルギッシュなキャラクター — 設定でボイスごとに試聴できます。"
+                        : "Calm narrator, race sportscaster, energetic character — auditioned per voice in Settings.")
+            ValueRow(icon: "slider.horizontal.3",
+                     title: Self.isJa ? "ペースを調整" : "Tune the pace",
+                     subtitle: Self.isJa
+                        ? "Polly と Azure は Rate スライダー、Azure は Pitch スライダーで微調整。Cartesia は自然なまま再生。"
+                        : "Rate slider for Polly + Azure. Pitch slider for Azure. Cartesia plays natural.")
+            ValueRow(icon: "wifi.exclamationmark",
+                     title: Self.isJa ? "インターネット接続が必要" : "Internet connection required",
+                     subtitle: Self.isJa
+                        ? "クラウドで音声合成するため通信が必要です。電波が弱い場所では再生が遅れたり途切れる場合があります。圏外時は System ボイスに自動フォールバックします。"
+                        : "Voices are synthesised in the cloud. Weak-signal areas may cause delays or dropouts. Offline, the app falls back to the System voice automatically.")
         }
+    }
+
+    /// Cached locale check — `Locale.current` is cheap but reads cleaner as `Self.isJa`
+    /// at the call sites where the value props decide which language to render.
+    private static var isJa: Bool {
+        Locale.current.language.languageCode?.identifier == "ja"
     }
 
     @ViewBuilder
@@ -155,7 +176,9 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Listen first")
                 .font(.headline)
-            Text("Tap a voice to hear a sample race call-out.")
+            Text(Self.isJa
+                 ? "ボイスをタップしてサンプル実況を再生。"
+                 : "Tap a voice to hear a sample race call-out.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -231,17 +254,24 @@ struct PaywallView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.leading)
             HStack(spacing: 16) {
-                Link("Terms of Use", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
-                Link("Privacy Policy", destination: URL(string: "https://hdzap.saqoo.sh/privacy.html")!)
+                Link(Self.isJa ? "利用規約" : "Terms of Use",
+                     destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                Link(Self.isJa ? "プライバシーポリシー" : "Privacy Policy",
+                     destination: URL(string: "https://hdzap.saqoo.sh/privacy.html")!)
             }
             .font(.caption2)
         }
     }
 
     private var autoRenewDisclosure: String {
-        "Subscription auto-renews unless cancelled at least 24 hours before the period ends. " +
-        "Manage or cancel in Settings → Apple ID → Subscriptions. " +
-        "Payment is charged to your Apple ID account after a 7-day free trial."
+        if Self.isJa {
+            return "期間終了の 24 時間以上前に解約しない限り、サブスクリプションは自動更新されます。" +
+                "設定 → Apple ID → サブスクリプション から管理・解約できます。" +
+                "7日間の無料試用後、Apple ID アカウントに料金が請求されます。"
+        }
+        return "Subscription auto-renews unless cancelled at least 24 hours before the period ends. " +
+            "Manage or cancel in Settings → Apple ID → Subscriptions. " +
+            "Payment is charged to your Apple ID account after a 7-day free trial."
     }
 
     /// Paywall headline subtitle. Mentions the user's primary language first ("English
@@ -259,7 +289,7 @@ struct PaywallView: View {
     private static var numberReadingSubtitle: String {
         let isJa = Locale.current.language.languageCode?.identifier == "ja"
         return isJa
-            ? "「12.34」を「じゅうにてん さんよん」と自然に読み上げ。ロボットのような桁ごと読みなし。日本語と英語の両方に対応。"
+            ? "「12.34」を「じゅうにいてん さんよん」と自然に読み上げ。ロボットのような桁ごと読みなし。日本語と英語の両方に対応。"
             : "\"12.34\" reads as \"twelve point three four\" — no robotic digit-by-digit. Works in both English and Japanese."
     }
 
@@ -414,9 +444,27 @@ private struct ProductCard: View {
         .disabled(isPurchasing)
     }
 
-    /// Format a period as "month" / "year" / "week" / "N day(s)" for the price denominator.
+    /// Locale check — same logic as `PaywallView.isJa`, repeated here so the helpers can
+    /// stay in this struct's private scope.
+    private static var isJa: Bool {
+        Locale.current.language.languageCode?.identifier == "ja"
+    }
+
+    /// Format a period as the price denominator. EN: "month" / "year" / "N days".
+    /// JA: 「月」「年」「N日」「N週間」.
     private var periodLabel: String {
-        guard let p = product.subscription?.subscriptionPeriod else { return "subscription" }
+        guard let p = product.subscription?.subscriptionPeriod else {
+            return Self.isJa ? "サブスクリプション" : "subscription"
+        }
+        if Self.isJa {
+            switch p.unit {
+            case .day:   return "\(p.value)日"
+            case .week:  return "\(p.value)週間"
+            case .month: return p.value == 1 ? "月" : "\(p.value)ヶ月"
+            case .year:  return p.value == 1 ? "年" : "\(p.value)年"
+            @unknown default: return "期間"
+            }
+        }
         switch p.unit {
         case .day:   return p.value == 1 ? "day"   : "\(p.value) days"
         case .week:  return p.value == 1 ? "week"  : "\(p.value) weeks"
@@ -428,6 +476,15 @@ private struct ProductCard: View {
 
     private func introDescription(_ offer: Product.SubscriptionOffer) -> String {
         let p = offer.period
+        if Self.isJa {
+            switch p.unit {
+            case .day:   return "\(p.value)日間"
+            case .week:  return p.value == 1 ? "7日間" : "\(p.value)週間"
+            case .month: return "\(p.value)ヶ月"
+            case .year:  return "\(p.value)年"
+            @unknown default: return "試用"
+            }
+        }
         switch p.unit {
         case .day:   return "\(p.value)-day"
         case .week:  return p.value == 1 ? "7-day" : "\(p.value)-week"
