@@ -341,10 +341,11 @@ private extension PremiumVoiceOption {
     /// "Cartesia · Expressive male" → "Expressive male". Same de-prefixing logic as the
     /// picker view but inlined here to keep the paywall self-contained.
     var providerHint: String {
+        let isJa = Locale.current.language.languageCode?.identifier == "ja"
         switch provider {
-        case .cartesia: return "Cartesia · most expressive"
-        case .polly:    return "AWS Polly · clear newscaster"
-        case .azure:    return "Azure · broadcast-style"
+        case .cartesia: return isJa ? "Cartesia · 最も表情豊か"   : "Cartesia · most expressive"
+        case .polly:    return isJa ? "AWS Polly · クリアな読み上げ" : "AWS Polly · clear newscaster"
+        case .azure:    return isJa ? "Azure · 放送局スタイル"    : "Azure · broadcast-style"
         }
     }
 }

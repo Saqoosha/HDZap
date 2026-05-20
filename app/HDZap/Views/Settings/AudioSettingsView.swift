@@ -278,18 +278,6 @@ struct AudioSettingsView: View {
                             Text("No voices installed for this language. Install one from iOS Settings → Accessibility → Spoken Content → Voices.")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
-                        } else if !hasPremium && language == .japanese {
-                            // Japanese-specific nudge: Kyoko / Otoya / O-ren
-                            // Enhanced are markedly better than the compact
-                            // base voices. Apple's "Siri Voice 1/2" bundles
-                            // look like the obvious top tier in iOS Settings,
-                            // but they're locked out of AVSpeechSynthesizer for
-                            // third-party apps (selecting one falls back to
-                            // a substitute), so we deliberately don't recommend
-                            // them here.
-                            Text("Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Spoken Content → Voices for noticeably better quality.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
 
                         if voiceMissing {

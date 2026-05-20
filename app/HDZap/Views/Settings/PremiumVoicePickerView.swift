@@ -271,12 +271,23 @@ private extension PremiumVoiceProvider {
 
     /// One-liner per provider that the operator might want to see while comparing — quality
     /// character is what they're picking between (response time is fast enough across all
-    /// three that the difference doesn't matter for race-time use).
+    /// three that the difference doesn't matter for race-time use). Localised so a JP
+    /// iPhone reads the picker entirely in Japanese.
     var footerHint: String {
+        let isJa = Locale.current.language.languageCode?.identifier == "ja"
         switch self {
-        case .cartesia: return "JA + EN. Most expressive — character and personality range."
-        case .polly:    return "AWS Neural. Clear, neutral newscaster delivery."
-        case .azure:    return "Azure Neural. Bright, broadcast-style delivery."
+        case .cartesia:
+            return isJa
+                ? "日本語・英語対応。最も表情豊かでキャラクター性のあるボイス。"
+                : "JA + EN. Most expressive — character and personality range."
+        case .polly:
+            return isJa
+                ? "AWS Neural。クリアでニュートラルなニュースキャスター調。"
+                : "AWS Neural. Clear, neutral newscaster delivery."
+        case .azure:
+            return isJa
+                ? "Azure Neural。明るく放送局スタイルの読み上げ。"
+                : "Azure Neural. Bright, broadcast-style delivery."
         }
     }
 }

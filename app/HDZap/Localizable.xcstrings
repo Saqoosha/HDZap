@@ -946,7 +946,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "無料試聴 — 実走で使うにはサブスク登録"
+            "value": "無料試聴 — レースで使うにはサブスク登録"
           }
         }
       }
@@ -1173,7 +1173,16 @@
         }
       }
     },
-    "Listen to any voice with the ▶ button. To use a voice on the track, subscribe to HDZap Premium.": {},
+    "Listen to any voice with the ▶ button. To use a voice on the track, subscribe to HDZap Premium.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "▶ ボタンで全ボイスを試聴できます。レースで使うには HDZap Premium にサブスク登録してください。"
+          }
+        }
+      }
+    },
     "Listen to Premium voices": {
       "localizations": {
         "ja": {
