@@ -179,7 +179,9 @@ app.post("/tts", async (c) => {
     return c.json({ error: "invalid-json" }, 400);
   }
 
-  // Default to cartesia for backwards compat with the iOS build that doesn't yet send `provider`.
+  // `provider` is required by the iOS client (PremiumSpeechSynthesizer always sets it). The
+  // `|| "cartesia"` fallback keeps a missing-field request out of the `bad-provider` 400
+  // path one step longer so the message users see explicitly names the missing field.
   const provider = (body.provider || "cartesia").trim().toLowerCase();
   const text = (body.text || "").trim();
   const voice = (body.voice || "").trim();
@@ -198,7 +200,9 @@ app.post("/tts", async (c) => {
   if (!voice) return c.json({ error: "missing-voice" }, 400);
   if (!ALLOWED_LANGS.has(lang)) return c.json({ error: "bad-lang" }, 400);
 
-  void userId; // reserved for per-user rate limiting via KV — wire up in a follow-up.
+  // `userId` (Apple originalTransactionId) is captured by the auth layer but not yet used
+  // here — keep the binding live for log enrichment without rotting a "follow-up" comment.
+  void userId;
 
   // Build the cache key from every parameter that changes the audio. Two callers with
   // identical params share one cache entry regardless of who they are — that's the whole
@@ -271,6 +275,20 @@ app.post("/tts", async (c) => {
   // Don't cache provider errors — they'd poison the entry and serve a 4xx forever.
   if (!upstream.ok || !upstream.body) {
     return upstream;
+  }
+
+  // Defence against a provider returning HTTP 200 with a non-audio body (Azure soft-maintenance
+  // page, Cartesia plaintext quota notice, Polly XML error). Without this, iOS would receive
+  // 200 + audio/* headers and try to play HTML/JSON as PCM, producing static. Downgrade to 502
+  // so the iOS error path triggers cleanly and the bad upstream isn't cached.
+  const upstreamType = (upstream.headers.get("Content-Type") || "").toLowerCase();
+  const expectedPrefix = provider === "cartesia" ? "text/event-stream" : "audio/";
+  if (!upstreamType.startsWith(expectedPrefix)) {
+    console.error("upstream-bad-content-type", { provider, upstreamType, status: upstream.status });
+    return c.json(
+      { error: "upstream-bad-content-type", provider, contentType: upstreamType },
+      502,
+    );
   }
 
   console.log("r2-cache=miss", { key: cacheKey, provider, ...phaseTimings });
@@ -546,7 +564,7 @@ async function proxyPolly(
       "Content-Type": "audio/pcm",
       "X-HDZap-Provider": "polly",
       "X-HDZap-Format": "pcm-raw",
-      "X-HDZap-SampleRate": "22050",
+      "X-HDZap-SampleRate": "16000",
       "Cache-Control": "no-store",
     },
   });

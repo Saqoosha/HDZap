@@ -10,11 +10,11 @@ private let log = Logger(subsystem: "sh.saqoo.HDZap", category: "TTSCache")
 /// provider cold call. The R2 fetch on the way down also warms this cache, so a phrase a
 /// user hears once is essentially free forever (up to the LRU cap).
 ///
-/// Cached payloads are provider-specific raw bytes:
-///   - Polly / Azure: raw mp3 — fed straight to `AVAudioPlayer(contentsOf:)` on hit
-///   - Cartesia: raw s16le 24 kHz PCM concatenated from the SSE stream (we strip the SSE
-///     wrapper before caching since it adds ~30% overhead and we don't need the framing
-///     when serving a finished file from disk)
+/// Every cached payload is raw s16le mono PCM at the provider's native sample rate
+/// (Polly 16 kHz, Cartesia + Azure 24 kHz). On cache hit we load the file into an
+/// `AVAudioPCMBuffer` and schedule it on the same player path the streaming code uses.
+/// Cartesia's SSE wrapper is stripped before caching since the framing adds ~30% overhead
+/// with no benefit when replaying a complete utterance from disk.
 final class TTSCache {
     static let shared = TTSCache()
 

@@ -5,8 +5,9 @@
  * `Transaction.currentEntitlements` as `Authorization: Bearer <jws>`. We verify:
  *
  *   1. The JWS signature (ES256, signed by the leaf cert in `x5c[0]`).
- *   2. The cert chain — leaf must chain up to Apple Root CA G3 (the only root Apple
- *      uses to sign StoreKit JWS as of 2026).
+ *   2. Each cert in `x5c` is within its validity window AND signed by the next cert up;
+ *      the chain's top cert is byte-identical (DER equality) to the embedded Apple Root
+ *      CA G3 PEM. Apple uses G3 to sign all StoreKit JWS as of 2026.
  *   3. The payload's `bundleId`, `productId`, and `expiresDate`.
  *
  * Chain verification uses `node:crypto`'s `X509Certificate` (Workers nodejs_compat).
@@ -171,9 +172,12 @@ export async function verifyAppleJws(
 }
 
 /**
- * Walk the x5c chain bottom-up: each cert must be signed by the next, and the final cert
- * must match Apple Root CA G3 (by SHA-256 fingerprint, so a re-encoded but otherwise
- * identical cert still matches).
+ * Walk the x5c chain bottom-up and anchor it to the embedded Apple Root CA G3. Each link
+ * must be (a) inside its validity window and (b) signed by the next cert up; the chain's
+ * top cert must be byte-identical (DER) to the embedded trusted root. Fingerprint match
+ * alone is not sufficient — without DER equality, an attacker who can submit a cert with
+ * a colliding SHA-256 (theoretical, but the anchor should be by-value, not by-hash) would
+ * pass `not-apple-root` while having different public-key material than ours.
  */
 async function verifyChain(x5c: string[]): Promise<void> {
   let certs: X509Certificate[];
@@ -186,7 +190,24 @@ async function verifyChain(x5c: string[]): Promise<void> {
     throw new AppleJwsError("chain-parse", `cert parse failed: ${(e as Error).message}`);
   }
 
-  // 4a. Each cert in the chain must be signed by the next one up.
+  // 4a. Each cert must be within its validity window. `X509Certificate.verify()` checks
+  // signature only — an expired-but-correctly-signed intermediate would otherwise pass.
+  const nowMs = Date.now();
+  for (let i = 0; i < certs.length; i++) {
+    const notBefore = Date.parse(certs[i].validFrom);
+    const notAfter = Date.parse(certs[i].validTo);
+    if (Number.isNaN(notBefore) || Number.isNaN(notAfter)) {
+      throw new AppleJwsError("chain-validity-parse", `cert[${i}] validity dates unparseable`);
+    }
+    if (nowMs < notBefore || nowMs > notAfter) {
+      throw new AppleJwsError(
+        "chain-expired",
+        `cert[${i}] outside validity (notBefore=${certs[i].validFrom}, notAfter=${certs[i].validTo})`,
+      );
+    }
+  }
+
+  // 4b. Each cert in the chain must be signed by the next one up.
   for (let i = 0; i < certs.length - 1; i++) {
     let ok: boolean;
     try {
@@ -199,22 +220,30 @@ async function verifyChain(x5c: string[]): Promise<void> {
     }
   }
 
-  // 4b. The top cert must be Apple Root CA G3. Compare by SHA-256 fingerprint rather
-  // than DER bytes — the fingerprint is more forgiving of encoding quirks and the
-  // public root cert is unique by its fingerprint anyway.
-  const topFingerprint = certs[certs.length - 1].fingerprint256.toUpperCase();
-  if (topFingerprint !== APPLE_ROOT_FINGERPRINT_SHA256) {
-    throw new AppleJwsError("not-apple-root", `top cert fingerprint ${topFingerprint} != Apple Root G3`);
-  }
-
-  // 4c. The top cert in x5c is the issuer, but we also want to confirm it really is
-  // our trusted Apple Root G3 (not just any cert with that fingerprint somehow). Verify
-  // self-signature against the embedded PEM.
+  // 4c. Anchor the chain to the embedded Apple Root CA G3 by DER equality. SHA-256
+  // fingerprint match is necessary but not sufficient — the real check is that the top
+  // cert's bytes are identical to the PEM we shipped, so its public key is by definition
+  // the one that signed everything below. `X509Certificate.raw` is the DER buffer.
   const trustedRoot = new X509Certificate(APPLE_ROOT_CA_G3_PEM);
   if (trustedRoot.fingerprint256 !== APPLE_ROOT_FINGERPRINT_SHA256) {
-    // Shouldn't happen unless the embedded PEM was tampered with; fail closed.
+    // Embedded PEM corruption guard — should never trip in practice.
     throw new AppleJwsError("trust-anchor", "embedded Apple Root CA G3 fingerprint mismatch");
   }
+  const topCert = certs[certs.length - 1];
+  if (!buffersEqual(topCert.raw, trustedRoot.raw)) {
+    throw new AppleJwsError(
+      "not-apple-root",
+      `top cert (fingerprint ${topCert.fingerprint256}) does not equal embedded Apple Root G3 DER`,
+    );
+  }
+}
+
+function buffersEqual(a: Buffer, b: Buffer): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 /** Wrap a long base64 string to 64-char lines (PEM convention; jose tolerates either way). */

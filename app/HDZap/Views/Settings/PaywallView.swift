@@ -324,11 +324,11 @@ struct PaywallView: View {
         do {
             _ = try await subscription.purchase(product)
         } catch {
-            // Errors thrown from Product.purchase() go here — usually
-            // SKError.paymentCancelled (already handled inside the manager) or network.
-            // Surface so the operator can retry.
-            // SubscriptionManager.lastError is set inside catch paths too — we don't need
-            // to re-set it here.
+            // `SubscriptionManager.purchase` records the message in its `lastError` before
+            // re-throwing, so the paywall's banner reads from a single source. We swallow
+            // the rethrow because the operator's next action is to either tap again or
+            // back out — there's no further `throws` boundary to propagate to.
+            _ = error
         }
     }
 }
