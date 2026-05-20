@@ -91,7 +91,7 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Realistic AI announcer voices")
                 .font(.largeTitle.bold())
-            Text("Race-time call-outs powered by AI voice synthesis. 50+ voices in Japanese and English across AWS Polly, Azure, and Cartesia.")
+            Text(Self.headerSubtitle)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -100,7 +100,7 @@ struct PaywallView: View {
     private var valueProps: some View {
         VStack(alignment: .leading, spacing: 12) {
             ValueRow(icon: "sparkles", title: "Natural number reading",
-                     subtitle: "\"12.34\" reads as \"twelve point three four\" — no robotic digit-by-digit. Works in both English and Japanese.")
+                     subtitle: Self.numberReadingSubtitle)
             ValueRow(icon: "bolt.fill", title: "Streaming playback",
                      subtitle: "First-audio delay: Polly ~40 ms, Azure ~90 ms, Cartesia ~400 ms with full prosody.")
             ValueRow(icon: "person.2.fill", title: "Pick your announcer",
@@ -242,6 +242,25 @@ struct PaywallView: View {
         "Subscription auto-renews unless cancelled at least 24 hours before the period ends. " +
         "Manage or cancel in Settings → Apple ID → Subscriptions. " +
         "Payment is charged to your Apple ID account after a 7-day free trial."
+    }
+
+    /// Paywall headline subtitle. Mentions the user's primary language first ("English
+    /// and Japanese" for EN locales, "日本語と英語" for JA locales) so the first thing the
+    /// operator reads is "this works for my language".
+    private static var headerSubtitle: String {
+        let isJa = Locale.current.language.languageCode?.identifier == "ja"
+        return isJa
+            ? "AI音声合成によるレース実況。AWS Polly・Azure・Cartesia の 50 種類以上の日本語・英語ボイスから選べます。"
+            : "Race-time call-outs powered by AI voice synthesis. 50+ voices in English and Japanese across AWS Polly, Azure, and Cartesia."
+    }
+
+    /// Value-prop body for the "Natural number reading" row. Localised so the example
+    /// is in the reader's language and the language pair leads with their own.
+    private static var numberReadingSubtitle: String {
+        let isJa = Locale.current.language.languageCode?.identifier == "ja"
+        return isJa
+            ? "「12.34」を「じゅうにてん さんよん」と自然に読み上げ。ロボットのような桁ごと読みなし。日本語と英語の両方に対応。"
+            : "\"12.34\" reads as \"twelve point three four\" — no robotic digit-by-digit. Works in both English and Japanese."
     }
 
     /// Sample text per voice language — short enough to be quick, long enough to expose
