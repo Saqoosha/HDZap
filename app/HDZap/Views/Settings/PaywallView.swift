@@ -218,7 +218,7 @@ struct PaywallView: View {
 
     private var actionButtons: some View {
         VStack(spacing: 8) {
-            Button("Restore Purchases") {
+            Button(Self.isJa ? "購入の復元" : "Restore Purchases") {
                 Task { await subscription.restore() }
             }
             .font(.footnote)
@@ -267,11 +267,11 @@ struct PaywallView: View {
         if Self.isJa {
             return "期間終了の 24 時間以上前に解約しない限り、サブスクリプションは自動更新されます。" +
                 "設定 → Apple ID → サブスクリプション から管理・解約できます。" +
-                "7日間の無料試用後、Apple ID アカウントに料金が請求されます。"
+                "料金は Apple ID アカウントに請求されます。"
         }
         return "Subscription auto-renews unless cancelled at least 24 hours before the period ends. " +
             "Manage or cancel in Settings → Apple ID → Subscriptions. " +
-            "Payment is charged to your Apple ID account after a 7-day free trial."
+            "Payment is charged to your Apple ID account."
     }
 
     /// Paywall headline subtitle. Mentions the user's primary language first ("English

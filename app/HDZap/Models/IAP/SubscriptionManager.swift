@@ -87,10 +87,12 @@ final class SubscriptionManager {
     func loadProducts() async {
         do {
             let fetched = try await Product.products(for: SubscriptionProductID.all)
-            // Surface yearly first when both exist — the discount story is stronger and
-            // the operator's eye lands there first.
+            // Surface monthly first — it's the lower-friction entry point (¥450 vs ¥4000)
+            // and the yearly card sits underneath it where the discount story is still
+            // visible without forcing the bigger commitment to be the first thing the
+            // operator reads.
             products = fetched.sorted { lhs, rhs in
-                lhs.id == SubscriptionProductID.yearly && rhs.id == SubscriptionProductID.monthly
+                lhs.id == SubscriptionProductID.monthly && rhs.id == SubscriptionProductID.yearly
             }
             log.notice("loaded \(self.products.count, privacy: .public) products: \(self.products.map { $0.id }.joined(separator: ", "), privacy: .public)")
         } catch {

@@ -35,13 +35,7 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "10000001",
-          "introductoryOffer" : {
-            "displayPrice" : "0",
-            "internalID" : "20000001",
-            "numberOfPeriods" : 1,
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P1W"
-          },
+          "introductoryOffer" : null,
           "localizations" : [
             {
               "description" : "Cloud-powered realistic AI announcer voices for lap times. Pick from 35+ voices across AWS Polly, Azure, and Cartesia.",
@@ -68,13 +62,7 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "10000002",
-          "introductoryOffer" : {
-            "displayPrice" : "0",
-            "internalID" : "20000002",
-            "numberOfPeriods" : 1,
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P1W"
-          },
+          "introductoryOffer" : null,
           "localizations" : [
             {
               "description" : "Cloud-powered realistic AI announcer voices for lap times. Save 27% versus monthly billing.",
