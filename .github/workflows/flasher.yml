@@ -232,7 +232,7 @@ jobs:
             local dest="$2"      # _site or _site/dev
 
             mkdir -p "$dest/flash" "$dest/ja" "$dest/images" "$dest/ja/images" \
-              "$dest/privacy" "$dest/privacy/ja"
+              "$dest/privacy"
 
             # Web Flasher
             cp -r "$side/docs/flash/." "$dest/flash/"
@@ -241,7 +241,11 @@ jobs:
             cp "$side/docs/manual/_pages/index.html"             "$dest/index.html"
             cp "$side/docs/manual/_pages/ja/index.html"          "$dest/ja/index.html"
             cp "$side/docs/manual/_pages/privacy/index.html"     "$dest/privacy/index.html"
-            cp "$side/docs/manual/_pages/privacy/ja/index.html"  "$dest/privacy/ja/index.html"
+            # JA privacy page may not exist on every branch (added later) — skip cleanly.
+            if [ -f "$side/docs/manual/_pages/privacy/ja/index.html" ]; then
+              mkdir -p "$dest/privacy/ja"
+              cp "$side/docs/manual/_pages/privacy/ja/index.html" "$dest/privacy/ja/index.html"
+            fi
             cp "$side/docs/manual/en.md"                "$dest/index.md"
             cp "$side/docs/manual/ja.md"                "$dest/ja/index.md"
             cp -r "$side/docs/manual/images/." "$dest/images/"
