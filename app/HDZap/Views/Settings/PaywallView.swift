@@ -257,7 +257,9 @@ struct PaywallView: View {
                 Link(Self.isJa ? "利用規約" : "Terms of Use",
                      destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
                 Link(Self.isJa ? "プライバシーポリシー" : "Privacy Policy",
-                     destination: URL(string: "https://hdzap.saqoo.sh/privacy.html")!)
+                     destination: URL(string: Self.isJa
+                        ? "https://hdzap.saqoo.sh/privacy/ja/"
+                        : "https://hdzap.saqoo.sh/privacy/")!)
             }
             .font(.caption2)
         }
