@@ -19,10 +19,11 @@ final class TTSCache {
     static let shared = TTSCache()
 
     private let directory: URL
-    /// 50 MB cap. ~5 KB per Polly/Azure mp3 and ~100 KB per Cartesia 2-sec PCM utterance,
-    /// so this fits the whole 55-voice picker sample set plus thousands of race phrases
-    /// without thrashing. Falls back to LRU eviction at 50% retention when exceeded so we
-    /// don't flap right at the boundary.
+    /// 50 MB cap. Every entry is raw s16le mono PCM now (16 kHz Polly = ~32 KB/sec,
+    /// 24 kHz Cartesia + Azure = ~48 KB/sec), so a typical 2-second race phrase lands
+    /// between 64 and 96 KB. The cap holds hundreds of unique phrases plus the entire
+    /// 55-voice picker sample set without thrashing. Falls back to LRU eviction at 50%
+    /// retention when exceeded so we don't flap right at the boundary.
     private let maxBytes: Int = 50 * 1024 * 1024
 
     init() {

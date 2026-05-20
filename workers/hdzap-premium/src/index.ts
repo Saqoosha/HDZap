@@ -179,10 +179,12 @@ app.post("/tts", async (c) => {
     return c.json({ error: "invalid-json" }, 400);
   }
 
-  // `provider` is required by the iOS client (PremiumSpeechSynthesizer always sets it). The
-  // `|| "cartesia"` fallback keeps a missing-field request out of the `bad-provider` 400
-  // path one step longer so the message users see explicitly names the missing field.
-  const provider = (body.provider || "cartesia").trim().toLowerCase();
+  // `provider` is required — defaulting to anything would silently route an ill-formed
+  // request to a real (billable) upstream call. Reject with a specific 400 instead.
+  if (typeof body.provider !== "string" || body.provider.trim() === "") {
+    return c.json({ error: "missing-provider" }, 400);
+  }
+  const provider = body.provider.trim().toLowerCase();
   const text = (body.text || "").trim();
   const voice = (body.voice || "").trim();
   const lang = (body.lang || "").trim();
@@ -199,10 +201,6 @@ app.post("/tts", async (c) => {
     return c.json({ error: "text-too-long", limit: maxChars, authMode }, 400);
   if (!voice) return c.json({ error: "missing-voice" }, 400);
   if (!ALLOWED_LANGS.has(lang)) return c.json({ error: "bad-lang" }, 400);
-
-  // `userId` (Apple originalTransactionId) is captured by the auth layer but not yet used
-  // here — keep the binding live for log enrichment without rotting a "follow-up" comment.
-  void userId;
 
   // Build the cache key from every parameter that changes the audio. Two callers with
   // identical params share one cache entry regardless of who they are — that's the whole
@@ -272,23 +270,12 @@ app.post("/tts", async (c) => {
     );
   }
 
-  // Don't cache provider errors — they'd poison the entry and serve a 4xx forever.
+  // Don't cache provider errors — they'd poison the entry and serve a 4xx forever. Each
+  // proxy function also content-type-validates the upstream response (a provider returning
+  // HTTP 200 with an HTML maintenance page or plaintext quota notice gets downgraded to
+  // 502 there) so a wrong body never reaches iOS as "audio/* PCM" to be played as static.
   if (!upstream.ok || !upstream.body) {
     return upstream;
-  }
-
-  // Defence against a provider returning HTTP 200 with a non-audio body (Azure soft-maintenance
-  // page, Cartesia plaintext quota notice, Polly XML error). Without this, iOS would receive
-  // 200 + audio/* headers and try to play HTML/JSON as PCM, producing static. Downgrade to 502
-  // so the iOS error path triggers cleanly and the bad upstream isn't cached.
-  const upstreamType = (upstream.headers.get("Content-Type") || "").toLowerCase();
-  const expectedPrefix = provider === "cartesia" ? "text/event-stream" : "audio/";
-  if (!upstreamType.startsWith(expectedPrefix)) {
-    console.error("upstream-bad-content-type", { provider, upstreamType, status: upstream.status });
-    return c.json(
-      { error: "upstream-bad-content-type", provider, contentType: upstreamType },
-      502,
-    );
   }
 
   console.log("r2-cache=miss", { key: cacheKey, provider, ...phaseTimings });
@@ -488,6 +475,18 @@ async function proxyCartesia(
     );
   }
 
+  // Defence against a 200 response whose body isn't actually SSE (Cartesia maintenance
+  // page / plaintext quota notice). Without this the body would stream through to iOS
+  // and play as static. Must inspect the upstream `resp` directly — once we wrap into a
+  // new Response with our own headers, the original Content-Type is lost.
+  const upstreamType = (resp.headers.get("Content-Type") || "").toLowerCase();
+  if (!upstreamType.startsWith("text/event-stream")) {
+    return new Response(
+      JSON.stringify({ error: "upstream-bad-content-type", provider: "cartesia", contentType: upstreamType }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   return new Response(resp.body, {
     status: 200,
     headers: {
@@ -558,6 +557,17 @@ async function proxyPolly(
     );
   }
 
+  // Polly returns `application/x-amzn-pcm` for OutputFormat=pcm — accept anything starting
+  // with `audio/` or `application/` containing `pcm`, since AWS has tweaked this string
+  // in the past. A maintenance HTML page would not match.
+  const upstreamType = (resp.headers.get("Content-Type") || "").toLowerCase();
+  if (!(upstreamType.startsWith("audio/") || upstreamType.includes("pcm"))) {
+    return new Response(
+      JSON.stringify({ error: "upstream-bad-content-type", provider: "polly", contentType: upstreamType }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   return new Response(resp.body, {
     status: 200,
     headers: {
@@ -623,6 +633,17 @@ async function proxyAzure(
     return new Response(
       JSON.stringify({ error: "upstream-azure", status: resp.status, body: errBody.slice(0, 500) }),
       { status: resp.status, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // Azure returns `audio/basic` or `audio/x-wav` etc. depending on the OutputFormat we
+  // asked for (`raw-24khz-16bit-mono-pcm` typically yields `audio/x-wav` or similar). A
+  // maintenance HTML page would not start with `audio/`.
+  const upstreamType = (resp.headers.get("Content-Type") || "").toLowerCase();
+  if (!upstreamType.startsWith("audio/")) {
+    return new Response(
+      JSON.stringify({ error: "upstream-bad-content-type", provider: "azure", contentType: upstreamType }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
     );
   }
 

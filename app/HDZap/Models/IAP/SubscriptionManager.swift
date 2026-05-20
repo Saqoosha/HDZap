@@ -155,9 +155,8 @@ final class SubscriptionManager {
 
     /// Walk `Transaction.currentEntitlements` and resolve to the strongest entitlement —
     /// prefer an active transaction with the furthest expiry over a grace-period one. Apple
-    /// can hand back multiple entitlements (e.g., monthly upgraded to yearly mid-cycle), and
-    /// the previous "last wins" assignment shipped the wrong JWS to the Worker on those
-    /// edge cases.
+    /// can hand back multiple entitlements at once (e.g., monthly upgraded to yearly mid-
+    /// cycle), so an arbitrary loop-final winner can ship the wrong JWS.
     ///
     /// Also clears `currentJWS` when the chosen transaction is past `expiresDate + grace`
     /// so the Worker isn't pinged with an expired token (it would reject with `jws-expired`

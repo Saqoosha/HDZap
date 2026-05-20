@@ -214,12 +214,15 @@ final class PremiumSpeechSynthesizer: NSObject {
     var isPlaying: Bool = false
     var lastError: String?
 
-    /// Fires exactly once per utterance when playback ends — drained, cancelled, or errored.
-    /// `LapAnnouncer` wires this to its `utteranceDidEnd()` so the warm-keeper engine and
-    /// session-hold lifecycle stay symmetric between System and Premium speech (the path
-    /// before this hook decremented `inflightUtteranceCount` only on the System branch).
-    /// Idempotent: a second `cancel()` while idle is a no-op and does not re-fire.
-    var onUtteranceEnd: () -> Void = {}
+    /// Per-call completion callback registered by `speakAsync`. Fires exactly once per
+    /// `speakAsync` invocation: when playback drains, when `cancel()` runs while this call
+    /// is still the active one, or when the `speak()` Task throws. Callers that don't pass
+    /// `onEnd` opt out of the notification — picker / paywall previews bypass
+    /// `LapAnnouncer`'s `inflightUtteranceCount` increment, so they MUST NOT receive a
+    /// decrement here or the counter goes negative and `utteranceDidEnd()`'s underflow
+    /// assertion trips. Cleared inside `notifyEnd` after firing so the same speakAsync
+    /// can't dispatch its callback twice.
+    private var pendingOnEnd: (() -> Void)?
     /// Set when the first audio chunk reaches the speaker. Used by the dev panel to surface
     /// real-world TTFA next to the network-only number Python measured.
     private(set) var lastFirstAudioMs: Double?
@@ -263,9 +266,11 @@ final class PremiumSpeechSynthesizer: NSObject {
 
     /// Stops any in-flight request and playback. Idempotent. Bumps `currentGeneration` so
     /// queued completion callbacks from the cancelled utterance can't mutate state that
-    /// belongs to a subsequent fresh utterance. Stops the AVAudioEngine too — leaving it
-    /// running keeps `.duckOthers` ducking other apps' audio forever after a user-driven
-    /// preview swap, which we hit during voice-picker auditions.
+    /// belongs to a subsequent fresh utterance — `&+= 1` deliberately wraps on overflow
+    /// so a 2^64 cancel storm doesn't trap (the buffers carrying a wrapped-around
+    /// generation are long dead). Stops the AVAudioEngine too — leaving it running keeps
+    /// `.duckOthers` ducking other apps' audio forever after a user-driven preview swap,
+    /// which we hit during voice-picker auditions.
     func cancel() {
         currentGeneration &+= 1
         currentTask?.cancel()
@@ -279,15 +284,18 @@ final class PremiumSpeechSynthesizer: NSObject {
         notifyEnd()
     }
 
-    /// Flip `isPlaying` false and fire the end-of-utterance callback exactly once per
-    /// transition. Idempotent: calling it while already idle is a no-op and does NOT
-    /// re-fire the callback — important because `cancel()` may be invoked while idle
-    /// (e.g. on a re-entrant `speakAsync`) and downstream observers (`LapAnnouncer`'s
-    /// inflight counter) must not see spurious "end" events.
+    /// Fire the pending end-of-utterance callback exactly once per `speakAsync` call and
+    /// clear it. Called from `cancel()`, the drained-buffer completion handler, the
+    /// post-stream `isPlaying` flip, and the speakAsync catch path. Doesn't gate on
+    /// `isPlaying` because the speakAsync call may have failed BEFORE `isPlaying = true`
+    /// reached its assignment (e.g., `configureSession()` threw on a bad audio route);
+    /// LapAnnouncer has already incremented `inflightUtteranceCount` by then and needs
+    /// the matched decrement regardless of whether audio actually started.
     private func notifyEnd() {
-        guard isPlaying else { return }
+        let cb = pendingOnEnd
+        pendingOnEnd = nil
         isPlaying = false
-        onUtteranceEnd()
+        cb?()
     }
 
     /// Resets all debug counters so the next Speak shows a clean timeline.
@@ -333,23 +341,51 @@ final class PremiumSpeechSynthesizer: NSObject {
     private var accumulatedPCM = Data()
 
     /// Fire-and-forget version of `speak(text:lang:voice:)` for `Button` action callbacks.
-    /// Tears down any in-flight playback first — calling only `currentTask.cancel()` leaves
-    /// the player node, scheduled buffers, and AVAudioEngine still running, which causes
-    /// the previous utterance's tail to bleed into the new one when the user taps a
-    /// different voice mid-preview.
-    func speakAsync(text: String, lang: String, voice: PremiumVoiceOption) {
+    /// Tears down any in-flight playback first (full `cancel()` — task, player, engine,
+    /// buffers, pendingOnEnd-for-the-previous-call all fire/clear) before spawning the
+    /// new task.
+    ///
+    /// `onEnd` is the completion callback for this specific call: it fires exactly once
+    /// when the utterance ends (drain / cancel-while-active / error). `LapAnnouncer.speak`
+    /// passes a decrement closure so `inflightUtteranceCount` stays balanced. Picker /
+    /// paywall previews bypass `LapAnnouncer.speak` entirely (no increment), so they MUST
+    /// NOT pass `onEnd` — otherwise the counter goes negative on every preview end.
+    func speakAsync(
+        text: String,
+        lang: String,
+        voice: PremiumVoiceOption,
+        onEnd: (() -> Void)? = nil,
+    ) {
         log.notice("speakAsync invoked: text=\"\(text, privacy: .public)\" provider=\(voice.provider.rawValue, privacy: .public) voice=\(voice.id, privacy: .public) lang=\(voice.lang, privacy: .public)")
         cancel()
+        pendingOnEnd = onEnd
+        // Set `isPlaying = true` BEFORE spawning the Task so any early-error path
+        // (`bearer.isEmpty`, bad URL, `configureSession()` failure — all of which throw
+        // before `speak()` would set it) still produces a clean end notification through
+        // `notifyEnd` instead of leaking `LapAnnouncer.inflightUtteranceCount`.
+        isPlaying = true
+        // Capture the generation this Task represents — bumped to a fresh value by the
+        // `cancel()` above. If a NEW `speakAsync` arrives while this Task is running, its
+        // own `cancel()` will bump again, fire our `pendingOnEnd` cleanly, and start a
+        // fresh Task. Our cancelled body's catch then sees the mismatch and bails without
+        // calling `cancel()` again (which would tear down the new task).
+        let myGeneration = currentGeneration
         currentTask = Task { [weak self] in
             do {
                 try await self?.speak(text: text, lang: voice.lang, voice: voice)
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
+                    guard myGeneration == self.currentGeneration else {
+                        // Superseded by a newer speakAsync — the new call already
+                        // fired our onEnd via its `cancel()`. Don't touch state that
+                        // belongs to the now-active utterance.
+                        log.debug("speakAsync catch: superseded (myGen=\(myGeneration, privacy: .public) currentGen=\(self.currentGeneration, privacy: .public)) — skipping cancel")
+                        return
+                    }
                     self.lastError = error.localizedDescription
                     log.error("speak failed: \(error.localizedDescription, privacy: .public)")
-                    // Tear down audio + emit end-of-utterance so the inflight counter and
-                    // any in-progress player buffers don't outlive the error.
+                    // Tear down audio + emit end-of-utterance for this still-current call.
                     self.cancel()
                 }
             }

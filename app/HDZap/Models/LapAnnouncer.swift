@@ -329,18 +329,22 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         // `AVSpeechUtteranceDefaultSpeechRate` in a future SDK.
         assert(LapAnnouncerDefaults.defaultRate == AVSpeechUtteranceDefaultSpeechRate,
                "LapAnnouncerDefaults.defaultRate (\(LapAnnouncerDefaults.defaultRate)) drifted from AVSpeechUtteranceDefaultSpeechRate (\(AVSpeechUtteranceDefaultSpeechRate)) — re-verify and update.")
-        // Bridge Premium playback end into the same `utteranceDidEnd()` path the System
-        // synth's `didFinish` / `didCancel` delegate uses. Without this, the inflight
-        // counter stays inflated forever once a Premium utterance fires, and the warm-
-        // keeper / session-hold lifecycle becomes wrong for the rest of the race.
-        premiumSynth.onUtteranceEnd = { [weak self] in
-            self?.utteranceDidEnd()
-        }
         // Voice dump runs off the main actor so app launch isn't blocked
         // by `speechVoices()` on a device with hundreds of installed voices.
         Task.detached(priority: .background) {
             LapAnnouncerVoiceCatalog.dumpInstalledVoicesOnce()
         }
+    }
+
+    /// Mirrors the System synth's `didFinish` / `didCancel` delegate — decrement the
+    /// inflight counter and attempt session deactivation. Premium playback runs through
+    /// `PremiumSpeechSynthesizer.onEnd` callbacks, which call this so the warm-keeper /
+    /// session-hold lifecycle stays symmetric across both engines. Picker / paywall
+    /// previews bypass `LapAnnouncer.speak` and therefore MUST NOT pass this as their
+    /// `onEnd` — they never incremented the counter, so they have nothing to decrement.
+    private func premiumUtteranceEnded() {
+        utteranceDidEnd()
+        deactivateSession()
     }
 
     func announceLap(_ lap: Lap, isBest: Bool) {
@@ -677,13 +681,19 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             // .spokenAudio / .duckOthers` configuration, and the warm-keeper engine relies
             // on this having run at least once. Symmetric with the System path below.
             configureSessionIfNeeded()
-            // Treat a Premium utterance exactly like a System one for inflight bookkeeping
-            // — incremented here, decremented from `premiumSynth.onUtteranceEnd` (wired in
-            // `init`). Skipping this leaves the warm-keeper stop and session-deactivate
-            // guards stuck in "we still have an utterance in flight" forever after Premium
-            // takes over for the rest of the race.
+            // Treat a Premium utterance exactly like a System one for inflight bookkeeping.
+            // Increment here; the matching decrement (+ deactivateSession) fires via the
+            // `onEnd` callback when the Premium synth's utterance ends — drained, cancelled
+            // by a subsequent `speakAsync`, or errored. Picker / paywall previews call
+            // `premiumSynth.speakAsync(...)` directly without passing `onEnd`, so they do
+            // NOT trigger this decrement (and they never incremented, so they don't need to).
             inflightUtteranceCount += 1
-            premiumSynth.speakAsync(text: phrase, lang: premiumVoice.lang, voice: premiumVoice)
+            premiumSynth.speakAsync(
+                text: phrase,
+                lang: premiumVoice.lang,
+                voice: premiumVoice,
+                onEnd: { [weak self] in self?.premiumUtteranceEnded() },
+            )
             return
         }
 

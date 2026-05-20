@@ -321,15 +321,13 @@ struct PaywallView: View {
     }
 
     private func purchase(_ product: Product) async {
+        // `SubscriptionManager.purchase` records the message in its `lastError` before
+        // re-throwing, so the paywall's banner reads from a single source. The catch is
+        // empty because the operator's next action is to tap again or back out — there's
+        // no further `throws` boundary to propagate to.
         do {
             _ = try await subscription.purchase(product)
-        } catch {
-            // `SubscriptionManager.purchase` records the message in its `lastError` before
-            // re-throwing, so the paywall's banner reads from a single source. We swallow
-            // the rethrow because the operator's next action is to either tap again or
-            // back out — there's no further `throws` boundary to propagate to.
-            _ = error
-        }
+        } catch {}
     }
 }
 

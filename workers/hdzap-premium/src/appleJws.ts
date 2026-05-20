@@ -174,10 +174,9 @@ export async function verifyAppleJws(
 /**
  * Walk the x5c chain bottom-up and anchor it to the embedded Apple Root CA G3. Each link
  * must be (a) inside its validity window and (b) signed by the next cert up; the chain's
- * top cert must be byte-identical (DER) to the embedded trusted root. Fingerprint match
- * alone is not sufficient — without DER equality, an attacker who can submit a cert with
- * a colliding SHA-256 (theoretical, but the anchor should be by-value, not by-hash) would
- * pass `not-apple-root` while having different public-key material than ours.
+ * top cert must be byte-identical (DER) to the embedded trusted root. DER equality is a
+ * strictly stronger invariant than fingerprint equality and equally cheap to check, so
+ * the trust anchor is by-value rather than by-hash.
  */
 async function verifyChain(x5c: string[]): Promise<void> {
   let certs: X509Certificate[];
@@ -230,7 +229,7 @@ async function verifyChain(x5c: string[]): Promise<void> {
     throw new AppleJwsError("trust-anchor", "embedded Apple Root CA G3 fingerprint mismatch");
   }
   const topCert = certs[certs.length - 1];
-  if (!buffersEqual(topCert.raw, trustedRoot.raw)) {
+  if (!certBytesEqual(topCert.raw, trustedRoot.raw)) {
     throw new AppleJwsError(
       "not-apple-root",
       `top cert (fingerprint ${topCert.fingerprint256}) does not equal embedded Apple Root G3 DER`,
@@ -238,12 +237,15 @@ async function verifyChain(x5c: string[]): Promise<void> {
   }
 }
 
-function buffersEqual(a: Buffer, b: Buffer): boolean {
-  if (a.byteLength !== b.byteLength) return false;
-  for (let i = 0; i < a.byteLength; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
+/// Byte-equality on `X509Certificate.raw`. We normalize both sides through `Buffer.from`
+/// because the Workers `nodejs_compat` runtime has historically returned the `.raw`
+/// property as either a `Buffer` (Node-style) or an `ArrayBuffer` (Web-style) depending
+/// on version. Indexing an `ArrayBuffer` directly via `[i]` returns `undefined`, which
+/// would make a hand-rolled byte loop falsely report "equal" or "not equal" depending on
+/// which side wraps first. `Buffer.from` accepts both shapes and normalizes to a real
+/// indexable buffer.
+function certBytesEqual(a: Buffer | ArrayBuffer, b: Buffer | ArrayBuffer): boolean {
+  return Buffer.from(a).equals(Buffer.from(b));
 }
 
 /** Wrap a long base64 string to 64-char lines (PEM convention; jose tolerates either way). */
