@@ -269,13 +269,14 @@ private extension PremiumVoiceProvider {
         }
     }
 
-    /// One-liner per provider that the operator might want to see while comparing —
-    /// response time is the headline number, accent / quirks are the differentiators.
+    /// One-liner per provider that the operator might want to see while comparing — quality
+    /// character is what they're picking between (response time is fast enough across all
+    /// three that the difference doesn't matter for race-time use).
     var footerHint: String {
         switch self {
-        case .cartesia: return "JA + EN voices, most expressive. ~400 ms first-audio delay."
-        case .polly:    return "AWS Neural, fastest response (~40 ms). Cleanest number reading."
-        case .azure:    return "Azure Neural, broadcast-style delivery. ~90 ms first-audio delay."
+        case .cartesia: return "JA + EN. Most expressive — character and personality range."
+        case .polly:    return "AWS Neural. Clear, neutral newscaster delivery."
+        case .azure:    return "Azure Neural. Bright, broadcast-style delivery."
         }
     }
 }

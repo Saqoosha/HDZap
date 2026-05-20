@@ -101,8 +101,8 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 12) {
             ValueRow(icon: "sparkles", title: "Natural number reading",
                      subtitle: Self.numberReadingSubtitle)
-            ValueRow(icon: "bolt.fill", title: "Streaming playback",
-                     subtitle: "First-audio delay: Polly ~40 ms, Azure ~90 ms, Cartesia ~400 ms with full prosody.")
+            ValueRow(icon: "waveform.path.ecg", title: "Broadcast-grade audio",
+                     subtitle: "Neural voices indistinguishable from professional race announcers. Clear over the iPhone speaker and over Bluetooth to goggles.")
             ValueRow(icon: "person.2.fill", title: "Pick your announcer",
                      subtitle: "Calm narrator, race sportscaster, energetic character — auditioned per voice in Settings.")
             ValueRow(icon: "slider.horizontal.3", title: "Tune the pace",
@@ -343,7 +343,7 @@ private extension PremiumVoiceOption {
     var providerHint: String {
         switch provider {
         case .cartesia: return "Cartesia · most expressive"
-        case .polly:    return "AWS Polly · lowest latency"
+        case .polly:    return "AWS Polly · clear newscaster"
         case .azure:    return "Azure · broadcast-style"
         }
     }
