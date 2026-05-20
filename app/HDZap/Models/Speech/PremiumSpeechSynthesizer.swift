@@ -168,7 +168,7 @@ enum PremiumTTSError: Error, LocalizedError {
 /// one session (and one warm-keeper) via a `SpeechRouter`.
 @MainActor
 @Observable
-final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
+final class PremiumSpeechSynthesizer: NSObject {
     /// Returns the Apple-signed JWS (from `SubscriptionManager.currentJWS`) when the
     /// operator has an active entitlement, else nil. Wired up in `HDZapApp` after both
     /// the announcer and SubscriptionManager exist. When non-nil, the JWS is sent as
@@ -252,13 +252,11 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
         log.notice("engine init: outputFormat=\(self.engine.outputNode.outputFormat(forBus: 0).description, privacy: .public)  mixerFormat=\(self.engine.mainMixerNode.outputFormat(forBus: 0).description, privacy: .public)")
     }
 
-    /// Stops any in-flight request and playback (both PCM engine and mp3 player). Idempotent.
+    /// Stops any in-flight request and playback. Idempotent.
     func cancel() {
         currentTask?.cancel()
         currentTask = nil
         if playerNode.isPlaying { playerNode.stop() }
-        if mp3Player?.isPlaying == true { mp3Player?.stop() }
-        mp3Player = nil
         pendingBuffers = 0
         pendingPreEngineBuffers.removeAll()
         streamReceiveComplete = false
@@ -280,18 +278,26 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
         lastFirstAudioMs = nil
     }
 
-    /// AVAudioPlayer used for the mp3 path (Polly + Azure). Held as a property so the player
-    /// outlives the speak() call — without this the buffer is deallocated mid-playback and the
-    /// audio cuts to silence.
-    private var mp3Player: AVAudioPlayer?
-
-    /// Cache key for the in-flight speak() request. Set at the top of `speak()` so the mp3
-    /// and SSE write paths can save under the same key without re-deriving it. Cleared on
-    /// completion / failure so a subsequent miss writes to the right entry, not stale state.
+    /// Cache key for the in-flight speak() request. Set at the top of `speak()` so the
+    /// SSE and raw-PCM write paths can save under the same key without re-deriving it.
+    /// Cleared on completion / failure so a subsequent miss writes to the right entry.
     private var currentCacheKey: String?
     /// Paired with `currentCacheKey` — the provider whose audio bytes we'll be saving, so
-    /// `TTSCache.save()` can pick the right filename extension (`.mp3` vs `.pcm`).
+    /// `TTSCache.save()` can label the file correctly.
     private var currentCacheProvider: PremiumVoiceProvider?
+
+    /// Sample rate of the PCM stream for the in-flight speak(). Cartesia + Azure send
+    /// 24 kHz so `schedulePCM` takes the fast manual-conversion path. Polly Neural's PCM
+    /// output caps at 16 kHz, which routes through `resampleConverter` to upsample to the
+    /// engine's 24 kHz before scheduling.
+    private var currentSampleRate: Double = 24000
+
+    /// Lazy-initialised resampler used only when `currentSampleRate != 24000`. Re-created
+    /// when the rate changes (different provider in a new speak() call). The converter
+    /// owns its internal state so reuse within a single utterance is correct, but a new
+    /// rate needs a fresh one.
+    private var resampleConverter: AVAudioConverter?
+    private var resampleConverterRate: Double = 0
 
     /// Decoded raw PCM accumulated across the Cartesia SSE stream for this speak() call.
     /// We write the concatenated bytes to `TTSCache` once the stream completes — way more
@@ -413,23 +419,18 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
     /// AVAudioPCMBuffer for PCM). Sets `lastFirstAudioMs` so the picker's TTFA telemetry
     /// reflects "disk cache read" not "no audio ever started".
     private func playFromCacheFile(url: URL, voice: PremiumVoiceOption, startedAt t0: Date) throws {
-        switch voice.provider {
-        case .polly, .azure:
-            let data = try Data(contentsOf: url)
-            let player = try AVAudioPlayer(data: data)
-            player.delegate = self
-            player.prepareToPlay()
-            mp3Player = player
-            player.play()
-            lastFirstAudioMs = Date().timeIntervalSince(t0) * 1000
-            log.notice("cache-hit mp3 playing — bytes=\(data.count, privacy: .public) duration=\(player.duration, privacy: .public)s")
-        case .cartesia:
-            let pcm = try Data(contentsOf: url)
-            // One buffer for the whole utterance. AVAudioPCMBuffer caps depend on engine
-            // limits but a few hundred KB is comfortable; Cartesia 2-sec utterances are
-            // ~96 KB at s16le 24 kHz mono.
-            try schedulePCM(pcm, startedAt: t0)
-        }
+        // Cache files for all providers now store raw s16le PCM at the provider's native
+        // sample rate. Setting `currentSampleRate` before `schedulePCM` makes the resampler
+        // path activate for Polly's 16 kHz cache hits while Cartesia/Azure go through the
+        // 24 kHz fast path. One big buffer per utterance is fine — AVAudioPCMBuffer caps
+        // are well above the few hundred KB an utterance produces.
+        currentSampleRate = Self.sampleRateFor(voice.provider)
+        let pcm = try Data(contentsOf: url)
+        try schedulePCM(pcm, startedAt: t0)
+        // The stream is complete by definition for a cache hit — flip the flag so the
+        // buffer-completion callback can flip `isPlaying` false once playback drains.
+        streamReceiveComplete = true
+        if pendingBuffers == 0 { isPlaying = false }
     }
 
     // MARK: - Session
@@ -500,37 +501,50 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
             throw PremiumTTSError.http(http.statusCode, bodyPrefix)
         }
 
+        // All three providers stream raw s16le PCM now — Cartesia via base64-in-SSE,
+        // Polly/Azure via plain chunked octet stream. Sample rate varies (Polly 16 kHz,
+        // others 24 kHz) so we stash it on the synth before draining the stream and
+        // `schedulePCM` routes through AVAudioConverter when it's not the native 24 kHz.
+        currentSampleRate = Self.sampleRateFor(voice.provider)
+
         switch voice.provider {
         case .cartesia:
-            // Cartesia returns SSE with base64 PCM s16le 24kHz — schedule chunks on the
-            // existing AVAudioEngine path.
+            // Cartesia wraps each PCM chunk in an SSE `data:` event with a base64 payload.
             try await parseSSE(bytes: bytes, startedAt: t0)
-            // Mark stream done so the player-node buffer-completion callback knows it can
-            // flip isPlaying false once the last buffer drains.
+            // Tell the buffer-completion callback the network side is done so it can flip
+            // `isPlaying` false after the last scheduled buffer plays out.
             streamReceiveComplete = true
-            // Edge case: zero buffers (server returned no audio chunks). Flip now so we
-            // don't leave the UI stuck in "playing".
             if pendingBuffers == 0 { isPlaying = false }
         case .polly, .azure:
-            // Polly + Azure both return chunked mp3. Decode + play with AVAudioPlayer, which
-            // handles the container itself. We accumulate the whole mp3 first (5-30 KB) and
-            // then call .play() — the user-perceived delay is effectively the total HTTP time,
-            // which is still <300 ms for these providers on Japan East. `isPlaying` is
-            // cleared from `audioPlayerDidFinishPlaying(_:successfully:)` so the picker UI
-            // sees the stop icon for the full playback duration, not just the network time.
-            try await playMp3FromStream(bytes: bytes, startedAt: t0)
+            // Raw s16le bytes on the wire — schedule each chunk as it arrives. First-audio
+            // latency is the time-to-first-chunk, not the total HTTP transfer.
+            try await playPCMFromStream(bytes: bytes, startedAt: t0)
+            streamReceiveComplete = true
+            if pendingBuffers == 0 { isPlaying = false }
         }
     }
 
-    /// Drain the mp3 chunked response into memory, then hand it to AVAudioPlayer. The first-byte
-    /// timestamp is recorded for TTFA reporting even though playback doesn't begin until the
-    /// full mp3 arrives — for the small payloads Polly/Azure return (≤30 KB) the gap is <100 ms.
-    private func playMp3FromStream(bytes: URLSession.AsyncBytes, startedAt t0: Date) async throws {
-        var data = Data()
-        // Use ~4 KB buffer accumulation so we don't pay byte-by-byte append overhead but still
-        // catch the first-byte moment precisely. AsyncBytes yields UInt8s; we batch.
+    /// Sample rate the Worker emits PCM at for each provider. Mirrors `sampleRateFor()` in
+    /// the Worker — keep both in sync. Polly Neural's PCM mode caps at 16 kHz; Cartesia
+    /// and Azure stream at the engine's native 24 kHz.
+    private static func sampleRateFor(_ provider: PremiumVoiceProvider) -> Double {
+        switch provider {
+        case .polly: return 16000
+        case .cartesia, .azure: return 24000
+        }
+    }
+
+    /// Drain a chunked raw-PCM stream (Polly + Azure) and schedule each chunk on the
+    /// player node as it arrives. The first chunk gets a small threshold (1 KB ≈ 32 ms
+    /// at 16 kHz, ≈ 21 ms at 24 kHz) so first-audio latency is dominated by network +
+    /// provider TTFA, not by iOS waiting for a fat buffer. Subsequent chunks ramp up to
+    /// 4 KB so we don't pay schedule overhead on every yield.
+    private func playPCMFromStream(bytes: URLSession.AsyncBytes, startedAt t0: Date) async throws {
+        let firstChunkThreshold = 1024
+        let steadyChunkThreshold = 4096
+        var hasScheduledFirst = false
         var buffer = [UInt8]()
-        buffer.reserveCapacity(4096)
+        buffer.reserveCapacity(steadyChunkThreshold)
         for try await byte in bytes {
             try Task.checkCancellation()
             if lastFirstAudioMs == nil {
@@ -538,42 +552,27 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
                 note("first byte @ \(Int(self.lastFirstAudioMs ?? 0))ms")
             }
             buffer.append(byte)
-            if buffer.count >= 4096 {
-                data.append(contentsOf: buffer)
+            let threshold = hasScheduledFirst ? steadyChunkThreshold : firstChunkThreshold
+            if buffer.count >= threshold {
+                let chunk = Data(buffer)
                 buffer.removeAll(keepingCapacity: true)
+                accumulatedPCM.append(chunk)
+                try schedulePCM(chunk, startedAt: t0)
+                if !hasScheduledFirst {
+                    hasScheduledFirst = true
+                    note("first chunk scheduled @ \(Int(Date().timeIntervalSince(t0) * 1000))ms")
+                }
             }
         }
-        if !buffer.isEmpty { data.append(contentsOf: buffer) }
-        log.notice("mp3 received: \(data.count, privacy: .public) bytes in \(Date().timeIntervalSince(t0) * 1000, privacy: .public) ms")
-
-        do {
-            let player = try AVAudioPlayer(data: data)
-            player.delegate = self
-            player.prepareToPlay()
-            mp3Player = player
-            note("AVAudioPlayer ready, play()")
-            player.play()
-            log.notice("AVAudioPlayer started — duration=\(player.duration, privacy: .public)s")
-            // Successful playback means the bytes are valid mp3 — safe to cache. We save
-            // the same payload that AVAudioPlayer accepted, so a future cache hit goes
-            // through the same code path with the same result.
-            if let key = currentCacheKey, let provider = currentCacheProvider {
-                TTSCache.shared.save(key: key, provider: provider, data: data)
-            }
-        } catch {
-            log.error("AVAudioPlayer init failed: \(error.localizedDescription, privacy: .public)")
-            throw PremiumTTSError.engineFailure("AVAudioPlayer init failed: \(error.localizedDescription)")
+        // Tail chunk (whatever didn't fill the steady buffer).
+        if !buffer.isEmpty {
+            let chunk = Data(buffer)
+            accumulatedPCM.append(chunk)
+            try schedulePCM(chunk, startedAt: t0)
         }
-    }
-
-    // MARK: - AVAudioPlayerDelegate
-
-    /// Polly + Azure path's "audio truly finished" signal. The delegate fires on a background
-    /// queue, so we bounce to the main actor before writing observable state.
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor [weak self] in
-            self?.isPlaying = false
-            self?.note("AVAudioPlayer finished (success=\(flag))")
+        log.notice("pcm stream done: \(self.accumulatedPCM.count, privacy: .public) bytes in \(Date().timeIntervalSince(t0) * 1000, privacy: .public) ms")
+        if !accumulatedPCM.isEmpty, let key = currentCacheKey, let provider = currentCacheProvider {
+            TTSCache.shared.save(key: key, provider: provider, data: accumulatedPCM)
         }
     }
 
@@ -659,21 +658,20 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
 
     // MARK: - PCM → AVAudioPCMBuffer → AVAudioPlayerNode
 
-    private func schedulePCM(_ pcm: Data, startedAt t0: Date) throws {
-        // Source is s16le mono → frameCount = byteCount / 2. Target buffer is Float32 mono so the
-        // mixer doesn't have to deal with int16 quirks.
+    /// 24 kHz s16le mono → 24 kHz Float32 mono. Manual conversion path because it avoids
+    /// the AVAudioConverter overhead and matches what we used since the Cartesia-only
+    /// days. The Float32 target matches the engine's source format, so the buffer can
+    /// be scheduled with zero further conversion.
+    private func buildBuffer24kHz(_ pcm: Data) throws -> AVAudioPCMBuffer {
         let frameCount = AVAudioFrameCount(pcm.count / 2)
-        guard frameCount > 0 else { return }
+        guard frameCount > 0 else {
+            throw PremiumTTSError.engineFailure("empty PCM chunk")
+        }
         guard let buffer = AVAudioPCMBuffer(pcmFormat: Self.sourceFormat, frameCapacity: frameCount) else {
             throw PremiumTTSError.engineFailure("PCMBuffer allocation failed")
         }
         buffer.frameLength = frameCount
-
-        // Convert s16le → float32 [-1, 1]. `floatChannelData?[0]` must be non-nil for
-        // non-interleaved float32 mono — if it ever returns nil that's the audio is silent" bug
-        // re-emerging and we want to know immediately.
         guard let dst = buffer.floatChannelData?[0] else {
-            log.error("PCMBuffer.floatChannelData was nil — buffer would play silence")
             throw PremiumTTSError.engineFailure("floatChannelData unavailable")
         }
         var peak: Int16 = 0
@@ -685,10 +683,94 @@ final class PremiumSpeechSynthesizer: NSObject, AVAudioPlayerDelegate {
                 dst[i] = Float(s) / 32768.0
             }
         }
-        // Only log first chunk's peak — confirms PCM data isn't all zeroes.
         if lastFirstAudioMs == nil {
-            log.notice("first chunk peak amplitude: \(peak, privacy: .public) (out of 32767)")
+            log.notice("first chunk peak amplitude: \(peak, privacy: .public)")
         }
+        return buffer
+    }
+
+    /// Non-24 kHz s16le mono (currently only Polly @ 16 kHz) → 24 kHz Float32 mono via
+    /// AVAudioConverter. The converter is held on the synth across chunks within one
+    /// utterance so its sample-rate filter state (a few-tap polyphase resampler) carries
+    /// over and the upsampled audio is continuous, no audible seams between chunks.
+    private func buildBufferResampled(_ pcm: Data) throws -> AVAudioPCMBuffer {
+        let inputFrameCount = AVAudioFrameCount(pcm.count / 2)
+        guard inputFrameCount > 0 else {
+            throw PremiumTTSError.engineFailure("empty PCM chunk")
+        }
+        // Lazy-init / re-init the converter when the rate changes between calls.
+        if resampleConverter == nil || resampleConverterRate != currentSampleRate {
+            guard let inputFormat = AVAudioFormat(
+                commonFormat: .pcmFormatInt16,
+                sampleRate: currentSampleRate,
+                channels: 1,
+                interleaved: true
+            ) else {
+                throw PremiumTTSError.engineFailure("input format init failed at \(currentSampleRate) Hz")
+            }
+            guard let converter = AVAudioConverter(from: inputFormat, to: Self.sourceFormat) else {
+                throw PremiumTTSError.engineFailure("converter init failed")
+            }
+            resampleConverter = converter
+            resampleConverterRate = currentSampleRate
+        }
+        guard let converter = resampleConverter else {
+            throw PremiumTTSError.engineFailure("converter unexpectedly nil")
+        }
+        // Build the interleaved Int16 input buffer.
+        guard let inputBuffer = AVAudioPCMBuffer(
+            pcmFormat: converter.inputFormat,
+            frameCapacity: inputFrameCount
+        ) else {
+            throw PremiumTTSError.engineFailure("input PCMBuffer allocation failed")
+        }
+        inputBuffer.frameLength = inputFrameCount
+        guard let dst = inputBuffer.int16ChannelData?[0] else {
+            throw PremiumTTSError.engineFailure("int16ChannelData unavailable (interleaved mono)")
+        }
+        pcm.withUnsafeBytes { rawBuf in
+            guard let src = rawBuf.bindMemory(to: Int16.self).baseAddress else { return }
+            for i in 0..<Int(inputFrameCount) {
+                dst[i] = src[i]
+            }
+        }
+        // Estimate output frame count with headroom — upsampling produces more frames than
+        // input. ratio + small extra for the resampler's filter tail.
+        let ratio = Self.sourceFormat.sampleRate / currentSampleRate
+        let outputCapacity = AVAudioFrameCount(Double(inputFrameCount) * ratio) + 64
+        guard let outputBuffer = AVAudioPCMBuffer(
+            pcmFormat: Self.sourceFormat,
+            frameCapacity: outputCapacity
+        ) else {
+            throw PremiumTTSError.engineFailure("output PCMBuffer allocation failed")
+        }
+        var consumed = false
+        var convertError: NSError?
+        let status = converter.convert(to: outputBuffer, error: &convertError) { _, outStatus in
+            if consumed {
+                // Signal "no more input THIS call" — the converter keeps its sample-rate
+                // filter state for the next chunk's convert() call.
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            consumed = true
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+        if let err = convertError, status == .error {
+            throw PremiumTTSError.engineFailure("convert failed: \(err.localizedDescription)")
+        }
+        return outputBuffer
+    }
+
+    private func schedulePCM(_ pcm: Data, startedAt t0: Date) throws {
+        let buffer: AVAudioPCMBuffer
+        if currentSampleRate == Self.sourceFormat.sampleRate {
+            buffer = try buildBuffer24kHz(pcm)
+        } else {
+            buffer = try buildBufferResampled(pcm)
+        }
+        let frameCount = buffer.frameLength
 
         // Start the engine on first chunk. Doing it lazily keeps the cold-start cost off the
         // network's critical path until we actually have audio to play.

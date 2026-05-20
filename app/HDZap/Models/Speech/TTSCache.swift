@@ -44,7 +44,11 @@ final class TTSCache {
         model: String,
         text: String
     ) -> String {
+        // "v2" prefix invalidates pre-PCM-migration cache entries — Polly/Azure used to be
+        // mp3 on disk + R2, now they're raw s16le PCM. Keep in lockstep with the Worker's
+        // buildCacheKey() prefix or local + R2 layers will point at different objects.
         let canonical = [
+            "v2",
             provider.rawValue,
             voice,
             lang,
@@ -80,14 +84,14 @@ final class TTSCache {
         }
     }
 
-    /// File extension chosen by provider — `.mp3` for Polly/Azure (raw mp3 bytes,
-    /// AVAudioPlayer reads straight from the file), `.pcm` for Cartesia (raw s16le 24 kHz
-    /// PCM, loaded into an AVAudioPCMBuffer for the engine path).
+    /// File extension is `.pcm` for every provider — all three now stream raw s16le mono
+    /// bytes (just at different sample rates), so the cached payload is uniformly raw PCM
+    /// that the synth loads into AVAudioPCMBuffer on cache hit. The `provider` argument
+    /// stays on the API for future per-provider sub-paths; pre-migration `.mp3` cache
+    /// files become orphans and evict naturally via the LRU.
     private func filename(key: String, provider: PremiumVoiceProvider) -> String {
-        switch provider {
-        case .cartesia: return "\(key).pcm"
-        case .polly, .azure: return "\(key).mp3"
-        }
+        _ = provider
+        return "\(key).pcm"
     }
 
     /// After every successful write, check the total cache footprint. If we're over the
