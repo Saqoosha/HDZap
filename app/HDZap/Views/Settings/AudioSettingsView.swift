@@ -89,11 +89,14 @@ struct AudioSettingsView: View {
                         }
                     }
                     .onChange(of: ttsLanguageRaw) { _, _ in
-                        // The previously-picked voice almost certainly belongs
-                        // to the old language; clear it so the picker falls
-                        // back to "System default" for the new language rather
-                        // than getting silently overridden by `currentVoice()`.
+                        // The previously-picked voices (both System and Premium) almost
+                        // certainly belong to the old language. Clear both so the pickers
+                        // fall back to defaults for the new language instead of silently
+                        // speaking new-language text through an old-language voice — Polly
+                        // Takumi (ja-JP) reading "Lap 3, best lap" produces hilariously
+                        // bad Japanese-accented English.
                         voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
+                        premiumLapVoiceId = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
                     }
 
                     Toggle("Say \"best lap\" on new best", isOn: $announceBest)
