@@ -269,13 +269,13 @@ private extension PremiumVoiceProvider {
         }
     }
 
-    /// One-liner per provider that the operator might want to see while comparing — TTFA
-    /// is the headline number, accent / quirks are the differentiators.
+    /// One-liner per provider that the operator might want to see while comparing —
+    /// response time is the headline number, accent / quirks are the differentiators.
     var footerHint: String {
         switch self {
-        case .cartesia: return "Native Japanese voices, ~340 ms TTFA. Most voice variety."
-        case .polly:    return "AWS Neural, ~60 ms TTFA. Reads numbers cleanly with SSML."
-        case .azure:    return "Azure Neural, ~90 ms TTFA. Bright, broadcast-style delivery."
+        case .cartesia: return "JA + EN voices, most expressive. ~400 ms first-audio delay."
+        case .polly:    return "AWS Neural, fastest response (~40 ms). Cleanest number reading."
+        case .azure:    return "Azure Neural, broadcast-style delivery. ~90 ms first-audio delay."
         }
     }
 }

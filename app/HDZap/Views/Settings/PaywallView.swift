@@ -91,7 +91,7 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Realistic AI announcer voices")
                 .font(.largeTitle.bold())
-            Text("Race-time call-outs powered by cloud TTS. 35+ Japanese and English voices across AWS Polly, Azure, and Cartesia.")
+            Text("Race-time call-outs powered by cloud TTS. 50+ voices in Japanese and English across AWS Polly, Azure, and Cartesia.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -101,8 +101,8 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 12) {
             ValueRow(icon: "sparkles", title: "Natural Japanese pronunciation",
                      subtitle: "Cardinal number reading (\"12.34\" → \"じゅうにてん さんよん\"), no robotic digit-by-digit.")
-            ValueRow(icon: "bolt.fill", title: "Sub-100 ms first-audio",
-                     subtitle: "Polly Takumi: 56 ms TTFA. Azure Daichi: 93 ms. Cartesia: 339 ms with full prosody.")
+            ValueRow(icon: "bolt.fill", title: "Streaming playback",
+                     subtitle: "First-audio delay: Polly ~40 ms, Azure ~90 ms, Cartesia ~400 ms with full prosody.")
             ValueRow(icon: "person.2.fill", title: "Pick your announcer",
                      subtitle: "Calm narrator, race sportscaster, energetic character — auditioned per voice in Settings.")
             ValueRow(icon: "slider.horizontal.3", title: "Tune the pace",

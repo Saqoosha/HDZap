@@ -510,7 +510,7 @@ struct AudioSettingsView: View {
         } header: {
             Text("Premium TTS (Debug)")
         } footer: {
-            Text("Streams from \(URL(string: premiumWorkerURL)?.host ?? "?") via Cartesia Sonic 3.5. This panel is DEBUG-only and will be replaced by the StoreKit-gated SpeechRouter in the next phase.")
+            Text("DEBUG-only smoke-test panel that hits \(URL(string: premiumWorkerURL)?.host ?? "?") directly. Production race-time playback already routes through the same Worker via SubscriptionManager + LapAnnouncer.")
                 .font(.caption2)
         }
     }
