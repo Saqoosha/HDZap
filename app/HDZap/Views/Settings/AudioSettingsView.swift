@@ -83,22 +83,6 @@ struct AudioSettingsView: View {
                 Toggle("Announce lap times", isOn: $lapTTSEnabled)
 
                 if lapTTSEnabled {
-                    Picker("Language", selection: $ttsLanguageRaw) {
-                        ForEach(LapAnnouncerLanguage.allCases) { lang in
-                            Text(lang.displayName).tag(lang.rawValue)
-                        }
-                    }
-                    .onChange(of: ttsLanguageRaw) { _, _ in
-                        // The previously-picked voices (both System and Premium) almost
-                        // certainly belong to the old language. Clear both so the pickers
-                        // fall back to defaults for the new language instead of silently
-                        // speaking new-language text through an old-language voice — Polly
-                        // Takumi (ja-JP) reading "Lap 3, best lap" produces hilariously
-                        // bad Japanese-accented English.
-                        voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
-                        premiumLapVoiceId = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
-                    }
-
                     Toggle("Say \"best lap\" on new best", isOn: $announceBest)
 
                     Toggle("Count down final seconds", isOn: $countdownEnabled)
@@ -130,10 +114,28 @@ struct AudioSettingsView: View {
             }
 
             if lapTTSEnabled {
-                // Voice section — engine + voice selection + per-engine prosody + test/reset
-                // live in their own group so the announcement behaviour (language, best-lap,
-                // countdown) reads as one decision and "which voice to use" reads as another.
+                // Voice section — language + engine + voice selection + per-engine prosody +
+                // test/reset. Language sits here (not under Announcement) because it gates
+                // everything below: changing it filters the voice catalog AND resets both
+                // voice IDs to defaults, so the operator's mental model is "pick a language,
+                // then pick a voice in that language".
                 Section {
+                    Picker("Language", selection: $ttsLanguageRaw) {
+                        ForEach(LapAnnouncerLanguage.allCases) { lang in
+                            Text(lang.displayName).tag(lang.rawValue)
+                        }
+                    }
+                    .onChange(of: ttsLanguageRaw) { _, _ in
+                        // The previously-picked voices (both System and Premium) almost
+                        // certainly belong to the old language. Clear both so the pickers
+                        // fall back to defaults for the new language instead of silently
+                        // speaking new-language text through an old-language voice — Polly
+                        // Takumi (ja-JP) reading "Lap 3, best lap" produces hilariously
+                        // bad Japanese-accented English.
+                        voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
+                        premiumLapVoiceId = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
+                    }
+
                     // Engine selector — switches the entire announce path between the built-in
                     // AVSpeechSynthesizer (free, no network) and the hdzap-premium Worker
                     // (Cartesia / Polly / Azure). When Premium is chosen the system voice/rate/
