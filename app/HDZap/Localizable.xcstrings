@@ -1125,7 +1125,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ラップ読み上げ"
+            "value": "ラップ実況"
           }
         }
       }
@@ -2240,7 +2240,18 @@
         }
       }
     },
-    "Δ Best": {}
+    "Δ Best": {},
+    "Announcement": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実況設定"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
