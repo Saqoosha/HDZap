@@ -7,6 +7,9 @@ struct HDZapApp: App {
     @State private var lapAnnouncer = LapAnnouncer()
     @State private var raceHistory = RaceHistoryStore()
     @State private var osdLayout = OSDLayoutSettings()
+    /// One subscription manager shared across the whole app. The init triggers
+    /// `Transaction.updates` listener registration via `start()` in onAppear — see body.
+    @State private var subscription = SubscriptionManager()
 
     init() {
         UserDefaults.standard.register(defaults: [
@@ -21,6 +24,10 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.voiceIdentifierKey: LapAnnouncerDefaults.defaultVoiceIdentifier,
             LapAnnouncerDefaults.countdownEnabledKey: LapAnnouncerDefaults.defaultCountdownEnabled,
             LapAnnouncerDefaults.countdownStartSecondsKey: LapAnnouncerDefaults.defaultCountdownStartSeconds,
+            LapAnnouncerDefaults.engineKey: LapAnnouncerDefaults.defaultEngine,
+            LapAnnouncerDefaults.premiumVoiceIdentifierKey: LapAnnouncerDefaults.defaultPremiumVoiceIdentifier,
+            LapAnnouncerDefaults.premiumRateKey: LapAnnouncerDefaults.defaultPremiumRate,
+            LapAnnouncerDefaults.premiumPitchKey: LapAnnouncerDefaults.defaultPremiumPitch,
         ])
         #if DEBUG
         // Screenshot-mode override: force the session-limit + target-lap
@@ -49,6 +56,22 @@ struct HDZapApp: App {
                 .environment(lapAnnouncer)
                 .environment(raceHistory)
                 .environment(osdLayout)
+                .environment(subscription)
+                .task {
+                    // Start the StoreKit2 listener once the SwiftUI scene is on screen — earlier
+                    // (e.g. in the App init) would risk firing before the audio session /
+                    // BLE permissions are ready, which can spew "transaction observer not
+                    // attached in time" warnings on first launch.
+                    subscription.start()
+                    // Wire the Premium synth to the entitlement JWS. The closure captures
+                    // `subscription` weakly via the @Observable manager (it's a final
+                    // class), so the synth gets a fresh JWS each call without holding a
+                    // strong reference cycle. Wiring lives here because both objects are
+                    // available together for the first time.
+                    lapAnnouncer.premiumSynth.jwsProvider = { [weak subscription] in
+                        subscription?.currentJWS
+                    }
+                }
         }
     }
 }

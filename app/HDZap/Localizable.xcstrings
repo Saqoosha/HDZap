@@ -1,1674 +1,2257 @@
 {
-  "sourceLanguage" : "en",
-  "version" : "1.0",
-  "strings" : {
-    "—" : {
-      "comment" : "Battery caption when no battery frame has arrived yet.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "—"
+  "sourceLanguage": "en",
+  "strings": {
+    "—": {
+      "comment": "Battery caption when no battery frame has arrived yet.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
           }
         }
       }
     },
-    "%lld%%" : {
-      "comment" : "Battery percent only.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld%%"
+    ":": {},
+    ".%@": {},
+    "·": {},
+    "'%@' is not a valid decimal number.": {
+      "comment": "Manual UID validation error: a token couldn't parse as decimal.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は有効な 10 進数ではありません。"
           }
         }
       }
     },
-    "%lld%% · Charging" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld%% · 充電中"
+    "'%@' is not a valid hex byte (00–FF).": {
+      "comment": "Manual UID validation error: a token couldn't parse as a hex byte.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は有効な 16 進数バイト(00–FF)ではありません。"
           }
         }
       }
     },
-    "%lld%% · Critical (silenced)" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld%% · 危険(サイレント)"
+    "#": {},
+    "%@": {},
+    "%@ · %lld%%": {
+      "comment": "Settings root M5StickS3 row subtitle when connected and not charging. %@ is the device name; %lld is battery percent.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %lld%%"
           }
         }
       }
     },
-    "%lld%% · Critical — press button on device to silence" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld%% · 危険 — デバイスのボタンを押すとサイレントにできます"
+    "%@ · %lld%% · Charging": {
+      "comment": "Settings root M5StickS3 row subtitle when connected and charging. %@ is the device name; %lld is battery percent.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %lld%% · 充電中"
           }
         }
       }
     },
-    "%lld%% · Low (silenced)" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld%% · 残量低下(サイレント)"
+    "%@ / %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ / %2$@"
           }
         }
       }
     },
-    "%lld%% · Low — press button on device to silence" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld%% · 残量低下 — デバイスのボタンを押すとサイレントにできます"
+    "%@ / %@ bytes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ / %2$@ bytes"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ / %@ バイト"
+          }
+        }
+      }
+    },
+    "%@ free trial included.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の無料試用付き。"
+          }
+        }
+      }
+    },
+    "%@ mAh": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ mAh"
+          }
+        }
+      }
+    },
+    "%@ pkts": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ パケット"
+          }
+        }
+      }
+    },
+    "%@ s": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 秒"
+          }
+        }
+      }
+    },
+    "%@ samples": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ サンプル"
+          }
+        }
+      }
+    },
+    "%@%%": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@%%"
+          }
+        }
+      }
+    },
+    "%@°": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@°"
+          }
+        }
+      }
+    },
+    "%@B": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@B"
+          }
+        }
+      }
+    },
+    "%@s": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@秒"
+          }
+        }
+      }
+    },
+    "%lld / %lld bytes": {
+      "comment": "DeviceRenameView footer byte counter (current UTF-8 bytes / max bytes). Mirrors the firmware-side advertised-name budget; flags red when over-budget.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld バイト"
+          }
+        }
+      }
+    },
+    "%lld is out of range — decimal bytes must be 0–255.": {
+      "comment": "Manual UID validation error: a decimal byte was outside 0–255.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld は範囲外 — 10 進数のバイトは 0〜255 でなければなりません。"
+          }
+        }
+      }
+    },
+    "%lld s": {
+      "comment": "Compact seconds suffix for the countdown-start stepper readout (e.g. 10 s).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 秒"
+          }
+        }
+      }
+    },
+    "%lld%%": {
+      "comment": "Battery percent only.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        }
+      }
+    },
+    "%lld%% · Charging": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%% · 充電中"
+          }
+        }
+      }
+    },
+    "%lld%% · Critical — press button on device to silence": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%% · 危険 — デバイスのボタンを押すとサイレントにできます"
+          }
+        }
+      }
+    },
+    "%lld%% · Critical (silenced)": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%% · 危険(サイレント)"
+          }
+        }
+      }
+    },
+    "%lld%% · Low — press button on device to silence": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%% · 残量低下 — デバイスのボタンを押すとサイレントにできます"
+          }
+        }
+      }
+    },
+    "%lld%% · Low (silenced)": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%% · 残量低下(サイレント)"
+          }
+        }
+      }
+    },
+    "•": {},
+    "+%lld more queued": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%lld 件待機中"
+          }
+        }
+      }
+    },
+    "+%lld suppressed": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%lld 件抑制"
+          }
+        }
+      }
+    },
+    "★": {},
+    "0": {},
+    "96,210,83,138,178,0 or 60:D2:53:8A:B2:00": {
+      "comment": "TextField placeholder showing the two accepted UID input formats.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "96,210,83,138,178,0 または 60:D2:53:8A:B2:00"
+          }
+        }
+      }
+    },
+    "About": {
+      "comment": "Settings root section header for app + firmware version rows.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "情報"
+          }
+        }
+      }
+    },
+    "Alignment": {
+      "comment": "OSD layout editor: section header and segmented picker label for row alignment (left / center / right).",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置"
+          }
+        }
+      }
+    },
+    "All hidden": {
+      "comment": "Settings root OSD layout drilldown summary when every row is toggled off.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて非表示"
+          }
+        }
+      }
+    },
+    "All rows hidden — nothing displayed on the goggle.": {
+      "comment": "OSD layout editor row-range label when every row is toggled off.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての行が非表示 — ゴーグルには何も表示されません。"
+          }
+        }
+      }
+    },
+    "Announce lap times": {
+      "comment": "Toggle that turns on TTS announcements after each lap.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラップタイムを読み上げる"
+          }
+        }
+      }
+    },
+    "App": {
+      "comment": "Settings root section header grouping app-side settings (lap announcer, appearance).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ"
+          }
+        }
+      }
+    },
+    "App %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ %@"
+          }
+        }
+      }
+    },
+    "App version": {
+      "comment": "Settings → About row label showing the iOS app's CFBundleShortVersionString.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのバージョン"
+          }
+        }
+      }
+    },
+    "Appearance": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観"
+          }
+        }
+      }
+    },
+    "Applies to all visible rows.": {
+      "comment": "OSD layout editor Alignment section footer.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示中の行すべてに適用されます。"
+          }
+        }
+      }
+    },
+    "Apply": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用"
+          }
+        }
+      }
+    },
+    "Apply UID": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UID を適用"
+          }
+        }
+      }
+    },
+    "Audio": {
+      "comment": "Audio settings section header (TTS announcer).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオ"
+          }
+        }
+      }
+    },
+    "Battery": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッテリー"
+          }
+        }
+      }
+    },
+    "Best": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベスト"
+          }
+        }
+      }
+    },
+    "Best lap": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベストラップ"
+          }
+        }
+      }
+    },
+    "Bind phrase": {
+      "comment": "TextField placeholder for entering an ELRS bind phrase.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バインドフレーズ"
+          }
+        }
+      }
+    },
+    "Bind Phrase": {
+      "comment": "Pairing-mode segment label.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バインドフレーズ"
+          }
+        }
+      }
+    },
+    "BLE OFF · Laps won't reach the goggle": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BLE OFF · ラップがゴーグルに届きません"
+          }
+        }
+      }
+    },
+    "Bluetooth": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bluetooth"
+          }
+        }
+      }
+    },
+    "Bluetooth name": {
+      "comment": "Dual call-site: ConnectionSettingsView row label + DeviceRenameView section header, both for the BLE-advertised device name. Keep both English literals in sync if either is ever renamed — they share this xcstrings entry.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bluetooth 名"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "Captured TX UID": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャプチャした TX UID"
+          }
+        }
+      }
+    },
+    "Cartesia Sonic 3.5 (preview) doesn't honour rate / pitch controls yet.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartesia Sonic 3.5 (preview) は Rate / Pitch を未対応です。"
+          }
         }
       }
     },
-    "+%lld more queued" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "+%lld 件待機中"
+    "Center": {
+      "comment": "OSD layout editor Alignment picker option (center all visible rows).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中央"
           }
         }
       }
     },
-    "+%lld suppressed" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "+%lld 件抑制"
+    "Change goggle pairing?": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグルのペアリングを変更しますか？"
           }
         }
       }
     },
-    "%lld is out of range — decimal bytes must be 0–255." : {
-      "comment" : "Manual UID validation error: a decimal byte was outside 0–255.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld は範囲外 — 10 進数のバイトは 0〜255 でなければなりません。"
+    "Clear": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリア"
           }
         }
       }
     },
-    "'%@' is not a valid decimal number." : {
-      "comment" : "Manual UID validation error: a token couldn't parse as decimal.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」は有効な 10 進数ではありません。"
+    "Clear all": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてクリア"
           }
         }
       }
     },
-    "'%@' is not a valid hex byte (00–FF)." : {
-      "comment" : "Manual UID validation error: a token couldn't parse as a hex byte.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」は有効な 16 進数バイト(00–FF)ではありません。"
+    "Clear OSD": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OSD をクリア"
           }
         }
       }
     },
-    "UID must be 6 bytes (got %lld parts). Use hex 60:D2:53:8A:B2:00 or decimal 96 210 83 138 178 0." : {
-      "comment" : "Manual UID validation error: wrong number of bytes parsed.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "UID は 6 バイトである必要があります(検出: %lld 個)。16 進数 60:D2:53:8A:B2:00 か 10 進数 96 210 83 138 178 0 を使用してください。"
+    "Configure": {
+      "comment": "Goggle pairing screen: section header containing the mode picker (Bind Phrase / Manual UID / New Pairing) and the per-mode action button — `Apply UID` for Bind Phrase / Manual UID, `Pair with new goggle` for New Pairing.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
           }
         }
       }
     },
-    "96,210,83,138,178,0 or 60:D2:53:8A:B2:00" : {
-      "comment" : "TextField placeholder showing the two accepted UID input formats.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "96,210,83,138,178,0 または 60:D2:53:8A:B2:00"
+    "Connect": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
           }
         }
       }
     },
-    "Appearance" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "外観"
+    "Connect an M5Stick bridge to mirror lap times on your goggle OSD.": {
+      "comment": "Settings → Device section footer shown when the Use bridge toggle is OFF, explaining what the bridge is for.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M5Stick ブリッジを接続するとラップタイムをゴーグルの OSD に表示できます。"
           }
         }
       }
     },
-    "Apply" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "適用"
+    "Connect to the M5Stick to preview on the goggle.": {
+      "comment": "OSD layout editor preview footnote shown when no M5Stick is connected.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M5Stick に接続するとゴーグルでプレビューできます。"
           }
         }
       }
     },
-    "Apply UID" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "UID を適用"
+    "Connected": {
+      "comment": "M5StickS3 sub-screen: section header for the currently-connected device row.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
           }
         }
       }
     },
-    "Battery" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "バッテリー"
+    "Connected firmware doesn't support renaming. Update firmware.": {
+      "comment": "DeviceRenameView footer caption shown when the connected firmware lacks CHR_DEVICE_NAME (older builds). Rendered in orange.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のファームウェアは名前変更に未対応です。ファームウェアを更新してください。"
           }
         }
       }
     },
-    "Best lap" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ベストラップ"
+    "Connected firmware doesn't support the OSD layout characteristic. Alignment and show/hide still work; vertical position will not.": {
+      "comment": "OSD layout editor preview footnote shown when older firmware lacks CHR_OSD_LAYOUT.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のファームウェアは OSD レイアウト機能に未対応です。配置と表示／非表示は動きますが、縦位置の調整は反映されません。"
           }
         }
       }
     },
-    "Bind phrase" : {
-      "comment" : "TextField placeholder for entering an ELRS bind phrase.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "バインドフレーズ"
+    "Controls": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロール"
           }
         }
       }
     },
-    "Bind Phrase" : {
-      "comment" : "Pairing-mode segment label.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "バインドフレーズ"
+    "Couldn't broadcast the bind packet. The M5Stick switched to a fresh pairing but your goggle wasn't notified — use Restore previous goggle.": {
+      "comment": "PairingSettingsView error label for the New-Pairing case where the local UID was committed but the ESP-NOW bind broadcast didn't go out, leaving the goggle on the old UID.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バインドパケットを送信できませんでした。M5Stick は新しいペアリングに切り替わりましたが、ゴーグルには通知できていません — 「前のゴーグルに戻す」を使ってください。"
           }
         }
       }
     },
-    "Bluetooth" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bluetooth"
+    "Couldn't restore the previous pairing — the M5Stick may have disconnected. Try again.": {
+      "comment": "PairingSettingsView error label for the recovery-path failure case (the second-chance restore broadcast also didn't go through).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のペアリングを復元できませんでした — M5Stick が切断された可能性があります。もう一度試してください。"
           }
         }
       }
     },
-    "Cancel" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "キャンセル"
+    "Count down final seconds": {
+      "comment": "Toggle: announce a spoken countdown over the final seconds of a race.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り秒数をカウントダウンする"
           }
         }
       }
     },
-    "Captured TX UID" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "キャプチャした TX UID"
+    "Current": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在"
           }
         }
       }
     },
-    "Change goggle pairing?" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグルのペアリングを変更しますか？"
+    "Current UID": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の UID"
           }
         }
       }
     },
-    "Clear" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "クリア"
+    "Debug": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグ"
           }
         }
       }
     },
-    "Clear all" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてクリア"
+    "Decimal matches what the goggle and the M5Stick LCD show; hex matches MAC tools.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10 進数はゴーグルと M5Stick LCD の表示に対応し、16 進数は MAC ツールに対応します。"
           }
         }
       }
     },
-    "Clear OSD" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OSD をクリア"
+    "Device": {
+      "comment": "Settings root section header grouping the M5StickS3 + goggle drilldowns.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス"
           }
         }
       }
     },
-    "Connect" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "接続"
+    "Diff": {
+      "comment": "OSD layout editor Show-rows toggle label for row 3 (pace differential vs. target). NOTE: TimerView/RaceShareCard also pass the literal \"Diff\" to SummaryColumn(label:), but that param is currently a plain String (not LocalizedStringKey) so this translation does NOT leak there. If SummaryColumn.label is ever promoted to LocalizedStringKey, the JA value here will start showing on the post-race summary card and may need re-fitting for that surface.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペース差"
           }
         }
       }
     },
-    "Connect an M5Stick bridge to mirror lap times on your goggle OSD." : {
-      "comment" : "Settings → Device section footer shown when the Use bridge toggle is OFF, explaining what the bridge is for.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "M5Stick ブリッジを接続するとラップタイムをゴーグルの OSD に表示できます。"
+    "Disconnect": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断"
           }
         }
       }
     },
-    "Current UID" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "現在の UID"
+    "Done": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
           }
         }
       }
     },
-    "Debug" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "デバッグ"
+    "Drag to reorder. Hidden rows are skipped on the goggle — visible rows close up the gap so the block stays compact.": {
+      "comment": "OSD layout editor Show-rows section footer.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグで順序を変更できます。非表示の行はゴーグル側で詰められ、表示する行だけがまとまって表示されます。"
           }
         }
       }
     },
-    "Decimal matches what the goggle and the M5Stick LCD show; hex matches MAC tools." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "10 進数はゴーグルと M5Stick LCD の表示に対応し、16 進数は MAC ツールに対応します。"
+    "Elapsed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "経過"
           }
         }
       }
     },
-    "Disconnect" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "切断"
+    "English": {
+      "comment": "Language picker option (en).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英語"
           }
         }
       }
     },
-    "Done" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "完了"
+    "Error": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー"
           }
         }
       }
     },
-    "Error" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "エラー"
+    "Finish a race and it'll show up here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レース完走後にここに表示されます。"
           }
         }
       }
     },
-    "Goggle didn't accept the new pairing, and there was no previous pairing to fall back to." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグルが新しいペアリングを受け入れず、戻せる以前のペアリングもありません。"
+    "Firmware": {
+      "comment": "Settings → About row label for the firmware version reported by the M5StickS3.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファームウェア"
           }
         }
       }
     },
-    "Goggle didn't accept the new pairing. Restored the previous one." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグルが新しいペアリングを受け入れませんでした。前のペアリングに戻しました。"
+    "Flight pack": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フライトバッテリー"
           }
         }
       }
     },
-    "Goggle didn't ack the verify packet, but the pairing on the M5Stick is unchanged — try again, or move closer to the goggle." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグルから確認パケットの応答がありませんでしたが、M5Stick のペアリングは変更されていません — もう一度試すか、ゴーグルに近づけてください。"
+    "Format": {
+      "comment": "Settings root section header for the inline race-time slider, target-lap stepper, and the derived target-pace readout row.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーマット"
           }
         }
       }
     },
-    "Highlight color" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ハイライト色"
+    "Free preview — subscribe to use on track": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料試聴 — レースで使うにはサブスク登録"
           }
         }
       }
     },
-    "Hue used for the live timer, best-lap marker, and split highlights." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライブタイマー、ベストラップマーカー、スプリットハイライトに使用される色相。"
+    "FW %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FW %@"
           }
         }
       }
     },
-    "If your goggle's backpack was flashed with a fixed bind phrase via ELRS Configurator, that phrase always wins after a reboot — New Pairing won't stick." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグルのバックパックが ELRS Configurator で固定のバインドフレーズで書き込まれている場合、再起動後は常にそのフレーズが優先されます — 新規ペアリングは保持されません。"
+    "Goggle didn't accept the new pairing, and there was no previous pairing to fall back to.": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグルが新しいペアリングを受け入れず、戻せる以前のペアリングもありません。"
           }
         }
       }
     },
-    "Lap times will stop appearing on your current goggle and start going to a new one.\n\nMake sure your goggle is set up to receive from the new pairing — otherwise nothing will show up.\n\nFrom: %@\nTo:   %@" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "現在のゴーグルにラップタイムが表示されなくなり、新しいゴーグルに送信されるようになります。\n\n新しいペアリングを受信できるようゴーグル側を設定していることを確認してください — そうでないと何も表示されません。\n\n変更前: %1$@\n変更後: %2$@"
+    "Goggle didn't accept the new pairing. Restored the previous one.": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグルが新しいペアリングを受け入れませんでした。前のペアリングに戻しました。"
           }
         }
       }
     },
-    "Manual UID" : {
-      "comment" : "Pairing-mode segment label.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "手動 UID"
+    "Goggle didn't ack the verify packet, but the pairing on the M5Stick is unchanged — try again, or move closer to the goggle.": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグルから確認パケットの応答がありませんでしたが、M5Stick のペアリングは変更されていません — もう一度試すか、ゴーグルに近づけてください。"
           }
         }
       }
     },
-    "Mode" : {
-      "comment" : "Pairing-mode picker label.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "モード"
+    "Goggle pairing": {
+      "comment": "Settings → Device row label that drills down into the goggle pairing screen.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグルペアリング"
           }
         }
       }
     },
-    "New Pairing" : {
-      "comment" : "Pairing-mode segment label.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規ペアリング"
+    "Goggle row %lld of %lld": {
+      "comment": "OSD layout editor row-range label for the single-row case (top == bottom). First %lld is the row index, second is the goggle's total row count.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグル %lld 行目(全 %lld 行中)"
           }
         }
       }
     },
-    "Next" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次へ"
+    "Goggle rows %lld–%lld of %lld": {
+      "comment": "OSD layout editor row-range label for a multi-row visible block. First two %lld are the inclusive 1-indexed top/bottom rows, third is the goggle's total row count.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグル %lld〜%lld 行目(全 %lld 行中)"
           }
         }
       }
     },
-    "No devices found. Tap Scan to search." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "デバイスが見つかりません。「スキャン」をタップして検索してください。"
+    "hdzap": {},
+    "HDZap · Time Attack %@s": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDZap · タイムアタック %@秒"
           }
         }
       }
     },
-    "No verification result. The M5Stick may be disconnected — try again." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "確認結果が得られませんでした。M5Stick が切断されている可能性があります — もう一度試してください。"
+    "Highlight color": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハイライト色"
           }
         }
       }
     },
-    "No verification result. The M5Stick may be disconnected — try again, or use Restore previous goggle." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "確認結果が得られませんでした。M5Stick が切断されている可能性があります — もう一度試すか、「前のゴーグルに戻す」を使用してください。"
+    "Hue used for the live timer, best-lap marker, and split highlights.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブタイマー、ベストラップマーカー、スプリットハイライトに使用される色相。"
           }
         }
       }
     },
-    "Normalized: %@" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正規化済み: %@"
+    "If your goggle's backpack was flashed with a fixed bind phrase via ELRS Configurator, that phrase always wins after a reboot — New Pairing won't stick.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグルのバックパックが ELRS Configurator で固定のバインドフレーズで書き込まれている場合、再起動後は常にそのフレーズが優先されます — 新規ペアリングは保持されません。"
           }
         }
       }
     },
-    "Pair with a new goggle?" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新しいゴーグルとペアリングしますか？"
+    "Japanese": {
+      "comment": "Language picker option (ja).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日本語"
           }
         }
       }
     },
-    "Pair with new goggle" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新しいゴーグルとペアリング"
+    "L": {},
+    "Language": {
+      "comment": "Language picker label in the Audio section.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "言語"
           }
         }
       }
     },
-    "Pairing" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ペアリング"
+    "Lap": {
+      "comment": "OSD layout editor Show-rows toggle label for row 1 (current lap number + time).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラップ"
           }
         }
       }
     },
-    "Pairing works — lap times will appear on this goggle." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ペアリング成功 — ラップタイムはこのゴーグルに表示されます。"
+    "Lap %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラップ %@"
           }
         }
       }
     },
-    "Parsed: %@" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "解析結果: %@"
+    "Lap announcer": {
+      "comment": "Settings → App row label and sub-screen navigation title for the spoken lap-time feature.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラップ実況"
           }
         }
       }
     },
-    "Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "TX の Bind を押して UID をブロードキャストしてください。TX とゴーグルの既存のバインドには影響しません。"
+    "Lap times will stop appearing on your current goggle and start going to a new one.\n\nMake sure your goggle is set up to receive from the new pairing — otherwise nothing will show up.\n\nFrom: %@\nTo:   %@": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のゴーグルにラップタイムが表示されなくなり、新しいゴーグルに送信されるようになります。\n\n新しいペアリングを受信できるようゴーグル側を設定していることを確認してください — そうでないと何も表示されません。\n\n変更前: %1$@\n変更後: %2$@"
           }
         }
       }
     },
-    "Put your goggle in bind mode (ELRS menu → Bind), then tap Pair below. The M5Stick will switch to a fresh pairing ID and broadcast it to the goggle in one step." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグルをバインドモード(ELRS メニュー → Bind)にしてから、下の「ペアリング」をタップしてください。M5Stick が新しいペアリング ID に切り替わり、その ID をゴーグルへ一度に送信します。"
+    "Laps": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラップ"
           }
         }
       }
     },
-    "Race" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "レース"
+    "Left": {
+      "comment": "OSD layout editor Alignment picker option (left-align all visible rows).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
           }
         }
       }
     },
-    "Race time" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "レース時間"
+    "Listen first": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まずは試聴"
           }
         }
       }
     },
-    "Reset" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "リセット"
+    "Listen to any voice with the ▶ button. To use a voice on the track, subscribe to HDZap Premium.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "▶ ボタンで全ボイスを試聴できます。レースで使うには HDZap Premium にサブスク登録してください。"
           }
         }
       }
     },
-    "Restore previous goggle" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前のゴーグルに戻す"
+    "Listen to Premium voices": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium ボイスを試聴"
           }
         }
       }
     },
-    "Scan" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スキャン"
+    "Live preview — pushed to the goggle as you adjust.": {
+      "comment": "OSD layout editor preview footnote shown during normal operation.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブプレビュー — 調整するとゴーグルに即反映されます。"
           }
         }
       }
     },
-    "Scanning…" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スキャン中…"
+    "M5StickS3": {},
+    "Manage Subscription": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスク管理"
           }
         }
       }
     },
-    "Send Test OSD" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "テスト OSD を送信"
+    "Manual UID": {
+      "comment": "Pairing-mode segment label.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動 UID"
           }
         }
       }
     },
-    "Sends the current iPhone time to the goggle OSD. Each press shows a different value, so it's obvious when packets land." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "現在の iPhone の時刻をゴーグルの OSD に送信します。押すたびに値が変わるため、パケットが届いているかひと目でわかります。"
+    "Mode": {
+      "comment": "Pairing-mode picker label.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モード"
           }
         }
       }
     },
-    "Settings" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "設定"
+    "More voices: Settings → Accessibility → Spoken Content → Voices.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声を追加: 設定 → アクセシビリティ → 読み上げコンテンツ → 声"
           }
         }
       }
     },
-    "Start TX UID Capture" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "TX UID キャプチャを開始"
+    "Name": {
+      "comment": "DeviceRenameView TextField placeholder for the new BLE-advertised device name.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
           }
         }
       }
     },
-    "Stop" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "停止"
+    "New Pairing": {
+      "comment": "Pairing-mode segment label.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ペアリング"
           }
         }
       }
     },
-    "Switching pairing… waiting for goggle to settle." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ペアリングを切り替え中… ゴーグルの安定を待機中。"
+    "Next": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次へ"
           }
         }
       }
     },
-    "Target lap" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目標ラップ数"
+    "No devices found. Tap Scan to search.": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスが見つかりません。「スキャン」をタップして検索してください。"
           }
         }
       }
     },
-    "Target pace" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目標ペース"
+    "No laps": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラップなし"
           }
         }
       }
     },
-    "Target pace is race time ÷ (target lap − 1)." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目標ペース = レース時間 ÷ (目標ラップ数 − 1)。"
+    "No other devices found.": {
+      "comment": "M5StickS3 sub-screen Other-devices section text shown when already connected and no other peripherals were discovered (the bare 'No devices found. Tap Scan to search.' applies when nothing is connected at all).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他のデバイスは見つかりませんでした。"
           }
         }
       }
     },
-    "This switches the M5Stick to a fresh pairing ID and broadcasts it to your goggle in one step.\n\nMake sure your goggle is in bind mode (ELRS menu → Bind) BEFORE tapping Apply, otherwise the goggle won't pick up the new pairing.\n\nIf your goggle's backpack was flashed with a fixed bind phrase, the goggle will silently revert to that on its next reboot — use Restore previous goggle to get lap times back.\n\nCurrent pairing: %@" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "M5Stick を新しいペアリング ID に切り替え、その ID を一度の操作でゴーグルへブロードキャストします。\n\n「適用」をタップする前に、ゴーグルがバインドモード(ELRS メニュー → Bind)になっていることを必ず確認してください。そうしないと、ゴーグルは新しいペアリングを受け取りません。\n\nゴーグルのバックパックが固定のバインドフレーズで書き込まれている場合、再起動後は静かにそのフレーズへ戻ります — その場合は「前のゴーグルに戻す」でラップタイムを復帰できます。\n\n現在のペアリング: %@"
+    "No races yet": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだレースなし"
           }
         }
       }
     },
-    "TX UID Capture" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "TX UID キャプチャ"
+    "No verification result. The M5Stick may be disconnected — try again, or use Restore previous goggle.": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認結果が得られませんでした。M5Stick が切断されている可能性があります — もう一度試すか、「前のゴーグルに戻す」を使用してください。"
           }
         }
       }
     },
-    "UID: %@" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "UID: %@"
+    "No verification result. The M5Stick may be disconnected — try again.": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認結果が得られませんでした。M5Stick が切断されている可能性があります — もう一度試してください。"
           }
         }
       }
     },
-    "Unknown" : {
-      "comment" : "Fallback name for an unidentified BLE peripheral.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不明"
+    "No voices installed for this language. Install one from iOS Settings → Accessibility → Spoken Content → Voices.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この言語の音声がインストールされていません。設定 → アクセシビリティ → 読み上げコンテンツ → 声 からインストールしてください。"
           }
         }
       }
     },
-    "unknown" : {
-      "comment" : "Inline placeholder for the From/To/Current pairing UID inside the apply-confirmation alert.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不明"
+    "Normalized: %@": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正規化済み: %@"
           }
         }
       }
     },
-    "Use bridge" : {
-      "comment" : "Settings → Device toggle that enables or disables the M5StickS3 bridge. OFF (default) hides all bridge-related UI and prevents iOS from asking for Bluetooth permission.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ブリッジを使う"
+    "Not connected": {
+      "comment": "Settings root M5StickS3 row subtitle when no device is connected.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
           }
         }
       }
     },
-    "Use Bind Phrase mode with the same phrase that was flashed, or reflash the backpack with the new phrase." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書き込み済みと同じフレーズで「バインドフレーズ」モードを使用するか、新しいフレーズでバックパックを再書き込みしてください。"
+    "Off": {
+      "comment": "Settings root Lap announcer drilldown summary when the announcer is disabled.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
           }
         }
       }
     },
-    "Verifying lap times can reach the goggle…" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ラップタイムがゴーグルに届くか確認中…"
+    "On · %@": {
+      "comment": "Settings root Lap announcer drilldown summary when enabled. %@ is the selected language's display name (English / Japanese).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン · %@"
           }
         }
       }
     },
-    "Announce lap times" : {
-      "comment" : "Toggle that turns on TTS announcements after each lap.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ラップタイムを読み上げる"
+    "OSD layout": {
+      "comment": "Settings → Device row label that drills down into the OSD layout editor.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OSD レイアウト"
           }
         }
       }
     },
-    "Audio" : {
-      "comment" : "Audio settings section header (TTS announcer).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "オーディオ"
+    "OSD Layout": {
+      "comment": "Navigation title for the OSD layout editor sub-screen (Title Case to match iOS nav-title convention; the row label in the parent uses sentence case).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OSD レイアウト"
           }
         }
       }
     },
-    "English" : {
-      "comment" : "Language picker option (en).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "英語"
+    "Other devices": {
+      "comment": "M5StickS3 sub-screen: section header for the discovered (non-connected) devices list.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のデバイス"
           }
         }
       }
     },
-    "Japanese" : {
-      "comment" : "Language picker option (ja).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "日本語"
+    "Pace": {
+      "comment": "OSD layout editor Show-rows toggle label for row 2 (average lap + remaining-laps pace). NOTE: TimerView/RaceShareCard also pass the literal \"Pace\" to SummaryColumn(label:), but that param is currently a plain String (not LocalizedStringKey) so this translation does NOT leak there. If SummaryColumn.label is ever promoted to LocalizedStringKey, the JA value here will start showing on the post-race summary card and may need re-fitting for that surface.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペース"
           }
         }
       }
     },
-    "Language" : {
-      "comment" : "Language picker label in the Audio section.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "言語"
+    "Pair with a new goggle?": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいゴーグルとペアリングしますか？"
           }
         }
       }
     },
-    "More voices: Settings → Accessibility → Spoken Content → Voices." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "音声を追加: 設定 → アクセシビリティ → 読み上げコンテンツ → 声"
+    "Pair with new goggle": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいゴーグルとペアリング"
           }
         }
       }
     },
-    "No voices installed for this language. Install one from iOS Settings → Accessibility → Spoken Content → Voices." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この言語の音声がインストールされていません。設定 → アクセシビリティ → 読み上げコンテンツ → 声 からインストールしてください。"
+    "Pairing": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング"
           }
         }
       }
     },
-    "Pitch" : {
-      "comment" : "Slider label for AVSpeechUtterance pitchMultiplier.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ピッチ"
+    "Pairing works — lap times will appear on this goggle.": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング成功 — ラップタイムはこのゴーグルに表示されます。"
           }
         }
       }
     },
-    "Plays through the speaker even when the ringer switch is silent. Other audio stays ducked for the duration of a race so announcement timing stays precise." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "着信スイッチがサイレントでもスピーカーから再生されます。読み上げのタイミングを保つため、他のオーディオはレース中ずっと小さいままになります。"
+    "Parsed: %@": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析結果: %@"
           }
         }
       }
     },
-    "Count down final seconds" : {
-      "comment" : "Toggle: announce a spoken countdown over the final seconds of a race.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "残り秒数をカウントダウンする"
+    "Pick a Premium voice or LAP announcements fall back to the System engine.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium ボイスを選ばないと、ラップ実況は System エンジンにフォールバックします。"
           }
         }
       }
     },
-    "Start at" : {
-      "comment" : "Stepper label for how many seconds from race end the spoken countdown starts.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開始秒数"
+    "Pitch": {
+      "comment": "Slider label for AVSpeechUtterance pitchMultiplier.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピッチ"
           }
         }
       }
     },
-    "%lld s" : {
-      "comment" : "Compact seconds suffix for the countdown-start stepper readout (e.g. 10 s).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 秒"
+    "Plays through the speaker even when the ringer switch is silent. Other audio stays ducked for the duration of a race so announcement timing stays precise.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "着信スイッチがサイレントでもスピーカーから再生されます。読み上げのタイミングを保つため、他のオーディオはレース中ずっと小さいままになります。"
           }
         }
       }
     },
-    "Rate" : {
-      "comment" : "Slider label for AVSpeechUtterance speech rate.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "速度"
+    "Position": {
+      "comment": "OSD layout editor section header for the top-row slider plus the live row-range readout (`Goggle row(s) X[–Y] of N` / `All rows hidden`) directly underneath.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置"
           }
         }
       }
     },
-    "Say \"best lap\" on new best" : {
-      "comment" : "Toggle: append \"best lap\" suffix to the announcement when a new fastest lap is recorded.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ベスト更新時に「ベストラップ」と読み上げる"
+    "Premium — Subscribe ›": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium — サブスク登録 ›"
           }
         }
       }
     },
-    "Selected voice is no longer installed — falling back to the system default." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択中の音声がインストールされていません。システム既定にフォールバックします。"
+    "Premium (cloud)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium (クラウド)"
           }
         }
       }
     },
-    "System default" : {
-      "comment" : "Voice picker fallback option (uses AVSpeechSynthesisVoice for the current locale).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "システム既定"
+    "Premium voice": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium ボイス"
           }
         }
       }
     },
-    "Test voice" : {
-      "comment" : "Button that previews the current voice with a sample lap announcement.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "音声テスト"
+    "Press Bind on the TX to broadcast its UID. The TX's existing goggle binding is unaffected.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TX の Bind を押して UID をブロードキャストしてください。TX とゴーグルの既存のバインドには影響しません。"
           }
         }
       }
     },
-    "Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Spoken Content → Voices for noticeably better quality." : {
-      "comment" : "Japanese-specific nudge in Audio settings — recommends Enhanced voices instead of the locked Siri voices.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ヒント: 設定 → アクセシビリティ → 読み上げコンテンツ → 声 から Kyoko / Otoya / O-ren (Enhanced) をインストールすると音質が大幅に向上します。"
+    "Preview": {
+      "comment": "OSD layout editor section header for the 4-row monospaced preview at the top.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
           }
         }
       }
     },
-    "Voice" : {
-      "comment" : "Voice picker label in the Audio section.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "音声"
+    "Put your goggle in bind mode (ELRS menu → Bind), then tap Pair below. The M5Stick will switch to a fresh pairing ID and broadcast it to the goggle in one step.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグルをバインドモード(ELRS メニュー → Bind)にしてから、下の「ペアリング」をタップしてください。M5Stick が新しいペアリング ID に切り替わり、その ID をゴーグルへ一度に送信します。"
           }
         }
       }
     },
-    "Waiting for TX bind packet…" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "TX バインドパケットを待機中…"
+    "Race": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レース"
           }
         }
       }
     },
-    "About" : {
-      "comment" : "Settings root section header for app + firmware version rows.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "情報"
+    "Race Result": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レース結果"
           }
         }
       }
     },
-    "Alignment" : {
-      "comment" : "OSD layout editor: section header and segmented picker label for row alignment (left / center / right).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配置"
+    "Race time": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レース時間"
           }
         }
       }
     },
-    "App" : {
-      "comment" : "Settings root section header grouping app-side settings (lap announcer, appearance).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アプリ"
+    "Race-time call-outs powered by cloud TTS. 35+ Japanese and English voices across AWS Polly, Azure, and Cartesia.": {},
+    "Rate": {
+      "comment": "Slider label for AVSpeechUtterance speech rate.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "速度"
           }
         }
       }
     },
-    "App version" : {
-      "comment" : "Settings → About row label showing the iOS app's CFBundleShortVersionString.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アプリのバージョン"
+    "Realistic AI announcer voices": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リアルなAI実況音声"
           }
         }
       }
     },
-    "Bluetooth name" : {
-      "comment" : "Dual call-site: ConnectionSettingsView row label + DeviceRenameView section header, both for the BLE-advertised device name. Keep both English literals in sync if either is ever renamed — they share this xcstrings entry.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bluetooth 名"
+    "Reconnect the M5StickS3 to rename it.": {
+      "comment": "DeviceRenameView footer caption shown when BLE is not currently ready (rename requires a live connection).",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更するには M5StickS3 に再接続してください。"
           }
         }
       }
     },
-    "Configure" : {
-      "comment" : "Goggle pairing screen: section header containing the mode picker (Bind Phrase / Manual UID / New Pairing) and the per-mode action button — `Apply UID` for Bind Phrase / Manual UID, `Pair with new goggle` for New Pairing.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "設定"
+    "Remain": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り"
           }
         }
       }
     },
-    "Connected" : {
-      "comment" : "M5StickS3 sub-screen: section header for the currently-connected device row.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "接続済み"
+    "Rename device": {
+      "comment": "DeviceRenameView navigation title.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス名の変更"
           }
         }
       }
     },
-    "Device" : {
-      "comment" : "Settings root section header grouping the M5StickS3 + goggle drilldowns.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "デバイス"
+    "Requires ELRS Backpack v1.5+ with Backpack → Telemetry → ESP-NOW enabled in the TX LUA script. M5Stick must share the same UID as the TX.": {},
+    "Reset": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
           }
         }
       }
     },
-    "Firmware" : {
-      "comment" : "Settings → About row label for the firmware version reported by the M5StickS3.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファームウェア"
+    "Reset layout": {
+      "comment": "OSD layout editor: destructive button that returns the editor to its default layout.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レイアウトをリセット"
           }
         }
       }
     },
-    "Format" : {
-      "comment" : "Settings root section header for the inline race-time slider, target-lap stepper, and the derived target-pace readout row.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォーマット"
+    "Restore previous goggle": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のゴーグルに戻す"
           }
         }
       }
     },
-    "Goggle pairing" : {
-      "comment" : "Settings → Device row label that drills down into the goggle pairing screen.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグルペアリング"
+    "Restoring previous pairing…": {
+      "comment": "PairingSettingsView in-flight status while the New-Pairing failure-recovery path is rebroadcasting the prior UID to the goggle.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のペアリングを復元中…"
           }
         }
       }
     },
-    "Lap announcer" : {
-      "comment" : "Settings → App row label and sub-screen navigation title for the spoken lap-time feature.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ラップ読み上げ"
+    "Right": {
+      "comment": "OSD layout editor Alignment picker option (right-align all visible rows).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
           }
         }
       }
     },
-    "OSD layout" : {
-      "comment" : "Settings → Device row label that drills down into the OSD layout editor.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OSD レイアウト"
+    "Row %lld": {
+      "comment": "OSD layout editor Show-rows toggle label fallback for any row past the named four (currently unreachable — rowCount is fixed at 4 — but exists for completeness). Also reused by Settings root osdLayoutSummary for the single-visible-row case.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 行目"
           }
         }
       }
     },
-    "Other devices" : {
-      "comment" : "M5StickS3 sub-screen: section header for the discovered (non-connected) devices list.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "その他のデバイス"
+    "Rows %lld–%lld": {
+      "comment": "Settings root OSD layout drilldown summary for a multi-row visible block (1-indexed top–bottom).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld〜%lld 行目"
           }
         }
       }
     },
-    "Position" : {
-      "comment" : "OSD layout editor section header for the top-row slider plus the live row-range readout (`Goggle row(s) X[–Y] of N` / `All rows hidden`) directly underneath.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "位置"
+    "Save": {
+      "comment": "Bluetooth name rename screen: toolbar button that commits the new name and reboots the M5StickS3.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
           }
         }
       }
     },
-    "Preview" : {
-      "comment" : "OSD layout editor section header for the 4-row monospaced preview at the top.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プレビュー"
+    "Saving reboots the M5StickS3. The connection drops for a few seconds, then iPhone reconnects automatically with the new name.": {
+      "comment": "DeviceRenameView footer caption shown when ready to save (BLE connected + CHR_DEVICE_NAME supported). Explains the firmware-side ESP.restart() that lets BLEDevice::init pick up the new name.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存すると M5StickS3 が再起動します。接続が数秒間切れたあと、新しい名前で iPhone が自動で再接続します。"
           }
         }
       }
     },
-    "Reset layout" : {
-      "comment" : "OSD layout editor: destructive button that returns the editor to its default layout.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "レイアウトをリセット"
+    "Say \"best lap\" on new best": {
+      "comment": "Toggle: append \"best lap\" suffix to the announcement when a new fastest lap is recorded.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベスト更新時に「ベストラップ」と読み上げる"
           }
         }
       }
     },
-    "Save" : {
-      "comment" : "Bluetooth name rename screen: toolbar button that commits the new name and reboots the M5StickS3.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存"
+    "Scan": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキャン"
           }
         }
       }
     },
-    "Show rows" : {
-      "comment" : "OSD layout editor section header for the per-row visibility toggles.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表示する行"
+    "Scanning…": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキャン中…"
           }
         }
       }
     },
-    "Top row" : {
-      "comment" : "OSD layout editor: row label paired with the slider that picks the top row of the visible OSD block.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上端の行"
+    "Selected voice is no longer installed — falling back to the system default.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中の音声がインストールされていません。システム既定にフォールバックします。"
           }
         }
       }
     },
-    "Version" : {
-      "comment" : "M5StickS3 sub-screen row label sitting to the left of a vertical stack containing `App <ver>` and `FW <ver>`. Distinct from the Settings root, which renders App / Firmware as two separate rows under the About section.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "バージョン"
+    "Send Test OSD": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト OSD を送信"
           }
         }
       }
     },
-    "OSD Layout" : {
-      "comment" : "Navigation title for the OSD layout editor sub-screen (Title Case to match iOS nav-title convention; the row label in the parent uses sentence case).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OSD レイアウト"
+    "Send Test OSD shows the current iPhone time on the goggle so you can confirm packets are landing. Clear wipes the overlay buffer. Reset layout returns the editor to bottom-anchored, centered, all rows visible.": {
+      "comment": "OSD layout editor Actions section footer describing each button.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト OSD を送信すると、現在の iPhone 時刻をゴーグルに表示してパケットが届いているか確認できます。OSD をクリアでオーバーレイバッファを消去。レイアウトをリセットで、下端寄せ・中央揃え・全行表示の初期状態に戻します。"
           }
         }
       }
     },
-    "Connect to the M5Stick to preview on the goggle." : {
-      "comment" : "OSD layout editor preview footnote shown when no M5Stick is connected.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "M5Stick に接続するとゴーグルでプレビューできます。"
+    "Sends the current iPhone time to the goggle OSD. Each press shows a different value, so it's obvious when packets land.": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の iPhone の時刻をゴーグルの OSD に送信します。押すたびに値が変わるため、パケットが届いているかひと目でわかります。"
           }
         }
       }
     },
-    "Connected firmware doesn't support the OSD layout characteristic. Alignment and show/hide still work; vertical position will not." : {
-      "comment" : "OSD layout editor preview footnote shown when older firmware lacks CHR_OSD_LAYOUT.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "接続中のファームウェアは OSD レイアウト機能に未対応です。配置と表示／非表示は動きますが、縦位置の調整は反映されません。"
+    "Settings": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
           }
         }
       }
     },
-    "Live preview — pushed to the goggle as you adjust." : {
-      "comment" : "OSD layout editor preview footnote shown during normal operation.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライブプレビュー — 調整するとゴーグルに即反映されます。"
+    "SHARE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有"
           }
         }
       }
     },
-    "Top row of the visible OSD block on the goggle (1-indexed). The block is as tall as the number of visible rows; the slider's range adapts so the block never falls off the bottom." : {
-      "comment" : "OSD layout editor Position section footer explaining the slider's behaviour.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグルに表示する OSD ブロックの上端の行 (1 始まり)。ブロックの高さは表示する行数と同じで、スライダーの範囲はブロックが下端をはみ出さないよう自動で調整されます。"
+    "Show rows": {
+      "comment": "OSD layout editor section header for the per-row visibility toggles.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示する行"
           }
         }
       }
     },
-    "Applies to all visible rows." : {
-      "comment" : "OSD layout editor Alignment section footer.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表示中の行すべてに適用されます。"
+    "Split": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スプリット"
           }
         }
       }
     },
-    "Drag to reorder. Hidden rows are skipped on the goggle — visible rows close up the gap so the block stays compact." : {
-      "comment" : "OSD layout editor Show-rows section footer.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ドラッグで順序を変更できます。非表示の行はゴーグル側で詰められ、表示する行だけがまとまって表示されます。"
+    "Start at": {
+      "comment": "Stepper label for how many seconds from race end the spoken countdown starts.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始秒数"
           }
         }
       }
     },
-    "Send Test OSD shows the current iPhone time on the goggle so you can confirm packets are landing. Clear wipes the overlay buffer. Reset layout returns the editor to bottom-anchored, centered, all rows visible." : {
-      "comment" : "OSD layout editor Actions section footer describing each button.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "テスト OSD を送信すると、現在の iPhone 時刻をゴーグルに表示してパケットが届いているか確認できます。OSD をクリアでオーバーレイバッファを消去。レイアウトをリセットで、下端寄せ・中央揃え・全行表示の初期状態に戻します。"
+    "Start TX UID Capture": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TX UID キャプチャを開始"
           }
         }
       }
     },
-    "All rows hidden — nothing displayed on the goggle." : {
-      "comment" : "OSD layout editor row-range label when every row is toggled off.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべての行が非表示 — ゴーグルには何も表示されません。"
+    "Status": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス"
           }
         }
       }
     },
-    "Goggle row %lld of %lld" : {
-      "comment" : "OSD layout editor row-range label for the single-row case (top == bottom). First %lld is the row index, second is the goggle's total row count.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグル %lld 行目(全 %lld 行中)"
+    "Stop": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
           }
         }
       }
     },
-    "Goggle rows %lld–%lld of %lld" : {
-      "comment" : "OSD layout editor row-range label for a multi-row visible block. First two %lld are the inclusive 1-indexed top/bottom rows, third is the goggle's total row count.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴーグル %lld〜%lld 行目(全 %lld 行中)"
+    "Subscribe ›": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスク登録 ›"
           }
         }
       }
     },
-    "Left" : {
-      "comment" : "OSD layout editor Alignment picker option (left-align all visible rows).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "左"
+    "Subscribers only": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクライバー専用"
           }
         }
       }
     },
-    "Center" : {
-      "comment" : "OSD layout editor Alignment picker option (center all visible rows).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "中央"
+    "Switching pairing… waiting for goggle to settle.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを切り替え中… ゴーグルの安定を待機中。"
           }
         }
       }
     },
-    "Right" : {
-      "comment" : "OSD layout editor Alignment picker option (right-align all visible rows).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "右"
+    "System": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
           }
         }
       }
     },
-    "Time" : {
-      "comment" : "OSD layout editor Show-rows toggle label for row 0 (time-left countdown).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "残り時間"
+    "System default": {
+      "comment": "Voice picker fallback option (uses AVSpeechSynthesisVoice for the current locale).",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム既定"
           }
         }
       }
     },
-    "Lap" : {
-      "comment" : "OSD layout editor Show-rows toggle label for row 1 (current lap number + time).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ラップ"
+    "Tap a voice to hear it speak 「ラップ3、12.34、ベストラップ」.": {},
+    "Target lap": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標ラップ数"
           }
         }
       }
     },
-    "Pace" : {
-      "comment" : "OSD layout editor Show-rows toggle label for row 2 (average lap + remaining-laps pace). NOTE: TimerView/RaceShareCard also pass the literal \"Pace\" to SummaryColumn(label:), but that param is currently a plain String (not LocalizedStringKey) so this translation does NOT leak there. If SummaryColumn.label is ever promoted to LocalizedStringKey, the JA value here will start showing on the post-race summary card and may need re-fitting for that surface.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ペース"
+    "Target pace": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標ペース"
           }
         }
       }
     },
-    "Diff" : {
-      "comment" : "OSD layout editor Show-rows toggle label for row 3 (pace differential vs. target). NOTE: TimerView/RaceShareCard also pass the literal \"Diff\" to SummaryColumn(label:), but that param is currently a plain String (not LocalizedStringKey) so this translation does NOT leak there. If SummaryColumn.label is ever promoted to LocalizedStringKey, the JA value here will start showing on the post-race summary card and may need re-fitting for that surface.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ペース差"
+    "Target pace is race time ÷ (target lap − 1).": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標ペース = レース時間 ÷ (目標ラップ数 − 1)。"
           }
         }
       }
     },
-    "Row %lld" : {
-      "comment" : "OSD layout editor Show-rows toggle label fallback for any row past the named four (currently unreachable — rowCount is fixed at 4 — but exists for completeness). Also reused by Settings root osdLayoutSummary for the single-visible-row case.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 行目"
+    "Test voice": {
+      "comment": "Button that previews the current voice with a sample lap announcement.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声テスト"
           }
         }
       }
     },
-    "Not connected" : {
-      "comment" : "Settings root M5StickS3 row subtitle when no device is connected.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未接続"
+    "This permanently removes every saved race.": {},
+    "This permanently removes this saved race.": {},
+    "This switches the M5Stick to a fresh pairing ID and broadcasts it to your goggle in one step.\n\nMake sure your goggle is in bind mode (ELRS menu → Bind) BEFORE tapping Apply, otherwise the goggle won't pick up the new pairing.\n\nIf your goggle's backpack was flashed with a fixed bind phrase, the goggle will silently revert to that on its next reboot — use Restore previous goggle to get lap times back.\n\nCurrent pairing: %@": {
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M5Stick を新しいペアリング ID に切り替え、その ID を一度の操作でゴーグルへブロードキャストします。\n\n「適用」をタップする前に、ゴーグルがバインドモード(ELRS メニュー → Bind)になっていることを必ず確認してください。そうしないと、ゴーグルは新しいペアリングを受け取りません。\n\nゴーグルのバックパックが固定のバインドフレーズで書き込まれている場合、再起動後は静かにそのフレーズへ戻ります — その場合は「前のゴーグルに戻す」でラップタイムを復帰できます。\n\n現在のペアリング: %@"
           }
         }
       }
     },
-    "All hidden" : {
-      "comment" : "Settings root OSD layout drilldown summary when every row is toggled off.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべて非表示"
+    "Time": {
+      "comment": "OSD layout editor Show-rows toggle label for row 0 (time-left countdown).",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り時間"
           }
         }
       }
     },
-    "Rows %lld–%lld" : {
-      "comment" : "Settings root OSD layout drilldown summary for a multi-row visible block (1-indexed top–bottom).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld〜%lld 行目"
+    "Time Attack · %@s": {},
+    "Tip: install Kyoko / Otoya / O-ren Enhanced from iOS Settings → Accessibility → Spoken Content → Voices for noticeably better quality.": {
+      "comment": "Japanese-specific nudge in Audio settings — recommends Enhanced voices instead of the locked Siri voices.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒント: 設定 → アクセシビリティ → 読み上げコンテンツ → 声 から Kyoko / Otoya / O-ren (Enhanced) をインストールすると音質が大幅に向上します。"
           }
         }
       }
     },
-    "Off" : {
-      "comment" : "Settings root Lap announcer drilldown summary when the announcer is disabled.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "オフ"
+    "Top row": {
+      "comment": "OSD layout editor: row label paired with the slider that picks the top row of the visible OSD block.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上端の行"
           }
         }
       }
     },
-    "On · %@" : {
-      "comment" : "Settings root Lap announcer drilldown summary when enabled. %@ is the selected language's display name (English / Japanese).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "オン · %@"
+    "Top row of the visible OSD block on the goggle (1-indexed). The block is as tall as the number of visible rows; the slider's range adapts so the block never falls off the bottom.": {
+      "comment": "OSD layout editor Position section footer explaining the slider's behaviour.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴーグルに表示する OSD ブロックの上端の行 (1 始まり)。ブロックの高さは表示する行数と同じで、スライダーの範囲はブロックが下端をはみ出さないよう自動で調整されます。"
           }
         }
       }
     },
-    "%@ · %lld%%" : {
-      "comment" : "Settings root M5StickS3 row subtitle when connected and not charging. %@ is the device name; %lld is battery percent.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · %lld%%"
+    "Total Time": {},
+    "Trend": {},
+    "Two reasons this can happen:\n• The app is running outside Xcode's local StoreKit sandbox. Run from Xcode (Cmd+R) to test the paywall against the bundled .storekit config.\n• The App Store Connect products are still in review / Missing Metadata. They have to be approved before they appear in real builds.": {},
+    "TX UID Capture": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TX UID キャプチャ"
           }
         }
       }
     },
-    "%@ · %lld%% · Charging" : {
-      "comment" : "Settings root M5StickS3 row subtitle when connected and charging. %@ is the device name; %lld is battery percent.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · %lld%% · 充電中"
+    "UID must be 6 bytes (got %lld parts). Use hex 60:D2:53:8A:B2:00 or decimal 96 210 83 138 178 0.": {
+      "comment": "Manual UID validation error: wrong number of bytes parsed.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UID は 6 バイトである必要があります(検出: %lld 個)。16 進数 60:D2:53:8A:B2:00 か 10 進数 96 210 83 138 178 0 を使用してください。"
           }
         }
       }
     },
-    "No other devices found." : {
-      "comment" : "M5StickS3 sub-screen Other-devices section text shown when already connected and no other peripherals were discovered (the bare 'No devices found. Tap Scan to search.' applies when nothing is connected at all).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "他のデバイスは見つかりませんでした。"
+    "UID: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UID: %@"
           }
         }
       }
     },
-    "Rename device" : {
-      "comment" : "DeviceRenameView navigation title.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "デバイス名の変更"
+    "Unique sources": {},
+    "unknown": {
+      "comment": "Inline placeholder for the From/To/Current pairing UID inside the apply-confirmation alert.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
           }
         }
       }
     },
-    "Name" : {
-      "comment" : "DeviceRenameView TextField placeholder for the new BLE-advertised device name.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名前"
+    "Unknown": {
+      "comment": "Fallback name for an unidentified BLE peripheral.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
           }
         }
       }
     },
-    "%lld / %lld bytes" : {
-      "comment" : "DeviceRenameView footer byte counter (current UTF-8 bytes / max bytes). Mirrors the firmware-side advertised-name budget; flags red when over-budget.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld / %lld バイト"
+    "Use Bind Phrase mode with the same phrase that was flashed, or reflash the backpack with the new phrase.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き込み済みと同じフレーズで「バインドフレーズ」モードを使用するか、新しいフレーズでバックパックを再書き込みしてください。"
           }
         }
       }
     },
-    "Connected firmware doesn't support renaming. Update firmware." : {
-      "comment" : "DeviceRenameView footer caption shown when the connected firmware lacks CHR_DEVICE_NAME (older builds). Rendered in orange.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "接続中のファームウェアは名前変更に未対応です。ファームウェアを更新してください。"
+    "Use bridge": {
+      "comment": "Settings → Device toggle that enables or disables the M5StickS3 bridge. OFF (default) hides all bridge-related UI and prevents iOS from asking for Bluetooth permission.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブリッジを使う"
           }
         }
       }
     },
-    "Reconnect the M5StickS3 to rename it." : {
-      "comment" : "DeviceRenameView footer caption shown when BLE is not currently ready (rename requires a live connection).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名前を変更するには M5StickS3 に再接続してください。"
+    "VBAT": {},
+    "Verifying lap times can reach the goggle…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラップタイムがゴーグルに届くか確認中…"
           }
         }
       }
     },
-    "Saving reboots the M5StickS3. The connection drops for a few seconds, then iPhone reconnects automatically with the new name." : {
-      "comment" : "DeviceRenameView footer caption shown when ready to save (BLE connected + CHR_DEVICE_NAME supported). Explains the firmware-side ESP.restart() that lets BLEDevice::init pick up the new name.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存すると M5StickS3 が再起動します。接続が数秒間切れたあと、新しい名前で iPhone が自動で再接続します。"
+    "Version": {
+      "comment": "M5StickS3 sub-screen row label sitting to the left of a vertical stack containing `App <ver>` and `FW <ver>`. Distinct from the Settings root, which renders App / Firmware as two separate rows under the About section.",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョン"
           }
         }
       }
     },
-    "Restoring previous pairing…" : {
-      "comment" : "PairingSettingsView in-flight status while the New-Pairing failure-recovery path is rebroadcasting the prior UID to the goggle.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前のペアリングを復元中…"
+    "Voice": {
+      "comment": "Voice picker label in the Audio section.",
+      "extractionState": "stale",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声"
           }
         }
       }
     },
-    "Couldn't broadcast the bind packet. The M5Stick switched to a fresh pairing but your goggle wasn't notified — use Restore previous goggle." : {
-      "comment" : "PairingSettingsView error label for the New-Pairing case where the local UID was committed but the ESP-NOW bind broadcast didn't go out, leaving the goggle on the old UID.",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "バインドパケットを送信できませんでした。M5Stick は新しいペアリングに切り替わりましたが、ゴーグルには通知できていません — 「前のゴーグルに戻す」を使ってください。"
+    "Waiting for TX bind packet…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TX バインドパケットを待機中…"
           }
         }
       }
     },
-    "Couldn't restore the previous pairing — the M5Stick may have disconnected. Try again." : {
-      "comment" : "PairingSettingsView error label for the recovery-path failure case (the second-chance restore broadcast also didn't go through).",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前のペアリングを復元できませんでした — M5Stick が切断された可能性があります。もう一度試してください。"
+    "Δ Best": {},
+    "Announcement": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実況設定"
           }
         }
       }
     }
-  }
+  },
+  "version": "1.0"
 }
