@@ -105,8 +105,8 @@ struct PaywallView: View {
             ValueRow(icon: "waveform.path.ecg",
                      title: Self.isJa ? "放送局グレードの音質" : "Broadcast-grade audio",
                      subtitle: Self.isJa
-                        ? "プロのレース実況と区別がつかないニューラルボイス。iPhone スピーカーでもゴーグル接続の Bluetooth でもクリアに聞こえます。"
-                        : "Neural voices indistinguishable from professional race announcers. Clear over the iPhone speaker and over Bluetooth to goggles.")
+                        ? "プロのレース実況と区別がつかないニューラルボイス。iPhone のスピーカーでも Bluetooth ヘッドホンでもクリアに聞こえます。"
+                        : "Neural voices indistinguishable from professional race announcers. Clear over the iPhone speaker or Bluetooth headphones.")
             ValueRow(icon: "person.2.fill",
                      title: Self.isJa ? "実況キャラを選べる" : "Pick your announcer",
                      subtitle: Self.isJa
