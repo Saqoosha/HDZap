@@ -91,7 +91,7 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Realistic AI announcer voices")
                 .font(.largeTitle.bold())
-            Text("Race-time call-outs powered by cloud TTS. 50+ voices in Japanese and English across AWS Polly, Azure, and Cartesia.")
+            Text("Race-time call-outs powered by AI voice synthesis. 50+ voices in Japanese and English across AWS Polly, Azure, and Cartesia.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -99,8 +99,8 @@ struct PaywallView: View {
 
     private var valueProps: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ValueRow(icon: "sparkles", title: "Natural Japanese pronunciation",
-                     subtitle: "Cardinal number reading (\"12.34\" → \"じゅうにてん さんよん\"), no robotic digit-by-digit.")
+            ValueRow(icon: "sparkles", title: "Natural number reading",
+                     subtitle: "\"12.34\" reads as \"twelve point three four\" — no robotic digit-by-digit. Works in both English and Japanese.")
             ValueRow(icon: "bolt.fill", title: "Streaming playback",
                      subtitle: "First-audio delay: Polly ~40 ms, Azure ~90 ms, Cartesia ~400 ms with full prosody.")
             ValueRow(icon: "person.2.fill", title: "Pick your announcer",
@@ -155,12 +155,12 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Listen first")
                 .font(.headline)
-            Text("Tap a voice to hear it speak 「ラップ3、12.34、ベストラップ」.")
+            Text("Tap a voice to hear a sample race call-out.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 8) {
-                ForEach(PaywallView.sampleVoices) { voice in
+                ForEach(Self.sampleVoices) { voice in
                     PaywallSampleRow(
                         voice: voice,
                         isPreviewing: previewingVoiceId == voice.id
@@ -172,15 +172,26 @@ struct PaywallView: View {
         }
     }
 
-    /// Curated 3-voice teaser, one per provider. IDs sourced from `PremiumVoiceCatalog`.
-    fileprivate static let sampleVoices: [PremiumVoiceOption] = [
-        // Cartesia Takeshi — most expressive option, user-rated 5/5.
-        PremiumVoiceCatalog.voices.first { $0.id == "06950fa3-534d-46b3-93bb-f852770ea0b5" }!,
-        // Azure Daichi — clean broadcast male, fastest among the high-quality options.
-        PremiumVoiceCatalog.voices.first { $0.id == "ja-JP-DaichiNeural" }!,
-        // Polly Takumi — lowest-latency option, classic ELT race-call cadence with x-fast.
-        PremiumVoiceCatalog.voices.first { $0.id == "Takumi" }!,
-    ]
+    /// Curated 3-voice teaser, one per provider, ordered fastest-first (Polly → Azure →
+    /// Cartesia) to match the picker. The voices are picked from the user's UI locale so a
+    /// Japanese-system iPhone hears Japanese voices and an English-system iPhone hears
+    /// English voices — showing the wrong-language side of the catalogue on the paywall
+    /// hides half the value (and produces a confused first impression).
+    fileprivate static var sampleVoices: [PremiumVoiceOption] {
+        let isJapanese = Locale.current.language.languageCode?.identifier == "ja"
+        let ids: [String] = isJapanese
+            ? [
+                "Takumi",                                  // Polly · Takumi (male, Neural)
+                "ja-JP-DaichiNeural",                      // Azure · Daichi (male)
+                "06950fa3-534d-46b3-93bb-f852770ea0b5",    // Cartesia · Takeshi - Hero
+            ]
+            : [
+                "Matthew",                                  // Polly · Matthew (US male, newscaster)
+                "en-US-DavisNeural",                        // Azure · Davis (US male)
+                "2f22b9bc-b0eb-4cb6-b5ae-0c099a0fdfad",     // Cartesia · Scott - Sportscaster
+            ]
+        return ids.compactMap { id in PremiumVoiceCatalog.voices.first { $0.id == id } }
+    }
 
     private var actionButtons: some View {
         VStack(spacing: 8) {
@@ -233,9 +244,16 @@ struct PaywallView: View {
         "Payment is charged to your Apple ID account after a 7-day free trial."
     }
 
-    /// Sample text used when auditioning. Same string as the in-app picker — short enough
-    /// to be quick, long enough to expose the number-reading bug providers used to have.
-    private static let sampleText = "ラップ3、12.34、ベストラップ"
+    /// Sample text per voice language — short enough to be quick, long enough to expose
+    /// number-reading regressions. Sending JA text through an EN voice (or vice versa)
+    /// produces phonetic-approximation gibberish, so each row's preview uses the script
+    /// that matches the voice's `lang`.
+    private static func sampleText(for lang: String) -> String {
+        switch lang {
+        case "ja": return "ラップ3、12.34、ベストラップ"
+        default:   return "Lap 3, 12.34, best lap"
+        }
+    }
 
     private func togglePreview(_ voice: PremiumVoiceOption) {
         if previewingVoiceId == voice.id, announcer.premiumSynth.isPlaying {
@@ -244,7 +262,7 @@ struct PaywallView: View {
         } else {
             previewingVoiceId = voice.id
             announcer.premiumSynth.speakAsync(
-                text: PaywallView.sampleText,
+                text: Self.sampleText(for: voice.lang),
                 lang: voice.lang,
                 voice: voice
             )
