@@ -321,15 +321,13 @@ struct PaywallView: View {
     }
 
     private func purchase(_ product: Product) async {
+        // `SubscriptionManager.purchase` records the message in its `lastError` before
+        // re-throwing, so the paywall's banner reads from a single source. The catch is
+        // empty because the operator's next action is to tap again or back out — there's
+        // no further `throws` boundary to propagate to.
         do {
             _ = try await subscription.purchase(product)
-        } catch {
-            // Errors thrown from Product.purchase() go here — usually
-            // SKError.paymentCancelled (already handled inside the manager) or network.
-            // Surface so the operator can retry.
-            // SubscriptionManager.lastError is set inside catch paths too — we don't need
-            // to re-set it here.
-        }
+        } catch {}
     }
 }
 

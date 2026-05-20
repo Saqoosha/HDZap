@@ -237,11 +237,15 @@ jobs:
             # Web Flasher
             cp -r "$side/docs/flash/." "$dest/flash/"
 
-            # Manual: en at $dest, ja at $dest/ja, images mirrored under both
+            # Manual: en at $dest, ja at $dest/ja, images mirrored under both. Each per-side
+            # checkout may legitimately omit a page (a page added on develop hasn't reached
+            # main until release), so guard each cp so one missing file doesn't break the
+            # composite — the other side still publishes its own slice.
             cp "$side/docs/manual/_pages/index.html"             "$dest/index.html"
             cp "$side/docs/manual/_pages/ja/index.html"          "$dest/ja/index.html"
-            cp "$side/docs/manual/_pages/privacy/index.html"     "$dest/privacy/index.html"
-            # JA privacy page may not exist on every branch (added later) — skip cleanly.
+            if [ -f "$side/docs/manual/_pages/privacy/index.html" ]; then
+              cp "$side/docs/manual/_pages/privacy/index.html"   "$dest/privacy/index.html"
+            fi
             if [ -f "$side/docs/manual/_pages/privacy/ja/index.html" ]; then
               mkdir -p "$dest/privacy/ja"
               cp "$side/docs/manual/_pages/privacy/ja/index.html" "$dest/privacy/ja/index.html"

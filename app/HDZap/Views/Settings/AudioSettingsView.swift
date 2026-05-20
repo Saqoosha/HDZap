@@ -12,9 +12,10 @@ struct AudioSettingsView: View {
     /// (the conversion surface) instead of popping a modal paywall.
     @State private var navigateToPicker = false
 #if DEBUG
-    // Premium TTS test harness — only compiled into Debug builds. Production code will
-    // create the synth via SubscriptionManager + SpeechRouter; this @State instance is just
-    // for end-to-end audition before that wiring lands.
+    // Standalone Premium synth used by the dev panel below. Production playback flows
+    // through `announcer.premiumSynth` (wired in `HDZapApp`); this separate instance lets
+    // the panel exercise an utterance without disturbing the announcer's session/engine
+    // state mid-race.
     @State private var premiumSynth = PremiumSpeechSynthesizer()
     @AppStorage(PremiumTTSDevDefaults.workerURLKey) private var premiumWorkerURL
         = PremiumTTSDevDefaults.defaultWorkerURL

@@ -10,19 +10,20 @@ private let log = Logger(subsystem: "sh.saqoo.HDZap", category: "TTSCache")
 /// provider cold call. The R2 fetch on the way down also warms this cache, so a phrase a
 /// user hears once is essentially free forever (up to the LRU cap).
 ///
-/// Cached payloads are provider-specific raw bytes:
-///   - Polly / Azure: raw mp3 — fed straight to `AVAudioPlayer(contentsOf:)` on hit
-///   - Cartesia: raw s16le 24 kHz PCM concatenated from the SSE stream (we strip the SSE
-///     wrapper before caching since it adds ~30% overhead and we don't need the framing
-///     when serving a finished file from disk)
+/// Every cached payload is raw s16le mono PCM at the provider's native sample rate
+/// (Polly 16 kHz, Cartesia + Azure 24 kHz). On cache hit we load the file into an
+/// `AVAudioPCMBuffer` and schedule it on the same player path the streaming code uses.
+/// Cartesia's SSE wrapper is stripped before caching since the framing adds ~30% overhead
+/// with no benefit when replaying a complete utterance from disk.
 final class TTSCache {
     static let shared = TTSCache()
 
     private let directory: URL
-    /// 50 MB cap. ~5 KB per Polly/Azure mp3 and ~100 KB per Cartesia 2-sec PCM utterance,
-    /// so this fits the whole 55-voice picker sample set plus thousands of race phrases
-    /// without thrashing. Falls back to LRU eviction at 50% retention when exceeded so we
-    /// don't flap right at the boundary.
+    /// 50 MB cap. Every entry is raw s16le mono PCM now (16 kHz Polly = ~32 KB/sec,
+    /// 24 kHz Cartesia + Azure = ~48 KB/sec), so a typical 2-second race phrase lands
+    /// between 64 and 96 KB. The cap holds hundreds of unique phrases plus the entire
+    /// 55-voice picker sample set without thrashing. Falls back to LRU eviction at 50%
+    /// retention when exceeded so we don't flap right at the boundary.
     private let maxBytes: Int = 50 * 1024 * 1024
 
     init() {

@@ -179,8 +179,12 @@ app.post("/tts", async (c) => {
     return c.json({ error: "invalid-json" }, 400);
   }
 
-  // Default to cartesia for backwards compat with the iOS build that doesn't yet send `provider`.
-  const provider = (body.provider || "cartesia").trim().toLowerCase();
+  // `provider` is required — defaulting to anything would silently route an ill-formed
+  // request to a real (billable) upstream call. Reject with a specific 400 instead.
+  if (typeof body.provider !== "string" || body.provider.trim() === "") {
+    return c.json({ error: "missing-provider" }, 400);
+  }
+  const provider = body.provider.trim().toLowerCase();
   const text = (body.text || "").trim();
   const voice = (body.voice || "").trim();
   const lang = (body.lang || "").trim();
@@ -197,8 +201,6 @@ app.post("/tts", async (c) => {
     return c.json({ error: "text-too-long", limit: maxChars, authMode }, 400);
   if (!voice) return c.json({ error: "missing-voice" }, 400);
   if (!ALLOWED_LANGS.has(lang)) return c.json({ error: "bad-lang" }, 400);
-
-  void userId; // reserved for per-user rate limiting via KV — wire up in a follow-up.
 
   // Build the cache key from every parameter that changes the audio. Two callers with
   // identical params share one cache entry regardless of who they are — that's the whole
@@ -268,7 +270,10 @@ app.post("/tts", async (c) => {
     );
   }
 
-  // Don't cache provider errors — they'd poison the entry and serve a 4xx forever.
+  // Don't cache provider errors — they'd poison the entry and serve a 4xx forever. Each
+  // proxy function also content-type-validates the upstream response (a provider returning
+  // HTTP 200 with an HTML maintenance page or plaintext quota notice gets downgraded to
+  // 502 there) so a wrong body never reaches iOS as "audio/* PCM" to be played as static.
   if (!upstream.ok || !upstream.body) {
     return upstream;
   }
@@ -470,6 +475,18 @@ async function proxyCartesia(
     );
   }
 
+  // Defence against a 200 response whose body isn't actually SSE (Cartesia maintenance
+  // page / plaintext quota notice). Without this the body would stream through to iOS
+  // and play as static. Must inspect the upstream `resp` directly — once we wrap into a
+  // new Response with our own headers, the original Content-Type is lost.
+  const upstreamType = (resp.headers.get("Content-Type") || "").toLowerCase();
+  if (!upstreamType.startsWith("text/event-stream")) {
+    return new Response(
+      JSON.stringify({ error: "upstream-bad-content-type", provider: "cartesia", contentType: upstreamType }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   return new Response(resp.body, {
     status: 200,
     headers: {
@@ -540,13 +557,24 @@ async function proxyPolly(
     );
   }
 
+  // Polly returns `application/x-amzn-pcm` for OutputFormat=pcm — accept anything starting
+  // with `audio/` or `application/` containing `pcm`, since AWS has tweaked this string
+  // in the past. A maintenance HTML page would not match.
+  const upstreamType = (resp.headers.get("Content-Type") || "").toLowerCase();
+  if (!(upstreamType.startsWith("audio/") || upstreamType.includes("pcm"))) {
+    return new Response(
+      JSON.stringify({ error: "upstream-bad-content-type", provider: "polly", contentType: upstreamType }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   return new Response(resp.body, {
     status: 200,
     headers: {
       "Content-Type": "audio/pcm",
       "X-HDZap-Provider": "polly",
       "X-HDZap-Format": "pcm-raw",
-      "X-HDZap-SampleRate": "22050",
+      "X-HDZap-SampleRate": "16000",
       "Cache-Control": "no-store",
     },
   });
@@ -605,6 +633,17 @@ async function proxyAzure(
     return new Response(
       JSON.stringify({ error: "upstream-azure", status: resp.status, body: errBody.slice(0, 500) }),
       { status: resp.status, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // Azure returns `audio/basic` or `audio/x-wav` etc. depending on the OutputFormat we
+  // asked for (`raw-24khz-16bit-mono-pcm` typically yields `audio/x-wav` or similar). A
+  // maintenance HTML page would not start with `audio/`.
+  const upstreamType = (resp.headers.get("Content-Type") || "").toLowerCase();
+  if (!upstreamType.startsWith("audio/")) {
+    return new Response(
+      JSON.stringify({ error: "upstream-bad-content-type", provider: "azure", contentType: upstreamType }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
     );
   }
 

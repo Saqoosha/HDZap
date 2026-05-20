@@ -19,11 +19,14 @@ enum SubscriptionProductID {
 /// window (~16 days after a failed renewal) during which we should still treat the user as
 /// entitled — Apple says "if you see currentEntitlements after expiration, the user is in
 /// grace period; honour the subscription".
+///
+/// `.inGracePeriod` carries a non-optional `Date` because being in the grace period implies
+/// a known expiry — Apple wouldn't surface it via `currentEntitlements` without one.
 enum SubscriptionStatus: Equatable {
     case unknown
     case none
     case active(expires: Date?)
-    case inGracePeriod(expires: Date?)
+    case inGracePeriod(expires: Date)
 }
 
 /// StoreKit 2 wrapper. Holds the loaded `Product`s, tracks current entitlement, and exposes
@@ -102,11 +105,19 @@ final class SubscriptionManager {
     }
 
     /// Purchase or upgrade. Returns true if the user is now entitled, false if they
-    /// cancelled or the transaction is pending. Errors throw.
+    /// cancelled or the transaction is pending. Errors throw AND populate `lastError` so
+    /// the paywall can surface them without callers having to plumb the error themselves.
     func purchase(_ product: Product) async throws -> Bool {
         purchasing = product.id
         defer { purchasing = nil }
-        let result = try await product.purchase()
+        let result: Product.PurchaseResult
+        do {
+            result = try await product.purchase()
+        } catch {
+            log.error("purchase threw: \(error.localizedDescription, privacy: .public)")
+            lastError = "Purchase failed: \(error.localizedDescription)"
+            throw error
+        }
         switch result {
         case .success(let verification):
             await handle(verificationResult: verification)
@@ -122,6 +133,7 @@ final class SubscriptionManager {
             return false
         @unknown default:
             log.error("purchase returned unknown result")
+            lastError = "Purchase returned an unrecognized result — please try again."
             return false
         }
     }
@@ -141,36 +153,70 @@ final class SubscriptionManager {
         }
     }
 
-    /// Walk `Transaction.currentEntitlements` and set `status` to the latest matching one.
-    /// Apple guarantees the most recent transaction for a subscription group wins.
+    /// Walk `Transaction.currentEntitlements` and resolve to the strongest entitlement —
+    /// prefer an active transaction with the furthest expiry over a grace-period one. Apple
+    /// can hand back multiple entitlements at once (e.g., monthly upgraded to yearly mid-
+    /// cycle), so an arbitrary loop-final winner can ship the wrong JWS.
+    ///
+    /// Also clears `currentJWS` when the chosen transaction is past `expiresDate + grace`
+    /// so the Worker isn't pinged with an expired token (it would reject with `jws-expired`
+    /// but every Premium tap would still pay the round-trip). Grace window mirrors the
+    /// Worker's default — Apple's billing-retry can extend ~16 days.
     func refreshEntitlement() async {
-        var latest: SubscriptionStatus = .none
-        var latestJWS: String?
+        let now = Date()
+        var bestRanking = -1  // 0 = grace, 1 = active w/ expiry, 2 = active w/ no expiry
+        var best: SubscriptionStatus = .none
+        var bestExpires: Date = .distantPast
+        var bestJWS: String?
+
         for await result in Transaction.currentEntitlements {
             guard case .verified(let tx) = result,
-                  SubscriptionProductID.all.contains(tx.productID) else { continue }
+                  SubscriptionProductID.all.contains(tx.productID),
+                  tx.revocationDate == nil else { continue }
 
-            let expires = tx.expirationDate
-            // `revocationDate` non-nil = Apple revoked the transaction (refund, family share
-            // ended, etc.) — treat as no entitlement.
-            if tx.revocationDate != nil { continue }
-
-            if let expires, expires < Date() {
-                // Past expiration but Apple still hands it back in currentEntitlements:
-                // that's the grace-period signal per StoreKit2 docs.
-                latest = .inGracePeriod(expires: expires)
+            let candidate: SubscriptionStatus
+            let candidateRanking: Int
+            let candidateExpires: Date
+            if let expires = tx.expirationDate {
+                if expires < now {
+                    candidate = .inGracePeriod(expires: expires)
+                    candidateRanking = 0
+                } else {
+                    candidate = .active(expires: expires)
+                    candidateRanking = 1
+                }
+                candidateExpires = expires
             } else {
-                latest = .active(expires: expires)
+                candidate = .active(expires: nil)
+                candidateRanking = 2
+                candidateExpires = .distantFuture
             }
-            // The Worker needs the original JWS (not the decoded payload) to verify
-            // signature + cert chain. `result.jwsRepresentation` is on the
-            // `VerificationResult`, not the inner `Transaction`, so reach back for it.
-            latestJWS = result.jwsRepresentation
+            // Prefer higher ranking; within the same ranking prefer the later expiry.
+            if candidateRanking > bestRanking ||
+                (candidateRanking == bestRanking && candidateExpires > bestExpires) {
+                bestRanking = candidateRanking
+                best = candidate
+                bestExpires = candidateExpires
+                bestJWS = result.jwsRepresentation
+            }
         }
-        status = latest
-        currentJWS = latestJWS
-        log.notice("entitlement refresh: \(String(describing: self.status), privacy: .public) jws=\(latestJWS != nil ? "yes" : "no", privacy: .public)")
+
+        // Drop JWS if we only have a long-expired entitlement past the grace window —
+        // shipping it to the Worker would just produce 401s on every Premium request.
+        if case .inGracePeriod(let expires) = best,
+           now.timeIntervalSince(expires) > Self.gracePeriodSeconds {
+            best = .none
+            bestJWS = nil
+        }
+
+        status = best
+        currentJWS = bestJWS
+        log.notice("entitlement refresh: \(String(describing: self.status), privacy: .public) jws=\(bestJWS != nil ? "yes" : "no", privacy: .public)")
     }
+
+    /// Apple's documented billing-retry grace window for auto-renew subscriptions. After
+    /// this we stop attempting Premium entirely instead of letting the Worker reject.
+    private static let gracePeriodSeconds: TimeInterval = 16 * 24 * 60 * 60
 
     private func handle(verificationResult: VerificationResult<Transaction>) async {
         switch verificationResult {
@@ -182,9 +228,11 @@ final class SubscriptionManager {
             log.notice("handled transaction \(tx.id, privacy: .public) product=\(tx.productID, privacy: .public)")
         case .unverified(let tx, let error):
             // Apple couldn't verify the JWS signature. Don't grant entitlement — this is
-            // either tampering or a corrupted receipt. Surface to the operator so they can
-            // restore from a clean Apple ID.
+            // either tampering or a corrupted receipt. Surface to the operator via
+            // `lastError` so the paywall can show a banner instead of leaving them
+            // wondering why "Subscribe" did nothing.
             log.error("UNVERIFIED transaction \(tx.id, privacy: .public): \(String(describing: error), privacy: .public)")
+            lastError = "Subscription verification failed — try restoring purchases or signing into a different Apple ID."
         }
     }
 }

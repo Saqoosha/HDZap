@@ -4,8 +4,10 @@ import os
 
 private let log = Logger(subsystem: "sh.saqoo.HDZap", category: "PremiumTTS")
 
-/// UserDefaults keys for the DEBUG-only Premium TTS test harness. Production code will
-/// read the bearer from a StoreKit 2 entitlement, not these defaults.
+/// UserDefaults keys for the DEBUG-only Premium TTS dev panel. These let an internal tester
+/// override the Worker URL / Bearer at runtime without rebuilding. Production playback
+/// pulls the bearer from `SubscriptionManager.currentJWS` via the `jwsProvider` closure —
+/// these defaults are only consulted when no JWS is available (panel test, free preview).
 enum PremiumTTSDevDefaults {
     static let workerURLKey = "_premiumWorkerURL"
     static let bearerKey = "_premiumWorkerBearer"
@@ -56,10 +58,10 @@ struct PremiumVoiceOption: Identifiable, Hashable {
     let provider: PremiumVoiceProvider
 }
 
-/// All Premium TTS voices that ship in the dev panel — sourced from live API listings on
-/// 2026-05-19 (Cartesia 22 JA + 3 EN, Polly 3 JA + 11 EN Neural, Azure 7 JA + 9 EN Neural).
-/// The full English library is huge; we stick to handpicked picks for the race-announcer /
-/// friendly-narrator personas (US/UK/AU accents covered across providers).
+/// Premium TTS voice catalog (Cartesia 22 JA + 3 EN, Polly 3 JA + 11 EN Neural, Azure 7 JA
+/// + 9 EN Neural). Polly + Azure each ship far more voices than this — we keep the menu
+/// scoped to race-announcer / friendly-narrator personas (US/UK/AU accents covered across
+/// providers) so the picker stays scannable mid-race.
 enum PremiumVoiceCatalog {
     static let voices: [PremiumVoiceOption] = [
         // ── Cartesia JA (all 22) ───────────────────────────────────────────────────
@@ -152,34 +154,32 @@ enum PremiumTTSError: Error, LocalizedError {
     }
 }
 
-/// Streams Cartesia-via-Worker SSE audio into `AVAudioPlayerNode`.
+/// Streams cloud TTS audio (Cartesia SSE, Polly + Azure raw PCM) into `AVAudioPlayerNode`.
 ///
 /// Pipeline:
-/// 1. POST text/voice/lang to the Worker `/tts` endpoint with a Bearer (DEBUG: from UserDefaults;
-///    later: from StoreKit 2 entitlement).
+/// 1. POST text/voice/lang to the Worker `/tts` endpoint. The Bearer is the Apple-signed
+///    JWS for entitled subscribers (via `jwsProvider`) or the baked-in dev bearer otherwise.
 /// 2. Read the response body as a streaming byte sequence (`URLSession.AsyncBytes`).
-/// 3. Parse SSE events on the fly — `data: { type:"chunk", data:"<base64 pcm>" }`.
-/// 4. Base64-decode each chunk into raw PCM s16le 24kHz mono.
-/// 5. Wrap in `AVAudioPCMBuffer` and schedule on a player node attached to a private
-///    `AVAudioEngine`. The mixer auto-resamples to the output device's native rate.
+/// 3. Decode each provider's wire format: Cartesia is SSE-framed base64 PCM s16le 24 kHz;
+///    Polly + Azure are raw chunked PCM (Polly 16 kHz, Azure 24 kHz).
+/// 4. Wrap each chunk in `AVAudioPCMBuffer` (24 kHz → direct, 16 kHz → AVAudioConverter
+///    upsample) and schedule on a player node attached to a private `AVAudioEngine`.
 ///
 /// Audio session: configures `.playback` + `.spokenAudio` + `.duckOthers` independently of
-/// `LapAnnouncer` for now. When Phase 2 integration lands, the two synthesisers will share
-/// one session (and one warm-keeper) via a `SpeechRouter`.
+/// `LapAnnouncer`. Both synthesisers share the same `AVAudioSession` (process-singleton)
+/// and the same category options, so concurrent `setActive(true)` calls are idempotent.
 @MainActor
 @Observable
 final class PremiumSpeechSynthesizer: NSObject {
-    /// Returns the Apple-signed JWS (from `SubscriptionManager.currentJWS`) when the
-    /// operator has an active entitlement, else nil. Wired up in `HDZapApp` after both
-    /// the announcer and SubscriptionManager exist. When non-nil, the JWS is sent as
-    /// the Bearer token and the Worker validates it against Apple Root CA G3 — the only
-    /// path that should be hit during real race-time playback. When nil, the synth falls
-    /// back to `BuildSecrets.workerBearer` (the preview path the picker uses).
+    /// Returns the Apple-signed JWS for the active entitlement, else nil. When non-nil,
+    /// the JWS is sent as the Bearer token and the Worker validates it against Apple Root
+    /// CA G3 — the path real race-time playback takes. When nil, the synth falls back to
+    /// `BuildSecrets.workerBearer` (the preview path the picker uses pre-subscription).
     var jwsProvider: () -> String? = { nil }
 
     /// Cartesia returns `pcm_s16le` at 24kHz mono. We convert to Float32 on the fly because
     /// AVAudioEngine's mixer is happiest with floats — going through Int16 hit silent failures
-    /// on iOS 18/26 where `int16ChannelData` returned nil and the buffer scheduled as silence.
+    /// on iOS 18 where `int16ChannelData` returned nil and the buffer scheduled as silence.
     /// Conversion is trivial (`Float(s16) / 32768`) and runs once per chunk on the main actor.
     private static let sourceFormat: AVAudioFormat = {
         guard let f = AVAudioFormat(commonFormat: .pcmFormatFloat32,
@@ -204,13 +204,25 @@ final class PremiumSpeechSynthesizer: NSObject {
     /// to 0 and the network task has finished, we can flip `isPlaying` off.
     private var pendingBuffers = 0
 
-    /// Buffers that arrived while the engine wasn't running yet — keep them so we can flush
-    /// them in order once `engine.start()` succeeds. Without this the first chunk gets lost
-    /// to the 0–50 ms gap between scheduling and engine startup.
-    private var pendingPreEngineBuffers: [AVAudioPCMBuffer] = []
+    /// Per-utterance monotonic counter. Bumped by `cancel()` (and implicitly by every fresh
+    /// `speak()` which calls cancel first). Each scheduled buffer captures the generation
+    /// active at schedule time; the completion callback only mutates state if its captured
+    /// generation still matches the live one — stale callbacks from a cancelled utterance
+    /// can no longer flip `isPlaying` false on a subsequent fresh utterance.
+    private var currentGeneration: UInt64 = 0
 
     var isPlaying: Bool = false
     var lastError: String?
+
+    /// Per-call completion callback registered by `speakAsync`. Fires exactly once per
+    /// `speakAsync` invocation: when playback drains, when `cancel()` runs while this call
+    /// is still the active one, or when the `speak()` Task throws. Callers that don't pass
+    /// `onEnd` opt out of the notification — picker / paywall previews bypass
+    /// `LapAnnouncer`'s `inflightUtteranceCount` increment, so they MUST NOT receive a
+    /// decrement here or the counter goes negative and `utteranceDidEnd()`'s underflow
+    /// assertion trips. Cleared inside `notifyEnd` after firing so the same speakAsync
+    /// can't dispatch its callback twice.
+    private var pendingOnEnd: (() -> Void)?
     /// Set when the first audio chunk reaches the speaker. Used by the dev panel to surface
     /// real-world TTFA next to the network-only number Python measured.
     private(set) var lastFirstAudioMs: Double?
@@ -252,16 +264,38 @@ final class PremiumSpeechSynthesizer: NSObject {
         log.notice("engine init: outputFormat=\(self.engine.outputNode.outputFormat(forBus: 0).description, privacy: .public)  mixerFormat=\(self.engine.mainMixerNode.outputFormat(forBus: 0).description, privacy: .public)")
     }
 
-    /// Stops any in-flight request and playback. Idempotent.
+    /// Stops any in-flight request and playback. Idempotent. Bumps `currentGeneration` so
+    /// queued completion callbacks from the cancelled utterance can't mutate state that
+    /// belongs to a subsequent fresh utterance — `&+= 1` deliberately wraps on overflow
+    /// so a 2^64 cancel storm doesn't trap (the buffers carrying a wrapped-around
+    /// generation are long dead). Stops the AVAudioEngine too — leaving it running keeps
+    /// `.duckOthers` ducking other apps' audio forever after a user-driven preview swap,
+    /// which we hit during voice-picker auditions.
     func cancel() {
+        currentGeneration &+= 1
         currentTask?.cancel()
         currentTask = nil
         if playerNode.isPlaying { playerNode.stop() }
+        if engine.isRunning { engine.stop() }
         pendingBuffers = 0
-        pendingPreEngineBuffers.removeAll()
         streamReceiveComplete = false
-        isPlaying = false
+        accumulatedPCM.removeAll(keepingCapacity: true)
         note("cancel")
+        notifyEnd()
+    }
+
+    /// Fire the pending end-of-utterance callback exactly once per `speakAsync` call and
+    /// clear it. Called from `cancel()`, the drained-buffer completion handler, the
+    /// post-stream `isPlaying` flip, and the speakAsync catch path. Doesn't gate on
+    /// `isPlaying` because the speakAsync call may have failed BEFORE `isPlaying = true`
+    /// reached its assignment (e.g., `configureSession()` threw on a bad audio route);
+    /// LapAnnouncer has already incremented `inflightUtteranceCount` by then and needs
+    /// the matched decrement regardless of whether audio actually started.
+    private func notifyEnd() {
+        let cb = pendingOnEnd
+        pendingOnEnd = nil
+        isPlaying = false
+        cb?()
     }
 
     /// Resets all debug counters so the next Speak shows a clean timeline.
@@ -307,17 +341,52 @@ final class PremiumSpeechSynthesizer: NSObject {
     private var accumulatedPCM = Data()
 
     /// Fire-and-forget version of `speak(text:lang:voice:)` for `Button` action callbacks.
-    func speakAsync(text: String, lang: String, voice: PremiumVoiceOption) {
+    /// Tears down any in-flight playback first (full `cancel()` — task, player, engine,
+    /// buffers, pendingOnEnd-for-the-previous-call all fire/clear) before spawning the
+    /// new task.
+    ///
+    /// `onEnd` is the completion callback for this specific call: it fires exactly once
+    /// when the utterance ends (drain / cancel-while-active / error). `LapAnnouncer.speak`
+    /// passes a decrement closure so `inflightUtteranceCount` stays balanced. Picker /
+    /// paywall previews bypass `LapAnnouncer.speak` entirely (no increment), so they MUST
+    /// NOT pass `onEnd` — otherwise the counter goes negative on every preview end.
+    func speakAsync(
+        text: String,
+        lang: String,
+        voice: PremiumVoiceOption,
+        onEnd: (() -> Void)? = nil,
+    ) {
         log.notice("speakAsync invoked: text=\"\(text, privacy: .public)\" provider=\(voice.provider.rawValue, privacy: .public) voice=\(voice.id, privacy: .public) lang=\(voice.lang, privacy: .public)")
-        currentTask?.cancel()
+        cancel()
+        pendingOnEnd = onEnd
+        // Set `isPlaying = true` BEFORE spawning the Task so any early-error path
+        // (`bearer.isEmpty`, bad URL, `configureSession()` failure — all of which throw
+        // before `speak()` would set it) still produces a clean end notification through
+        // `notifyEnd` instead of leaking `LapAnnouncer.inflightUtteranceCount`.
+        isPlaying = true
+        // Capture the generation this Task represents — bumped to a fresh value by the
+        // `cancel()` above. If a NEW `speakAsync` arrives while this Task is running, its
+        // own `cancel()` will bump again, fire our `pendingOnEnd` cleanly, and start a
+        // fresh Task. Our cancelled body's catch then sees the mismatch and bails without
+        // calling `cancel()` again (which would tear down the new task).
+        let myGeneration = currentGeneration
         currentTask = Task { [weak self] in
             do {
                 try await self?.speak(text: text, lang: voice.lang, voice: voice)
             } catch {
                 await MainActor.run { [weak self] in
-                    self?.lastError = error.localizedDescription
-                    self?.isPlaying = false
+                    guard let self else { return }
+                    guard myGeneration == self.currentGeneration else {
+                        // Superseded by a newer speakAsync — the new call already
+                        // fired our onEnd via its `cancel()`. Don't touch state that
+                        // belongs to the now-active utterance.
+                        log.debug("speakAsync catch: superseded (myGen=\(myGeneration, privacy: .public) currentGen=\(self.currentGeneration, privacy: .public)) — skipping cancel")
+                        return
+                    }
+                    self.lastError = error.localizedDescription
                     log.error("speak failed: \(error.localizedDescription, privacy: .public)")
+                    // Tear down audio + emit end-of-utterance for this still-current call.
+                    self.cancel()
                 }
             }
         }
@@ -428,9 +497,9 @@ final class PremiumSpeechSynthesizer: NSObject {
         let pcm = try Data(contentsOf: url)
         try schedulePCM(pcm, startedAt: t0)
         // The stream is complete by definition for a cache hit — flip the flag so the
-        // buffer-completion callback can flip `isPlaying` false once playback drains.
+        // buffer-completion callback can fire `notifyEnd()` once playback drains.
         streamReceiveComplete = true
-        if pendingBuffers == 0 { isPlaying = false }
+        if pendingBuffers == 0 { notifyEnd() }
     }
 
     // MARK: - Session
@@ -511,16 +580,16 @@ final class PremiumSpeechSynthesizer: NSObject {
         case .cartesia:
             // Cartesia wraps each PCM chunk in an SSE `data:` event with a base64 payload.
             try await parseSSE(bytes: bytes, startedAt: t0)
-            // Tell the buffer-completion callback the network side is done so it can flip
-            // `isPlaying` false after the last scheduled buffer plays out.
+            // Tell the buffer-completion callback the network side is done so it can fire
+            // `notifyEnd()` after the last scheduled buffer plays out.
             streamReceiveComplete = true
-            if pendingBuffers == 0 { isPlaying = false }
+            if pendingBuffers == 0 { notifyEnd() }
         case .polly, .azure:
             // Raw s16le bytes on the wire — schedule each chunk as it arrives. First-audio
             // latency is the time-to-first-chunk, not the total HTTP transfer.
             try await playPCMFromStream(bytes: bytes, startedAt: t0)
             streamReceiveComplete = true
-            if pendingBuffers == 0 { isPlaying = false }
+            if pendingBuffers == 0 { notifyEnd() }
         }
     }
 
@@ -572,7 +641,15 @@ final class PremiumSpeechSynthesizer: NSObject {
         }
         log.notice("pcm stream done: \(self.accumulatedPCM.count, privacy: .public) bytes in \(Date().timeIntervalSince(t0) * 1000, privacy: .public) ms")
         if !accumulatedPCM.isEmpty, let key = currentCacheKey, let provider = currentCacheProvider {
-            TTSCache.shared.save(key: key, provider: provider, data: accumulatedPCM)
+            // Cache only complete s16le frames. If the upstream chunked an odd number of
+            // bytes (rare but observed mid-stream), truncating now keeps the cached file
+            // self-consistent — `pcm.count / 2` in `buildBuffer*` would drop that tail
+            // byte too on every replay, so the saved blob is already what plays back.
+            let evenCount = accumulatedPCM.count & ~1
+            let payload = evenCount == accumulatedPCM.count
+                ? accumulatedPCM
+                : accumulatedPCM.prefix(evenCount)
+            TTSCache.shared.save(key: key, provider: provider, data: payload)
         }
     }
 
@@ -616,11 +693,23 @@ final class PremiumSpeechSynthesizer: NSObject {
             self.debugSseEvents = eventCount
             self.debugChunks = chunkCount
         }
+        // The Worker either streams real `data:` events or returns an error before headers
+        // — but if Cartesia changes its event schema we'd see lines flowing without any
+        // recognised chunks, parse cleanly to completion, and silently fall back to System
+        // voice with no signal at all. Treat "lines but zero chunks" as a stream failure so
+        // the caller's catch path runs and the dev panel surfaces what went wrong.
+        if chunkCount == 0 && lineCount > 0 {
+            throw PremiumTTSError.streamFailure("zero audio chunks decoded from \(lineCount) SSE lines — provider schema may have changed")
+        }
         // Persist the concatenated PCM once the whole stream has drained cleanly. A
         // cancelled / errored stream throws before reaching here, so we never write a
         // partial utterance — which would play as a clipped audio file on every cache hit.
         if chunkCount > 0, let key = currentCacheKey, let provider = currentCacheProvider {
-            TTSCache.shared.save(key: key, provider: provider, data: accumulatedPCM)
+            let evenCount = accumulatedPCM.count & ~1
+            let payload = evenCount == accumulatedPCM.count
+                ? accumulatedPCM
+                : accumulatedPCM.prefix(evenCount)
+            TTSCache.shared.save(key: key, provider: provider, data: payload)
         }
     }
 
@@ -793,18 +882,21 @@ final class PremiumSpeechSynthesizer: NSObject {
             lastFirstAudioMs = Date().timeIntervalSince(t0) * 1000
             log.notice("first audio scheduled @ \(self.lastFirstAudioMs ?? 0, privacy: .public) ms, frames=\(frameCount, privacy: .public)")
         }
+        let scheduledGeneration = currentGeneration
         playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             // The completion callback fires on a background queue. Bounce to MainActor so the
-            // counter and observable flag don't race against the speak() coroutine.
+            // counter and observable flag don't race against the speak() coroutine. Drop
+            // the update if `cancel()` has bumped the generation — a stale callback from a
+            // superseded utterance must not flip `isPlaying` false on the fresh utterance
+            // that took its slot (cache-hit start paths set `streamReceiveComplete = true`
+            // before scheduling, which would otherwise let a stale callback win the race).
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard scheduledGeneration == self.currentGeneration else { return }
                 pendingBuffers = max(0, pendingBuffers - 1)
-                // Once the SSE parser has reported "no more chunks coming" AND every scheduled
-                // buffer's audio has played back, the utterance is truly done. The picker UI
-                // observes `isPlaying` to decide when to flip the stop icon back to play.
                 if streamReceiveComplete && pendingBuffers == 0 {
-                    isPlaying = false
                     note("PCM drained, isPlaying=false")
+                    notifyEnd()
                 }
             }
         }

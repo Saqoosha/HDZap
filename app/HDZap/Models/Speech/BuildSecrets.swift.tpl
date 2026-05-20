@@ -4,17 +4,15 @@ import Foundation
 ///
 ///     cd app && op inject -i HDZap/Models/Speech/BuildSecrets.swift.tpl -o HDZap/Models/Speech/BuildSecrets.swift
 ///
-/// The rendered `BuildSecrets.swift` is gitignored — never commit the resolved file. The
-/// stub at the bottom (`#if !BUILD_SECRETS_RENDERED`) is a compile guard so a fresh checkout
-/// fails fast with a clear message instead of silently shipping an empty bearer.
+/// The rendered `BuildSecrets.swift` is gitignored — never commit the resolved file.
 ///
-/// Long-term plan: replace this baked-in bearer with per-user JWS verification in the
-/// Worker (see [`workers/hdzap-premium/src/index.ts`](../../../../workers/hdzap-premium/src/index.ts)
-/// for the planned `verifyAppleJws` hook). Until that lands, every subscriber ships with
-/// the same dev bearer — fine for TestFlight, not fine for App Store release.
+/// The Worker has two auth tiers: an Apple-signed JWS (subscribers, verified against Apple
+/// Root CA G3 in `workers/hdzap-premium/src/appleJws.ts`) and this baked-in dev bearer
+/// (free preview path, used for voice auditions before a purchase). Only the preview path
+/// touches this value at runtime — the moment `SubscriptionManager.currentJWS` is non-nil
+/// the synth ships the JWS instead.
 enum BuildSecrets {
-    /// Bearer the Worker validates via `Authorization: Bearer <value>`. Currently the Worker
-    /// gates `/tts` on a single shared dev bearer; once JWS verification is in place this
-    /// becomes irrelevant (the StoreKit JWS replaces it on the wire).
+    /// Bearer the Worker accepts on the fallback (non-JWS) path. The preview surface in
+    /// the paywall + dev panel sends this; entitled subscribers send their JWS instead.
     static let workerBearer = "{{ op://Personal/HDZap Worker Dev Bearer/credential }}"
 }

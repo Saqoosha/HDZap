@@ -336,6 +336,17 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
+    /// Mirrors the System synth's `didFinish` / `didCancel` delegate — decrement the
+    /// inflight counter and attempt session deactivation. Premium playback runs through
+    /// `PremiumSpeechSynthesizer.onEnd` callbacks, which call this so the warm-keeper /
+    /// session-hold lifecycle stays symmetric across both engines. Picker / paywall
+    /// previews bypass `LapAnnouncer.speak` and therefore MUST NOT pass this as their
+    /// `onEnd` — they never incremented the counter, so they have nothing to decrement.
+    private func premiumUtteranceEnded() {
+        utteranceDidEnd()
+        deactivateSession()
+    }
+
     func announceLap(_ lap: Lap, isBest: Bool) {
         let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool
             ?? LapAnnouncerDefaults.defaultAnnounceBest
@@ -666,7 +677,23 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         // Falling through means the operator never gets surprised silence — worst case the
         // system voice speaks, which is what they'd have heard before opting in to Premium.
         if let premiumVoice = currentPremiumVoiceIfActive() {
-            premiumSynth.speakAsync(text: phrase, lang: premiumVoice.lang, voice: premiumVoice)
+            // Activate the shared session up front — Premium reuses the same `.playback /
+            // .spokenAudio / .duckOthers` configuration, and the warm-keeper engine relies
+            // on this having run at least once. Symmetric with the System path below.
+            configureSessionIfNeeded()
+            // Treat a Premium utterance exactly like a System one for inflight bookkeeping.
+            // Increment here; the matching decrement (+ deactivateSession) fires via the
+            // `onEnd` callback when the Premium synth's utterance ends — drained, cancelled
+            // by a subsequent `speakAsync`, or errored. Picker / paywall previews call
+            // `premiumSynth.speakAsync(...)` directly without passing `onEnd`, so they do
+            // NOT trigger this decrement (and they never incremented, so they don't need to).
+            inflightUtteranceCount += 1
+            premiumSynth.speakAsync(
+                text: phrase,
+                lang: premiumVoice.lang,
+                voice: premiumVoice,
+                onEnd: { [weak self] in self?.premiumUtteranceEnded() },
+            )
             return
         }
 
