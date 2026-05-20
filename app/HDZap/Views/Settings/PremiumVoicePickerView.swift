@@ -35,10 +35,17 @@ struct PremiumVoicePickerView: View {
     @State private var showingPaywall = false
     @State private var pendingSelectionId: String?
 
-    /// Sample text used when the operator taps the inline ▶ button. Matches the typical
-    /// race-time utterance length so they can judge cadence + number reading, not just
-    /// the voice's resting timbre.
-    private let sampleText = "ラップ3、12.34、ベストラップ"
+    /// Sample text per language — matches the typical race-time utterance so the operator
+    /// can judge cadence + number reading. Sending JA text through an EN voice produces
+    /// garbled phonetic-approximation playback (Polly Matthew rendering "ラップ3、12.34、
+    /// ベストラップ" as "rappu-san..."), so each row's preview uses the script that matches
+    /// the voice's `lang`.
+    private static func sampleText(for lang: String) -> String {
+        switch lang {
+        case "ja": return "ラップ3、12.34、ベストラップ"
+        default:   return "Lap 3, 12.34, best lap"
+        }
+    }
 
     private var voicesByProvider: [(PremiumVoiceProvider, [PremiumVoiceOption])] {
         let voices = PremiumVoiceCatalog.voices(for: language)
@@ -98,7 +105,7 @@ struct PremiumVoicePickerView: View {
                                 } else {
                                     previewingVoiceId = voice.id
                                     announcer.premiumSynth.speakAsync(
-                                        text: sampleText,
+                                        text: Self.sampleText(for: voice.lang),
                                         lang: voice.lang,
                                         voice: voice
                                     )
