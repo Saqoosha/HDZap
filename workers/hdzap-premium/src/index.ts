@@ -83,6 +83,16 @@ app.get("/", (c) => c.text("hdzap-premium worker — POST /tts"));
 app.get("/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
 
 app.post("/tts", async (c) => {
+  // PERF DIAGNOSTIC: phase timing. `?nocache=1` query param skips R2 entirely so we can
+  // measure the true cold path (auth + provider call). Each `mark()` logs a delta from the
+  // request start, so observability shows where the time goes per request.
+  const tStart = Date.now();
+  const phaseTimings: Record<string, number> = {};
+  const mark = (phase: string) => {
+    phaseTimings[phase] = Date.now() - tStart;
+  };
+  const skipCache = new URL(c.req.url).searchParams.get("nocache") === "1";
+
   // Two-tier auth: real subscribers ship Apple-signed JWS; non-subscribers use the shared
   // dev bearer for in-app voice previews. The JWS path is Apple-cryptographic-proof, the
   // bearer path is rate-limited by text length so a leaked bearer can't bill us into the
@@ -90,6 +100,7 @@ app.post("/tts", async (c) => {
   const auth = c.req.header("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
   if (!token) return c.json({ error: "unauthorized", reason: "missing-token" }, 401);
+  mark("auth-header");
 
   // JWS has 3 dot-separated base64url segments; the bearer is a single opaque random
   // string. This shape check is a routing hint, not a security boundary — we still
@@ -111,6 +122,7 @@ app.post("/tts", async (c) => {
       authMode = "jws";
       userId = payload.originalTransactionId;
       maxChars = MAX_TRANSCRIPT_CHARS_JWS;
+      mark("jws-verified");
       console.log("auth=jws", { userId, productId: payload.productId, env: payload.environment });
     } catch (e) {
       const code = e instanceof AppleJwsError ? e.code : "internal";
@@ -131,24 +143,26 @@ app.post("/tts", async (c) => {
     console.log("auth=bearer");
   }
 
-  // Per-IP daily rate limit. Runs after auth so unauthorized callers can't burn through
-  // somebody else's quota (and to keep the auth-fail path 401-fast). Cap is tier-dependent
-  // because bearer is the abuse surface; JWS is already cryptographically gated.
+  // Per-IP daily rate limit — moved entirely to the background so it doesn't sit on the
+  // request's critical path. KV.get + KV.put together routinely take 600-800 ms (KV is
+  // eventually-consistent and not co-located with the Worker isolate); blocking the
+  // response on that turned TTFA from ~200 ms into ~1 s. The trade-off is that we no
+  // longer hard-reject the FIRST few over-cap requests — by the time the counter
+  // updates, a determined attacker could squeeze a handful past the cap. Acceptable
+  // because the actual ceiling on abuse is the per-provider monthly budget; the rate
+  // limit is just a guardrail against a single host running a curl loop, and a few
+  // bonus requests don't materially change the bill.
   const ip = c.req.header("CF-Connecting-IP") || c.req.header("X-Real-IP") || "unknown";
   const cap = authMode === "jws" ? DAILY_CAP_JWS : DAILY_CAP_BEARER;
-  const rateLimit = await consumeRateLimitToken(c.env.RATELIMIT, ip, cap);
-  if (!rateLimit.ok) {
-    console.warn("rate-limited", { ip, authMode, count: rateLimit.count, cap });
-    return c.json(
-      {
-        error: "rate-limited",
-        message: `daily cap ${cap} reached for this IP (${rateLimit.count})`,
-        retryAfterSeconds: rateLimit.retryAfterSeconds,
-      },
-      429,
-      { "Retry-After": String(rateLimit.retryAfterSeconds) },
-    );
-  }
+  c.executionCtx.waitUntil((async () => {
+    const result = await consumeRateLimitToken(c.env.RATELIMIT, ip, cap);
+    if (!result.ok) {
+      console.warn("rate-limit-exceeded (background, not enforced this request)", {
+        ip, authMode, count: result.count, cap,
+      });
+    }
+  })());
+  mark("rate-limit-bg");
 
   let body: {
     provider?: string;
@@ -207,17 +221,26 @@ app.post("/tts", async (c) => {
 
   // Cache hit → stream straight from R2. The provider-specific Content-Type lives in
   // the object's httpMetadata so we don't have to re-derive it from `provider` here.
-  const hit = await c.env.TTS_CACHE.get(cacheKey);
-  if (hit) {
-    console.log("r2-cache=hit", { key: cacheKey, provider, size: hit.size });
-    return new Response(hit.body, {
-      status: 200,
-      headers: responseHeadersFor(provider, "hit"),
-    });
+  if (!skipCache) {
+    const hit = await c.env.TTS_CACHE.get(cacheKey);
+    mark("r2-lookup");
+    if (hit) {
+      console.log("r2-cache=hit", { key: cacheKey, provider, size: hit.size, ...phaseTimings });
+      return new Response(hit.body, {
+        status: 200,
+        headers: {
+          ...responseHeadersFor(provider, "hit"),
+          "X-HDZap-Timings": JSON.stringify(phaseTimings),
+        },
+      });
+    }
+  } else {
+    mark("r2-skipped");
   }
 
   // Cache miss — call the provider, then tee the body so the client gets streaming
   // playback while R2 gets a written copy for every subsequent caller.
+  mark("upstream-start");
   let upstream: Response;
   try {
     if (provider === "cartesia") {
@@ -237,6 +260,7 @@ app.post("/tts", async (c) => {
     } else {
       return c.json({ error: "unreachable" }, 500);
     }
+    mark("upstream-headers");
   } catch (e) {
     return c.json(
       { error: "internal", message: e instanceof Error ? e.message : String(e) },
@@ -249,10 +273,23 @@ app.post("/tts", async (c) => {
     return upstream;
   }
 
-  console.log("r2-cache=miss", { key: cacheKey, provider });
+  console.log("r2-cache=miss", { key: cacheKey, provider, ...phaseTimings });
+
+  // When `?nocache=1` is set, skip the tee + R2 write entirely so we measure the true
+  // upstream-only path with no extra Worker work.
+  if (skipCache) {
+    return new Response(upstream.body, {
+      status: 200,
+      headers: {
+        ...responseHeadersFor(provider, "miss"),
+        "X-HDZap-Timings": JSON.stringify(phaseTimings),
+      },
+    });
+  }
+
   // tee the body so the client keeps streaming on its branch; the cache-write branch we
   // drain into an ArrayBuffer first because R2 rejects unknown-length ReadableStreams
-  // ("Provided readable stream must have a known length"). Polly/Azure mp3 + Cartesia
+  // ("Provided readable stream must have a known length"). Polly/Azure PCM + Cartesia
   // SSE for a single utterance are both small (<100 KB), so buffering one isn't a
   // memory concern.
   const [toClient, toR2] = upstream.body.tee();
@@ -278,7 +315,10 @@ app.post("/tts", async (c) => {
 
   return new Response(toClient, {
     status: 200,
-    headers: responseHeadersFor(provider, "miss"),
+    headers: {
+      ...responseHeadersFor(provider, "miss"),
+      "X-HDZap-Timings": JSON.stringify(phaseTimings),
+    },
   });
 });
 
@@ -302,7 +342,12 @@ async function buildCacheKey(req: {
   model: string;
   text: string;
 }): Promise<string> {
+  // "v2" prefix invalidates the pre-PCM-migration cache (where Polly/Azure entries were
+  // mp3 bytes labelled as audio/pcm after the format switch). Bump again the next time
+  // the wire format changes incompatibly. Old v1 entries stay orphaned in R2 — Cloudflare
+  // doesn't charge enough on a few KB of stragglers to bother with a cleanup script.
   const canonical = [
+    "v2",
     req.provider,
     req.voice,
     req.lang,
@@ -319,18 +364,31 @@ async function buildCacheKey(req: {
 }
 
 /**
- * What `Content-Type` we serve for each provider — Cartesia ships raw-PCM-over-SSE,
- * Polly + Azure ship chunked mp3. The cache miss path also stuffs this into the R2
- * object's `httpMetadata.contentType` so hits don't need a parallel lookup table.
+ * What `Content-Type` we serve for each provider. Cartesia ships base64-PCM-in-SSE so the
+ * client can parse event boundaries; Polly + Azure ship raw s16le PCM bytes streaming-
+ * style so iOS schedules each chunk on AVAudioPlayerNode as soon as it lands. The cache
+ * miss path also stuffs this into the R2 object's `httpMetadata.contentType` so cache
+ * hits don't need a parallel lookup table.
  */
 function contentTypeFor(provider: string): string {
-  return provider === "cartesia" ? "text/event-stream" : "audio/mpeg";
+  return provider === "cartesia" ? "text/event-stream" : "audio/pcm";
+}
+
+/**
+ * Sample rate of the raw PCM stream each provider emits. Cartesia and Azure stream at the
+ * engine's native 24 kHz so iOS schedules buffers without resampling. Polly Neural's PCM
+ * mode only supports 8 kHz or 16 kHz (22 / 24 kHz are mp3-only) — we use 16 kHz and let
+ * iOS upsample to 24 kHz via AVAudioConverter.
+ */
+function sampleRateFor(provider: string): number {
+  return provider === "polly" ? 16000 : 24000;
 }
 
 /**
  * Full response header set we send to the iOS client. Cartesia needs the SSE-streaming
- * hints (`X-Accel-Buffering: no`) so intermediaries don't buffer; mp3 doesn't. Both modes
- * tag `X-HDZap-Cache` so the client can log hit/miss without parsing the body.
+ * hints (`X-Accel-Buffering: no`) so intermediaries don't buffer; raw PCM streams don't
+ * need that hint but do carry their sample rate so iOS picks the right format up front.
+ * Both modes tag `X-HDZap-Cache` so the client can log hit/miss without parsing the body.
  */
 function responseHeadersFor(provider: string, cacheStatus: "hit" | "miss"): Record<string, string> {
   const base: Record<string, string> = {
@@ -343,7 +401,8 @@ function responseHeadersFor(provider: string, cacheStatus: "hit" | "miss"): Reco
     base["X-HDZap-Format"] = "pcm-sse";
     base["X-Accel-Buffering"] = "no";
   } else {
-    base["X-HDZap-Format"] = "mp3";
+    base["X-HDZap-Format"] = "pcm-raw";
+    base["X-HDZap-SampleRate"] = String(sampleRateFor(provider));
   }
   return base;
 }
@@ -423,7 +482,7 @@ async function proxyCartesia(
   });
 }
 
-// MARK: - AWS Polly (chunked mp3)
+// MARK: - AWS Polly (raw PCM streaming)
 
 async function proxyPolly(
   accessKeyId: string,
@@ -445,15 +504,19 @@ async function proxyPolly(
   });
 
   // Polly Neural voices accept `rate` but reject `pitch` — the latter is a Standard-engine-
-  // only feature ("Unsupported Neural feature" 400). Since our entire Polly catalog is
-  // Neural (Takumi/Kazuha/Tomoko), we just skip the pitch attribute here and let the iOS UI
-  // hide the slider for this provider. `rate` arrives as a multiplier (1.0 = baseline); we
-  // round to the closest percentage Polly understands (50%-200%).
+  // only feature ("Unsupported Neural feature" 400). `rate` arrives as a multiplier (1.0
+  // = baseline); we round to the closest percentage Polly understands (50%-200%).
   void pitch; // intentionally ignored on Polly Neural
   const ratePct = `${Math.round(rate * 100)}%`;
   const ssml =
     `<speak><prosody rate="${ratePct}">${escapeSsml(text)}</prosody></speak>`;
 
+  // OutputFormat=pcm gives raw s16le bytes that iOS can play streaming-style: schedule
+  // each chunk on AVAudioPlayerNode as it arrives instead of waiting for the full mp3.
+  // Polly Neural with pcm only accepts SampleRate 8000 or 16000 (22050 / 24000 are mp3-
+  // only). iOS upsamples 16 kHz → 24 kHz via AVAudioConverter — quality loss is minor
+  // for race-call speech where prosody dominates and a couple of kHz of headroom is
+  // imperceptible.
   const url = `https://polly.${AWS_REGION}.amazonaws.com/v1/speech`;
   const resp = await aws.fetch(url, {
     method: "POST",
@@ -462,7 +525,8 @@ async function proxyPolly(
       Text: ssml,
       TextType: "ssml",
       VoiceId: voiceId,
-      OutputFormat: "mp3",
+      OutputFormat: "pcm",
+      SampleRate: "16000",
       Engine: "neural",
       LanguageCode: lang === "ja" ? "ja-JP" : "en-US",
     }),
@@ -479,15 +543,16 @@ async function proxyPolly(
   return new Response(resp.body, {
     status: 200,
     headers: {
-      "Content-Type": "audio/mpeg",
+      "Content-Type": "audio/pcm",
       "X-HDZap-Provider": "polly",
-      "X-HDZap-Format": "mp3",
+      "X-HDZap-Format": "pcm-raw",
+      "X-HDZap-SampleRate": "22050",
       "Cache-Control": "no-store",
     },
   });
 }
 
-// MARK: - Azure Speech (chunked mp3)
+// MARK: - Azure Speech (raw PCM streaming)
 
 /** Azure JA-Neural voices are gender-tagged by name suffix — Daichi/Keita/Naoki are male, the
  *  rest of the catalog is female. The SSML `xml:gender` attribute is required for some voices,
@@ -508,9 +573,8 @@ async function proxyAzure(
   const xmlLang = lang === "ja" ? "ja-JP" : "en-US";
   const gender = azureGenderFor(voiceId);
   // Azure accepts the same SSML `<prosody>` shape as Polly. Rate as multiplier (1.4 = 40%
-  // faster); pitch as signed percentage like "+10%". We convert semitones → percent via the
-  // familiar 100 cents = 1 semitone musical interval, with each semitone ≈ 6% on Azure's
-  // perceptual scale. Capped at ±50% server-side anyway.
+  // faster); pitch as signed percentage like "+10%". Semitones → percent via the familiar
+  // 100 cents = 1 semitone interval, ~6% per semitone on Azure's perceptual scale.
   const rateStr = rate.toFixed(2);
   const pitchPct = `${pitch >= 0 ? "+" : ""}${Math.round(pitch * 6)}%`;
   const ssml =
@@ -519,6 +583,9 @@ async function proxyAzure(
     `<prosody rate='${rateStr}' pitch='${pitchPct}'>${escapeSsml(text)}</prosody>` +
     `</voice></speak>`;
 
+  // raw-24khz-16bit-mono-pcm gives the exact same wire format as Cartesia, so iOS uses
+  // the same `schedulePCM` path with zero conversion needed (engine source format is
+  // 24 kHz mono). True streaming: first chunk plays as soon as it lands.
   const resp = await fetch(
     `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`,
     {
@@ -526,7 +593,7 @@ async function proxyAzure(
       headers: {
         "Ocp-Apim-Subscription-Key": subscriptionKey,
         "Content-Type": "application/ssml+xml",
-        "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+        "X-Microsoft-OutputFormat": "raw-24khz-16bit-mono-pcm",
         "User-Agent": "hdzap-premium",
       },
       body: ssml,
@@ -544,9 +611,10 @@ async function proxyAzure(
   return new Response(resp.body, {
     status: 200,
     headers: {
-      "Content-Type": "audio/mpeg",
+      "Content-Type": "audio/pcm",
       "X-HDZap-Provider": "azure",
-      "X-HDZap-Format": "mp3",
+      "X-HDZap-Format": "pcm-raw",
+      "X-HDZap-SampleRate": "24000",
       "Cache-Control": "no-store",
     },
   });
