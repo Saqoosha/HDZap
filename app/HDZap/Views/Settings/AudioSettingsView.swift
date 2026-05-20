@@ -124,7 +124,16 @@ struct AudioSettingsView: View {
                             }
                         }
                     }
+                }
+            } header: {
+                Text("Announcement")
+            }
 
+            if lapTTSEnabled {
+                // Voice section — engine + voice selection + per-engine prosody + test/reset
+                // live in their own group so the announcement behaviour (language, best-lap,
+                // countdown) reads as one decision and "which voice to use" reads as another.
+                Section {
                     // Engine selector — switches the entire announce path between the built-in
                     // AVSpeechSynthesizer (free, no network) and the hdzap-premium Worker
                     // (Cartesia / Polly / Azure). When Premium is chosen the system voice/rate/
@@ -365,22 +374,24 @@ struct AudioSettingsView: View {
                         }
                         .buttonStyle(.bordered)
                     }
+                } header: {
+                    Text("Voice")
+                } footer: {
+                    // Two notes the operator wouldn't otherwise know:
+                    // 1. Why announcements still play with the ringer off, and
+                    //    why other audio stays ducked for the whole race (the
+                    //    warm-keeper streams a silent buffer through the
+                    //    `.playback` + `.duckOthers` session so the HAL stays
+                    //    hot — the tradeoff is continuous ducking).
+                    // 2. Why a voice they expect to see isn't in the picker — iOS
+                    //    ships only a base voice; better-quality voices are an
+                    //    opt-in download.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Plays through the speaker even when the ringer switch is silent. Other audio stays ducked for the duration of a race so announcement timing stays precise.")
+                        Text("More voices: Settings → Accessibility → Spoken Content → Voices.")
+                    }
+                    .font(.caption2)
                 }
-            } footer: {
-                // Two notes the operator wouldn't otherwise know:
-                // 1. Why announcements still play with the ringer off, and
-                //    why other audio stays ducked for the whole race (the
-                //    warm-keeper streams a silent buffer through the
-                //    `.playback` + `.duckOthers` session so the HAL stays
-                //    hot — the tradeoff is continuous ducking).
-                // 2. Why a voice they expect to see isn't in the picker — iOS
-                //    ships only a base voice; better-quality voices are an
-                //    opt-in download.
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Plays through the speaker even when the ringer switch is silent. Other audio stays ducked for the duration of a race so announcement timing stays precise.")
-                    Text("More voices: Settings → Accessibility → Spoken Content → Voices.")
-                }
-                .font(.caption2)
             }
 
 #if DEBUG
