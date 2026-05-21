@@ -21,6 +21,10 @@ struct SettingsView: View {
         = LapAnnouncerDefaults.defaultEnabled
     @AppStorage(LapAnnouncerDefaults.languageKey) private var ttsLanguageRaw
         = LapAnnouncerDefaults.defaultLanguageRaw
+    @AppStorage(WatchHapticsDefaults.enabledKey) private var watchHapticsEnabled
+        = WatchHapticsDefaults.defaultEnabled
+    @Environment(WatchBridge.self) private var watchBridge
+    @Environment(SubscriptionManager.self) private var subscription
 
     var body: some View {
         NavigationStack {
@@ -266,6 +270,14 @@ struct SettingsView: View {
                 }
             }
             NavigationLink {
+                WatchSettingsView()
+            } label: {
+                LabeledContent("Apple Watch") {
+                    Text(watchSummary)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            NavigationLink {
                 AppearanceSettingsView()
             } label: {
                 LabeledContent("Appearance") {
@@ -275,6 +287,20 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// Same condensed-status pattern as `audioSummary` — "Off" when the
+    /// toggle is off; otherwise a one-word state derived from the
+    /// bridge so the row reflects whether the next race will actually
+    /// reach the wrist or fall on the floor. Non-subscribers see
+    /// "Premium" — the drilldown handles the upsell.
+    private var watchSummary: String {
+        if !subscription.isEntitled { return String(localized: "Premium") }
+        if !watchHapticsEnabled { return String(localized: "Off") }
+        if !watchBridge.isPaired { return String(localized: "On · No watch") }
+        if !watchBridge.isWatchAppInstalled { return String(localized: "On · App missing") }
+        if !watchBridge.isReachable { return String(localized: "On · Not armed") }
+        return String(localized: "On · Armed")
     }
 
     // MARK: - About (app + firmware version, glanceable from root)

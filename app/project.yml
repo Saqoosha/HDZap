@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: sh.saqoo
   deploymentTarget:
     iOS: "18.0"
+    watchOS: "11.0"
   xcodeVersion: "16.4"
   developmentLanguage: en
 settings:
@@ -13,7 +14,6 @@ settings:
     DEVELOPMENT_TEAM: VCFY2GFR89
     CODE_SIGN_STYLE: Automatic
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-    TARGETED_DEVICE_FAMILY: "1"
 targets:
   HDZap:
     type: application
@@ -23,6 +23,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
     sources:
       - HDZap
+      - HDZapShared
+    dependencies:
+      - target: HDZapWatch
+        embed: true
     info:
       path: HDZap/Info.plist
       properties:
@@ -35,6 +39,50 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIRequiresFullScreen: YES
         UILaunchScreen: {}
+
+  HDZapWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - HDZapWatch
+      - HDZapShared
+    entitlements:
+      path: HDZapWatch/HDZapWatch.entitlements
+      properties:
+        # HKWorkoutSession requires this entitlement. Without it the
+        # device install fails with "Could not install at this time."
+        # even when the bundle is signed and the provisioning profile
+        # is valid. The iPhone target does NOT need this — it's
+        # watch-only.
+        com.apple.developer.healthkit: true
+    info:
+      path: HDZapWatch/Info.plist
+      properties:
+        CFBundleDisplayName: HDZap
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: YES
+        WKCompanionAppBundleIdentifier: sh.saqoo.HDZap
+        WKBackgroundModes:
+          - workout-processing
+        # Only Update (write) is requested — `requestAuthorization` uses
+        # `toShare:` (write), not `read:`. Carrying NSHealthShareUsageDescription
+        # would advertise a permission we never request.
+        NSHealthUpdateUsageDescription: "HDZap uses a workout session to keep the race timer responsive so countdown haptics fire on time."
+    settings:
+      base:
+        # Watch app uses its own AppIcon set in
+        # HDZapWatch/Assets.xcassets — same source image as the iOS
+        # icon for brand consistency, retagged with `platform=watchos`
+        # in its Contents.json. Required for App Store submission.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "4"
+        WATCHOS_DEPLOYMENT_TARGET: "11.0"
+        # Companion-app pairing rule: watch bundle id MUST be the iPhone
+        # app's bundle id with `.watchkitapp` appended. Apple has enforced
+        # this since the WatchKit-extension split was retired in watchOS 9.
+        PRODUCT_BUNDLE_IDENTIFIER: sh.saqoo.HDZap.watchkitapp
+
 schemes:
   HDZap:
     build:
@@ -45,3 +93,4 @@ schemes:
       # fake products defined in the .storekit file when this scheme is active. Doesn't
       # affect Release / TestFlight builds, which always go through real StoreKit servers.
       storeKitConfiguration: HDZap/Resources/StoreKit/HDZapPremium.storekit
+

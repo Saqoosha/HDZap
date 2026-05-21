@@ -12,44 +12,75 @@
 		085E1A2A1E1E17DD5AB86609 /* EditorialTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 612031ED1450E491C5A43621 /* EditorialTheme.swift */; };
 		12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E32709696D474AA71F7C90 /* UIDUtils.swift */; };
 		1A29BAB25C8509DF2CDA8248 /* RaceRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */; };
-		1D1024DCEB47BEF6A2A49DCF /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FCA8EAB8E0451CF25688633 /* SubscriptionManager.swift */; };
+		26F3BF86A6B5A0D3ADE84076 /* RaceFaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D700C319FF96194EDFEB58E /* RaceFaceView.swift */; };
 		29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67948DF123DC370E6DBE5590 /* Assets.xcassets */; };
+		2DAFA188645E67A4E973F65D /* RaceSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71CDADF310B2DA49B5ABEA48 /* RaceSnapshot.swift */; };
 		2F3B59196B2D83DF64D2A1B2 /* VoltageChartPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55C60BEC1000A815758AC4D2 /* VoltageChartPreview.swift */; };
 		3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */; };
 		3258980BCD68A31E08781B25 /* OKLCH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63119602A4C7217E6D0C00A1 /* OKLCH.swift */; };
 		34305017E1FD46A91F2686E9 /* DeviceRenameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */; };
 		374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */; };
+		3802B2A61EA12FCA55B2319B /* HDZapWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9E29C1D9B0D66F129E9851 /* HDZapWatchApp.swift */; };
+		4A26D2497B18E23F8981344B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 80FE2B04F55C8F6DDB8EDAAA /* Assets.xcassets */; };
 		4BD1A6777B94B70BDAD20186 /* RaceRecord+FlightBattery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */; };
 		523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */; };
-		6A349E284EC8FC622DBD89B6 /* BuildSecrets.swift.tpl in Resources */ = {isa = PBXBuildFile; fileRef = DF97D1680A0F537ABDC0D416 /* BuildSecrets.swift.tpl */; };
+		5BDFBBD976345C1014300844 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6ACFF44D27BA66D4B32E55F /* WatchBridge.swift */; };
 		6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DB96B10D57102797F555BE /* BluetoothManager.swift */; };
 		7EB7B468FADB67031FD36C5C /* HDZapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFF7583FD58A10FE7357025 /* HDZapApp.swift */; };
 		7F7163E490E1A2801986C143 /* AudioSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AB489293AF90A66653F7E8 /* AudioSettingsView.swift */; };
-		8721348DA6F796D2E7605D1F /* BuildSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5CB02666324477E3DEE14B /* BuildSecrets.swift */; };
+		80ECD513BF9FCA6DDFC4A4CA /* RaceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1261143BCA3ED4E26B58F058 /* RaceCoordinator.swift */; };
 		8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0D671093AF13888B5701D3 /* ContentView.swift */; };
 		8CADAC698D61819E5F246C78 /* BatteryStatusRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FFFF75A4A27EB06B6DA147 /* BatteryStatusRow.swift */; };
-		91E9B43A34A529198F1F89BB /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A430E5AE0F9117C107E99D /* PaywallView.swift */; };
-		935828350E187F0AF20503C6 /* PremiumVoicePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA61CCE32759AA19858FD543 /* PremiumVoicePickerView.swift */; };
 		9DE8F86CE8258154BB0C4D55 /* OSDLayoutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B161428CF02B06F13538AF4 /* OSDLayoutSettingsView.swift */; };
+		A54FC1E13BDA465AFFCCB5FE /* WatchSessionReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C1B87A05D28EC314EEC592A /* WatchSessionReceiver.swift */; };
 		AB4C544608ABC7812A562C8B /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48C631CA51BB0A3E899833E /* AppearanceSettingsView.swift */; };
 		B7CE912801EC33801585517E /* LapAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */; };
 		B8269ACC24CF6E2FE5792A20 /* LapTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4A2435CB82ED37EA712928 /* LapTimer.swift */; };
 		B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12757F8C010AFDC40357896D /* RaceShareCard.swift */; };
 		BD30888108343FAE835EADCF /* RaceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */; };
-		C1F30C12C6B7F601E5B9DEC5 /* HDZapPremium.storekit in Resources */ = {isa = PBXBuildFile; fileRef = FC5B717619F1EB0FB08BEBED /* HDZapPremium.storekit */; };
+		BEC6660185A2D836F65DC83A /* HapticScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9244D8B5A587249957CCF86 /* HapticScheduler.swift */; };
 		C2009A175D17BE0542FBCE43 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D691E6FC4DA267F798640A3 /* HistoryView.swift */; };
 		C377E0A27CFCE41D44BC6AB8 /* OSDLayoutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */; };
 		C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */; };
 		CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D706FE213381CDC8D3EC0893 /* TimerView.swift */; };
-		CB202CD3B4B1D9D186F34AE5 /* TTSCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B555968818961BDDFDD836ED /* TTSCache.swift */; };
+		CF0C747EE46EBAF2C6B19DA3 /* WatchHapticsDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D6F440713DB43D9E4C09ED /* WatchHapticsDefaults.swift */; };
 		D3B6435AACBDBC150667EE1C /* RaceFlightBatterySample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025B5A861D62E2D7242FE3CA /* RaceFlightBatterySample.swift */; };
+		D91DBB52A52795BCF0916455 /* HDZapWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 948C7D11EFBB4FC5E275E58E /* HDZapWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E396FF695EC435CAB265EA78 /* WatchSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 490191345165C8C008F518E0 /* WatchSettingsView.swift */; };
+		E94E6F0AA423015A89D4B75A /* RaceSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71CDADF310B2DA49B5ABEA48 /* RaceSnapshot.swift */; };
 		EA2F8003A1A5258DBA937A5F /* ConnectionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13438604B6DB026C9FDAC24F /* ConnectionSettingsView.swift */; };
+		EFF1624CA3FC3B811B84C88D /* WorkoutKeepalive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639C84A3186616E972D99618 /* WorkoutKeepalive.swift */; };
 		F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */; };
-		FAE09644E7798A86BE837D66 /* PremiumSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3A909D0A8C3F5628233F1126 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B70DDCAFA51F00F9A797904D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5F3656D699C4914F5BE05D85;
+			remoteInfo = HDZapWatch;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7376617F199BA587D5AB3277 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				D91DBB52A52795BCF0916455 /* HDZapWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		025B5A861D62E2D7242FE3CA /* RaceFlightBatterySample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceFlightBatterySample.swift; sourceTree = "<group>"; };
+		0E9E29C1D9B0D66F129E9851 /* HDZapWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDZapWatchApp.swift; sourceTree = "<group>"; };
+		1261143BCA3ED4E26B58F058 /* RaceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceCoordinator.swift; sourceTree = "<group>"; };
 		12757F8C010AFDC40357896D /* RaceShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceShareCard.swift; sourceTree = "<group>"; };
 		13438604B6DB026C9FDAC24F /* ConnectionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSettingsView.swift; sourceTree = "<group>"; };
 		1D691E6FC4DA267F798640A3 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
@@ -60,36 +91,40 @@
 		37DB96B10D57102797F555BE /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
 		3AA9BB23D795AA5162829B3C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3BFF7583FD58A10FE7357025 /* HDZapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDZapApp.swift; sourceTree = "<group>"; };
+		490191345165C8C008F518E0 /* WatchSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSettingsView.swift; sourceTree = "<group>"; };
 		49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingSettingsView.swift; sourceTree = "<group>"; };
+		4CA65BC0D6ED3AEB37009004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		4D6636A1FDA640FE22208183 /* RaceHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceHistoryStore.swift; sourceTree = "<group>"; };
 		5542F9C8073401F22FD0C70D /* BackpackTelemetryDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackpackTelemetryDebugView.swift; sourceTree = "<group>"; };
 		55C60BEC1000A815758AC4D2 /* VoltageChartPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoltageChartPreview.swift; sourceTree = "<group>"; };
 		5EBC7D297DD8CBEF7C617161 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		612031ED1450E491C5A43621 /* EditorialTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialTheme.swift; sourceTree = "<group>"; };
 		63119602A4C7217E6D0C00A1 /* OKLCH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OKLCH.swift; sourceTree = "<group>"; };
+		639C84A3186616E972D99618 /* WorkoutKeepalive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutKeepalive.swift; sourceTree = "<group>"; };
 		66E32709696D474AA71F7C90 /* UIDUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIDUtils.swift; sourceTree = "<group>"; };
 		67948DF123DC370E6DBE5590 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		71CDADF310B2DA49B5ABEA48 /* RaceSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceSnapshot.swift; sourceTree = "<group>"; };
 		7B161428CF02B06F13538AF4 /* OSDLayoutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettingsView.swift; sourceTree = "<group>"; };
-		8FCA8EAB8E0451CF25688633 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
+		80FE2B04F55C8F6DDB8EDAAA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8D700C319FF96194EDFEB58E /* RaceFaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceFaceView.swift; sourceTree = "<group>"; };
 		90AB489293AF90A66653F7E8 /* AudioSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSettingsView.swift; sourceTree = "<group>"; };
-		9A5CB02666324477E3DEE14B /* BuildSecrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSecrets.swift; sourceTree = "<group>"; };
+		948C7D11EFBB4FC5E275E58E /* HDZapWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDZapWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9C1B87A05D28EC314EEC592A /* WatchSessionReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionReceiver.swift; sourceTree = "<group>"; };
 		9F1230617481693545D3B02A /* HDZap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HDZap.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0394471189FB8E37E6FB7D9 /* OSDLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSDLayoutSettings.swift; sourceTree = "<group>"; };
 		B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RaceRecord+FlightBattery.swift"; sourceTree = "<group>"; };
-		B555968818961BDDFDD836ED /* TTSCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSCache.swift; sourceTree = "<group>"; };
-		C5A430E5AE0F9117C107E99D /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
-		CA61CCE32759AA19858FD543 /* PremiumVoicePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumVoicePickerView.swift; sourceTree = "<group>"; };
+		B6D6F440713DB43D9E4C09ED /* WatchHapticsDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchHapticsDefaults.swift; sourceTree = "<group>"; };
+		B9244D8B5A587249957CCF86 /* HapticScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticScheduler.swift; sourceTree = "<group>"; };
 		CE7F4D4C3B3263F2507DDBFC /* LapAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapAnnouncer.swift; sourceTree = "<group>"; };
 		D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceMetrics.swift; sourceTree = "<group>"; };
 		D706FE213381CDC8D3EC0893 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
-		DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumSpeechSynthesizer.swift; sourceTree = "<group>"; };
-		DF97D1680A0F537ABDC0D416 /* BuildSecrets.swift.tpl */ = {isa = PBXFileReference; path = BuildSecrets.swift.tpl; sourceTree = "<group>"; };
 		E48C631CA51BB0A3E899833E /* AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsView.swift; sourceTree = "<group>"; };
+		E6ACFF44D27BA66D4B32E55F /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceRecord.swift; sourceTree = "<group>"; };
+		F97CFFCF38AA96371E7F6E8E /* HDZapWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HDZapWatch.entitlements; sourceTree = "<group>"; };
 		FB402D0550CF883BC6AEF76C /* RaceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceDetailView.swift; sourceTree = "<group>"; };
-		FC5B717619F1EB0FB08BEBED /* HDZapPremium.storekit */ = {isa = PBXFileReference; path = HDZapPremium.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -97,6 +132,8 @@
 			isa = PBXGroup;
 			children = (
 				861A341F4ADE60A8E83D72AD /* HDZap */,
+				BB099DC7E86B27C0B93CF573 /* HDZapShared */,
+				52381E618C342956FC00562A /* HDZapWatch */,
 				1D2FB57E9AD134EB42CA510E /* Products */,
 			);
 			sourceTree = "<group>";
@@ -105,16 +142,9 @@
 			isa = PBXGroup;
 			children = (
 				9F1230617481693545D3B02A /* HDZap.app */,
+				948C7D11EFBB4FC5E275E58E /* HDZapWatch.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		35F7AF701CBE39977A720312 /* IAP */ = {
-			isa = PBXGroup;
-			children = (
-				8FCA8EAB8E0451CF25688633 /* SubscriptionManager.swift */,
-			);
-			path = IAP;
 			sourceTree = "<group>";
 		};
 		3802ABB4F858BEDF7105AAC6 /* Views */ = {
@@ -145,21 +175,41 @@
 				D6BB1E2591EC4C88EC7E8FAF /* RaceMetrics.swift */,
 				EB8DA4E6EA0A92D3AE353C58 /* RaceRecord.swift */,
 				B3B65291DA5D0D676A0EB881 /* RaceRecord+FlightBattery.swift */,
-				35F7AF701CBE39977A720312 /* IAP */,
-				75E578D3CF47B760E0B94656 /* Speech */,
+				B6D6F440713DB43D9E4C09ED /* WatchHapticsDefaults.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
 		};
-		75E578D3CF47B760E0B94656 /* Speech */ = {
+		52381E618C342956FC00562A /* HDZapWatch */ = {
 			isa = PBXGroup;
 			children = (
-				9A5CB02666324477E3DEE14B /* BuildSecrets.swift */,
-				DF97D1680A0F537ABDC0D416 /* BuildSecrets.swift.tpl */,
-				DAC01EABC9B0860572552673 /* PremiumSpeechSynthesizer.swift */,
-				B555968818961BDDFDD836ED /* TTSCache.swift */,
+				80FE2B04F55C8F6DDB8EDAAA /* Assets.xcassets */,
+				F97CFFCF38AA96371E7F6E8E /* HDZapWatch.entitlements */,
+				0E9E29C1D9B0D66F129E9851 /* HDZapWatchApp.swift */,
+				4CA65BC0D6ED3AEB37009004 /* Info.plist */,
+				7B0ABEF11BC0BA8BD5166577 /* Services */,
+				7A16A5926059663293D96AE6 /* Views */,
 			);
-			path = Speech;
+			path = HDZapWatch;
+			sourceTree = "<group>";
+		};
+		7A16A5926059663293D96AE6 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				8D700C319FF96194EDFEB58E /* RaceFaceView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		7B0ABEF11BC0BA8BD5166577 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B9244D8B5A587249957CCF86 /* HapticScheduler.swift */,
+				1261143BCA3ED4E26B58F058 /* RaceCoordinator.swift */,
+				9C1B87A05D28EC314EEC592A /* WatchSessionReceiver.swift */,
+				639C84A3186616E972D99618 /* WorkoutKeepalive.swift */,
+			);
+			path = Services;
 			sourceTree = "<group>";
 		};
 		82F6C797C6916CD57EB49E2C /* Settings */ = {
@@ -172,9 +222,8 @@
 				1FC28EBB7B420B40B41502E9 /* DeviceRenameView.swift */,
 				7B161428CF02B06F13538AF4 /* OSDLayoutSettingsView.swift */,
 				49BB78DF3F4E7BFCE9C8F55A /* PairingSettingsView.swift */,
-				C5A430E5AE0F9117C107E99D /* PaywallView.swift */,
-				CA61CCE32759AA19858FD543 /* PremiumVoicePickerView.swift */,
 				5EBC7D297DD8CBEF7C617161 /* SettingsView.swift */,
+				490191345165C8C008F518E0 /* WatchSettingsView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -188,7 +237,7 @@
 				6F04429ADF49D9AFA453ED78 /* Localizable.xcstrings */,
 				B29A33EB1FA4A1A2EA13CBD0 /* PrivacyInfo.xcprivacy */,
 				42E89D1EA471AA0231C57139 /* Models */,
-				B4FCCAD8C5419912392C8207 /* Resources */,
+				D98D090A1A26569199515A43 /* Services */,
 				8CBD2DCE416C511DC56F7DB0 /* Utils */,
 				3802ABB4F858BEDF7105AAC6 /* Views */,
 			);
@@ -212,20 +261,20 @@
 			path = Debug;
 			sourceTree = "<group>";
 		};
-		B4FCCAD8C5419912392C8207 /* Resources */ = {
+		BB099DC7E86B27C0B93CF573 /* HDZapShared */ = {
 			isa = PBXGroup;
 			children = (
-				F3D2A7561E1D3E481EE58632 /* StoreKit */,
+				71CDADF310B2DA49B5ABEA48 /* RaceSnapshot.swift */,
 			);
-			path = Resources;
+			path = HDZapShared;
 			sourceTree = "<group>";
 		};
-		F3D2A7561E1D3E481EE58632 /* StoreKit */ = {
+		D98D090A1A26569199515A43 /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				FC5B717619F1EB0FB08BEBED /* HDZapPremium.storekit */,
+				E6ACFF44D27BA66D4B32E55F /* WatchBridge.swift */,
 			);
-			path = StoreKit;
+			path = Services;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -237,16 +286,36 @@
 			buildPhases = (
 				8EB8D7AD4FF9BE9D97BB5DFE /* Sources */,
 				5EC44E9D8BC3FA63073F8E7E /* Resources */,
+				7376617F199BA587D5AB3277 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C7D8A5A5EBF6D83BFDD5CBA0 /* PBXTargetDependency */,
 			);
 			name = HDZap;
 			packageProductDependencies = (
 			);
 			productName = HDZap;
 			productReference = 9F1230617481693545D3B02A /* HDZap.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5F3656D699C4914F5BE05D85 /* HDZapWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D692C6E710DED5F59319C054 /* Build configuration list for PBXNativeTarget "HDZapWatch" */;
+			buildPhases = (
+				CAC0532F2FB4C48D26DDA8F2 /* Sources */,
+				9B09C77F7115C1327E49F5DB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HDZapWatch;
+			packageProductDependencies = (
+			);
+			productName = HDZapWatch;
+			productReference = 948C7D11EFBB4FC5E275E58E /* HDZapWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -259,6 +328,10 @@
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					2E1D612349C9541ADE063ED3 = {
+						DevelopmentTeam = VCFY2GFR89;
+						ProvisioningStyle = Automatic;
+					};
+					5F3656D699C4914F5BE05D85 = {
 						DevelopmentTeam = VCFY2GFR89;
 						ProvisioningStyle = Automatic;
 					};
@@ -280,6 +353,7 @@
 			projectRoot = "";
 			targets = (
 				2E1D612349C9541ADE063ED3 /* HDZap */,
+				5F3656D699C4914F5BE05D85 /* HDZapWatch */,
 			);
 		};
 /* End PBXProject section */
@@ -290,10 +364,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				29915B1AC56F75DC768200C1 /* Assets.xcassets in Resources */,
-				6A349E284EC8FC622DBD89B6 /* BuildSecrets.swift.tpl in Resources */,
-				C1F30C12C6B7F601E5B9DEC5 /* HDZapPremium.storekit in Resources */,
 				374464E856AB050456ACEF12 /* Localizable.xcstrings in Resources */,
 				F574C17DC3FFBD8FAEF40F77 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9B09C77F7115C1327E49F5DB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4A26D2497B18E23F8981344B /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -309,7 +389,6 @@
 				03B0D91B870A379CD442D441 /* BackpackTelemetryDebugView.swift in Sources */,
 				8CADAC698D61819E5F246C78 /* BatteryStatusRow.swift in Sources */,
 				6F62D2497E6320454FE815F6 /* BluetoothManager.swift in Sources */,
-				8721348DA6F796D2E7605D1F /* BuildSecrets.swift in Sources */,
 				EA2F8003A1A5258DBA937A5F /* ConnectionSettingsView.swift in Sources */,
 				8B67A8CA784C5401CAF7A932 /* ContentView.swift in Sources */,
 				34305017E1FD46A91F2686E9 /* DeviceRenameView.swift in Sources */,
@@ -322,9 +401,6 @@
 				C377E0A27CFCE41D44BC6AB8 /* OSDLayoutSettings.swift in Sources */,
 				9DE8F86CE8258154BB0C4D55 /* OSDLayoutSettingsView.swift in Sources */,
 				523509AAFA62A920F64158E9 /* PairingSettingsView.swift in Sources */,
-				91E9B43A34A529198F1F89BB /* PaywallView.swift in Sources */,
-				FAE09644E7798A86BE837D66 /* PremiumSpeechSynthesizer.swift in Sources */,
-				935828350E187F0AF20503C6 /* PremiumVoicePickerView.swift in Sources */,
 				3054F9691F877B1D61884516 /* RaceDetailView.swift in Sources */,
 				D3B6435AACBDBC150667EE1C /* RaceFlightBatterySample.swift in Sources */,
 				C77A3AE96A255E8400BDCCE0 /* RaceHistoryStore.swift in Sources */,
@@ -332,16 +408,40 @@
 				4BD1A6777B94B70BDAD20186 /* RaceRecord+FlightBattery.swift in Sources */,
 				1A29BAB25C8509DF2CDA8248 /* RaceRecord.swift in Sources */,
 				B9BEFA5EEF436AEB36A2DC52 /* RaceShareCard.swift in Sources */,
+				E94E6F0AA423015A89D4B75A /* RaceSnapshot.swift in Sources */,
 				03B99D4D428FE955BCC3B8B4 /* SettingsView.swift in Sources */,
-				1D1024DCEB47BEF6A2A49DCF /* SubscriptionManager.swift in Sources */,
-				CB202CD3B4B1D9D186F34AE5 /* TTSCache.swift in Sources */,
 				CA1723C58DF5573FDF51FF9B /* TimerView.swift in Sources */,
 				12A33E83DDBED20D01DB44C9 /* UIDUtils.swift in Sources */,
 				2F3B59196B2D83DF64D2A1B2 /* VoltageChartPreview.swift in Sources */,
+				5BDFBBD976345C1014300844 /* WatchBridge.swift in Sources */,
+				CF0C747EE46EBAF2C6B19DA3 /* WatchHapticsDefaults.swift in Sources */,
+				E396FF695EC435CAB265EA78 /* WatchSettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CAC0532F2FB4C48D26DDA8F2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3802B2A61EA12FCA55B2319B /* HDZapWatchApp.swift in Sources */,
+				BEC6660185A2D836F65DC83A /* HapticScheduler.swift in Sources */,
+				80ECD513BF9FCA6DDFC4A4CA /* RaceCoordinator.swift in Sources */,
+				26F3BF86A6B5A0D3ADE84076 /* RaceFaceView.swift in Sources */,
+				2DAFA188645E67A4E973F65D /* RaceSnapshot.swift in Sources */,
+				A54FC1E13BDA465AFFCCB5FE /* WatchSessionReceiver.swift in Sources */,
+				EFF1624CA3FC3B811B84C88D /* WorkoutKeepalive.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C7D8A5A5EBF6D83BFDD5CBA0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5F3656D699C4914F5BE05D85 /* HDZapWatch */;
+			targetProxy = 3A909D0A8C3F5628233F1126 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		01681088A3580317A803D9C2 /* Debug */ = {
@@ -380,7 +480,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 9;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = VCFY2GFR89;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -400,16 +500,15 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.9;
-				TARGETED_DEVICE_FAMILY = 1;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Debug;
 		};
@@ -449,7 +548,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 9;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = VCFY2GFR89;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -463,15 +562,14 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;
-				TARGETED_DEVICE_FAMILY = 1;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Release;
 		};
@@ -507,6 +605,34 @@
 			};
 			name = Debug;
 		};
+		CDC249BCDEC123B8A1DBAB13 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HDZapWatch/HDZapWatch.entitlements;
+				INFOPLIST_FILE = HDZapWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = sh.saqoo.HDZap.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
+		FA07C8221D678F2017B4C9D3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HDZapWatch/HDZapWatch.entitlements;
+				INFOPLIST_FILE = HDZapWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = sh.saqoo.HDZap.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -524,6 +650,15 @@
 			buildConfigurations = (
 				3B8AA2A870FD31F1E7CEFCC8 /* Debug */,
 				081611FFA14A7D1DEC655F13 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D692C6E710DED5F59319C054 /* Build configuration list for PBXNativeTarget "HDZapWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FA07C8221D678F2017B4C9D3 /* Debug */,
+				CDC249BCDEC123B8A1DBAB13 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -14,6 +14,7 @@ struct TimerView: View {
     @Environment(LapAnnouncer.self) private var announcer
     @Environment(RaceHistoryStore.self) private var history
     @Environment(OSDLayoutSettings.self) private var osdLayout
+    @Environment(WatchBridge.self) private var watchBridge
     @AppStorage(RaceMetrics.targetLapCountStorageKey) private var targetLapCount
         = RaceMetrics.defaultTargetLapCount
     @AppStorage(RaceMetrics.raceSessionLimitStorageKey) private var raceSessionLimit: Int
@@ -24,6 +25,9 @@ struct TimerView: View {
         = LapAnnouncerDefaults.defaultCountdownEnabled
     @AppStorage(LapAnnouncerDefaults.countdownStartSecondsKey) private var countdownStartSeconds
         = LapAnnouncerDefaults.defaultCountdownStartSeconds
+    @AppStorage(WatchHapticsDefaults.enabledKey) private var watchHapticsEnabled
+        = WatchHapticsDefaults.defaultEnabled
+    @Environment(SubscriptionManager.self) private var subscription
     @Environment(\.accentHue) private var accentHue: Double
     private var accent: Color { EditorialTheme.accent(hue: accentHue) }
     private var sessionLimit: TimeInterval { TimeInterval(raceSessionLimit) }
@@ -379,9 +383,104 @@ struct TimerView: View {
         .sensoryFeedback(trigger: lapTimer.isRunning) { old, new in
             (!old && new) ? .impact(weight: .heavy) : nil
         }
+        // Apple Watch state mirror. The watch derives the live remaining
+        // time locally from a single snapshot, so we only need to publish
+        // on race-state transitions and on the inputs that change the
+        // countdown deadlines (sessionLimit, lapCount, hapticsEnabled
+        // toggle, subscription entitlement). Snapshot publishes are
+        // independent of `bluetooth.isReady` — the Apple Watch path
+        // doesn't go through the goggle bridge.
+        //
+        // Extracted into a dedicated modifier because piling more
+        // `.onChange` calls onto the main `body` chain trips Swift's
+        // "unable to type-check this expression in reasonable time" —
+        // each modifier compounds the inferred generic type.
+        .modifier(PublishWatchSnapshotModifier(
+            isRunning: lapTimer.isRunning,
+            lapCount: lapTimer.laps.count,
+            sessionEnded: sessionEnded,
+            raceSessionLimit: raceSessionLimit,
+            targetLapCount: targetLapCount,
+            watchHapticsEnabled: watchHapticsEnabled,
+            isEntitled: subscription.isEntitled,
+            publish: publishWatchSnapshot,
+            onEntitlementLapsed: {
+                // Mirrors the TTS-engine rollback in AudioSettingsView —
+                // when a subscription lapses we don't want the toggle to
+                // sit "on" in storage with no effect; the next time the
+                // operator re-subscribes the wrist would start buzzing
+                // without them touching the setting again.
+                if watchHapticsEnabled { watchHapticsEnabled = false }
+            }
+        ))
         #if DEBUG
         .onAppear { seedScreenshotIfNeeded() }
         #endif
+    }
+
+    // MARK: - Apple Watch snapshot
+
+    /// Derive a `RaceSnapshot` from the current `lapTimer` + AppStorage
+    /// state and hand it to the bridge. Phase mapping mirrors the same
+    /// `sessionEnded` / `isRunning` / pre-race logic the iOS UI uses, so
+    /// the watch can never disagree with the phone about whether the
+    /// race is live, paused, or done. `hapticsEnabled` is the AND of
+    /// the user's toggle AND `subscription.isEntitled` — the watch only
+    /// acts on what the iPhone sends, so this is the single gate that
+    /// keeps non-subscribers' wrists silent.
+    private func publishWatchSnapshot() {
+        let phase: RaceSnapshot.Phase
+        if sessionEnded {
+            phase = .ended
+        } else if lapTimer.isRunning {
+            phase = .running
+        } else if lapTimer.elapsedTime > 0 || !lapTimer.laps.isEmpty {
+            phase = .paused
+        } else {
+            phase = .idle
+        }
+        let snapshot = RaceSnapshot(
+            phase: phase,
+            elapsedAtPublish: lapTimer.elapsedTime,
+            publishedAt: Date(),
+            sessionLimit: sessionLimit,
+            targetLapCount: clampedTargetLapCount,
+            lapCount: lapTimer.laps.count,
+            hapticsEnabled: watchHapticsEnabled && subscription.isEntitled
+        )
+        watchBridge.publish(snapshot)
+    }
+
+    /// Owns the `.onChange` triggers + `.onAppear` that drive
+    /// `publishWatchSnapshot`. Pulled out of the main `body` so the
+    /// outer view's modifier chain stays small enough for Swift to
+    /// type-check in reasonable time — the same chain inlined into
+    /// `body` tripped the compiler's exponential generic inference.
+    private struct PublishWatchSnapshotModifier: ViewModifier {
+        let isRunning: Bool
+        let lapCount: Int
+        let sessionEnded: Bool
+        let raceSessionLimit: Int
+        let targetLapCount: Int
+        let watchHapticsEnabled: Bool
+        let isEntitled: Bool
+        let publish: () -> Void
+        let onEntitlementLapsed: () -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .onAppear { publish() }
+                .onChange(of: isRunning) { _, _ in publish() }
+                .onChange(of: lapCount) { _, _ in publish() }
+                .onChange(of: sessionEnded) { _, _ in publish() }
+                .onChange(of: raceSessionLimit) { _, _ in publish() }
+                .onChange(of: targetLapCount) { _, _ in publish() }
+                .onChange(of: watchHapticsEnabled) { _, _ in publish() }
+                .onChange(of: isEntitled) { _, nowEntitled in
+                    if !nowEntitled { onEntitlementLapsed() }
+                    publish()
+                }
+        }
     }
 
     #if DEBUG
