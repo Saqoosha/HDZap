@@ -276,6 +276,14 @@ final class PremiumSpeechSynthesizer: NSObject {
         currentTask?.cancel()
         currentTask = nil
         if playerNode.isPlaying { playerNode.stop() }
+        // `reset()` is the only way to drop scheduled buffers that haven't started
+        // playing back yet — `stop()` alone leaves them in the node's internal queue,
+        // and they will replay on the next `play()` even though we consider the
+        // utterance cancelled. Symptom that motivated this: after "スタート" finished
+        // (or was trimmed too aggressively), the next lap announcement opened with
+        // a phantom "ト" — the trailing chunk of the previous utterance bleeding
+        // into the new playback because `play()` after `stop()` resumed the queue.
+        playerNode.reset()
         if engine.isRunning { engine.stop() }
         pendingBuffers = 0
         streamReceiveComplete = false
@@ -453,6 +461,130 @@ final class PremiumSpeechSynthesizer: NSObject {
         note("session OK")
         try await sendAndStream(url: url, bearer: bearer, text: text, lang: lang, voice: voice)
         note("speak completed")
+    }
+
+    /// Pre-populate the local TTS cache for `(text, lang, voice)` without scheduling any
+    /// audio. Idempotent: if the entry already exists on disk this returns immediately.
+    /// Used by `LapAnnouncer.prewarmFixedPhrases` to populate countdown numbers + the
+    /// fixed phrases ("Start", "Last lap!" / equivalents) before race start so the
+    /// 1-second countdown tick can't be defeated by cold-TTS latency (~600–1000 ms per
+    /// number on Azure/Polly).
+    ///
+    /// Best-effort: all error paths (no bearer, bad URL, HTTP 4xx/5xx, parse failure)
+    /// swallow silently — failure to prefetch must not block the UI or surface as a
+    /// user-visible error. The real `speak()` call still runs against the same Worker
+    /// later and will surface failures the normal way.
+    ///
+    /// Doesn't touch `AVAudioEngine`, `playerNode`, `currentTask`, `accumulatedPCM` or
+    /// any `currentCache*` state — only the on-disk `TTSCache` is mutated. This makes
+    /// it safe to call in parallel (`TaskGroup`) while a real `speakAsync` is playing.
+    func prefetch(text: String, lang: String, voice: PremiumVoiceOption) async {
+        let cacheKey = buildCacheKey(text: text, lang: lang, voice: voice)
+        if TTSCache.shared.url(forKey: cacheKey, provider: voice.provider) != nil {
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let urlString = defaults.string(forKey: PremiumTTSDevDefaults.workerURLKey)
+            ?? PremiumTTSDevDefaults.defaultWorkerURL
+        let jws = jwsProvider() ?? ""
+        let panelBearer = (defaults.string(forKey: PremiumTTSDevDefaults.bearerKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let bearer: String
+        if !jws.isEmpty {
+            bearer = jws
+        } else if !panelBearer.isEmpty {
+            bearer = panelBearer
+        } else {
+            bearer = BuildSecrets.workerBearer
+        }
+        guard !bearer.isEmpty, let url = URL(string: urlString) else { return }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var bodyDict: [String: Any] = [
+            "provider": voice.provider.rawValue,
+            "text": text,
+            "voice": voice.id,
+            "lang": lang,
+        ]
+        if voice.provider == .cartesia { bodyDict["model"] = "sonic-3.5" }
+        if voice.provider.supportsRate {
+            let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumRateKey) as? Double
+            bodyDict["rate"] = raw ?? LapAnnouncerDefaults.defaultPremiumRate
+        }
+        if voice.provider.supportsPitch {
+            let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumPitchKey) as? Double
+            bodyDict["pitch"] = raw ?? LapAnnouncerDefaults.defaultPremiumPitch
+        }
+        guard let body = try? JSONSerialization.data(withJSONObject: bodyDict) else { return }
+        req.httpBody = body
+
+        do {
+            // `data(for:)` (not `bytes(for:)`) — prefetch isn't time-critical and we don't
+            // want byte-by-byte MainActor iteration over a 50-100 KB PCM body. One shot,
+            // whole body, parse once, write once.
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                log.debug("prefetch http fail: \(String(describing: response), privacy: .public)")
+                return
+            }
+            let pcm: Data
+            switch voice.provider {
+            case .cartesia:
+                // SSE body: walk each line, pull base64 PCM from `data: {...}` chunks. Same
+                // shape `handleEventJSON` parses but without scheduling audio.
+                var collected = Data()
+                let bodyText = String(decoding: data, as: UTF8.self)
+                for rawLine in bodyText.split(separator: "\n", omittingEmptySubsequences: false) {
+                    let line = String(rawLine)
+                    let payload: String
+                    if line.hasPrefix("data: ") {
+                        payload = String(line.dropFirst(6))
+                    } else if line.hasPrefix("data:") {
+                        payload = String(line.dropFirst(5))
+                    } else {
+                        continue
+                    }
+                    guard let pdata = payload.data(using: .utf8),
+                          let obj = try? JSONSerialization.jsonObject(with: pdata) as? [String: Any] else {
+                        continue
+                    }
+                    if obj["type"] as? String == "chunk",
+                       let b64 = obj["data"] as? String,
+                       let chunk = Data(base64Encoded: b64) {
+                        collected.append(chunk)
+                    }
+                }
+                pcm = collected
+            case .polly, .azure:
+                pcm = data
+            }
+            // `pcm.count < 2` covers two edge cases that would poison the cache:
+            //   - Pathological 1-byte response (`evenCount = 0` after `& ~1` → zero-byte
+            //     `evenPayload` → zero-byte cached file → `buildBuffer24kHz` throws "empty
+            //     PCM chunk" on every cache hit, silently breaking that phrase forever).
+            //   - Cartesia SSE stream that emits only non-`chunk` events (e.g. `done`
+            //     with no audio), which collapses `collected` to empty here.
+            // One s16le frame = 2 bytes, so anything below 2 bytes is structurally
+            // invalid PCM and not worth saving.
+            guard pcm.count >= 2 else { return }
+            let evenCount = pcm.count & ~1
+            let evenPayload = evenCount == pcm.count ? pcm : pcm.prefix(evenCount)
+            let sampleRate = Self.sampleRateFor(voice.provider)
+            let trimmed = Self.trimSilence(Data(evenPayload), sampleRate: sampleRate)
+            // `trimSilence` can return its input unchanged if the payload is all-silent,
+            // but the original empty-guard above prevents that input from being empty.
+            // Defensive second-guard: a future trim algorithm that could return empty
+            // (e.g. additional inner filtering) wouldn't poison the cache.
+            guard trimmed.count >= 2 else { return }
+            TTSCache.shared.save(key: cacheKey, provider: voice.provider, data: trimmed)
+            log.debug("prefetch saved: key=\(cacheKey.prefix(12), privacy: .public) bytes=\(trimmed.count, privacy: .public) (pre-trim=\(evenPayload.count, privacy: .public))")
+        } catch {
+            log.debug("prefetch error: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Build the cache key for an in-flight speak(). Mirrors the Worker's `buildCacheKey` so
@@ -646,10 +778,13 @@ final class PremiumSpeechSynthesizer: NSObject {
             // self-consistent — `pcm.count / 2` in `buildBuffer*` would drop that tail
             // byte too on every replay, so the saved blob is already what plays back.
             let evenCount = accumulatedPCM.count & ~1
-            let payload = evenCount == accumulatedPCM.count
+            let evenPayload = evenCount == accumulatedPCM.count
                 ? accumulatedPCM
                 : accumulatedPCM.prefix(evenCount)
-            TTSCache.shared.save(key: key, provider: provider, data: payload)
+            // Trim provider-added silence before persisting so the cached replay is the
+            // tightest possible — full rationale in `trimSilence`.
+            let trimmed = Self.trimSilence(Data(evenPayload), sampleRate: currentSampleRate)
+            TTSCache.shared.save(key: key, provider: provider, data: trimmed)
         }
     }
 
@@ -706,10 +841,13 @@ final class PremiumSpeechSynthesizer: NSObject {
         // partial utterance — which would play as a clipped audio file on every cache hit.
         if chunkCount > 0, let key = currentCacheKey, let provider = currentCacheProvider {
             let evenCount = accumulatedPCM.count & ~1
-            let payload = evenCount == accumulatedPCM.count
+            let evenPayload = evenCount == accumulatedPCM.count
                 ? accumulatedPCM
                 : accumulatedPCM.prefix(evenCount)
-            TTSCache.shared.save(key: key, provider: provider, data: payload)
+            // Trim provider-added silence before persisting so the cached replay is the
+            // tightest possible — full rationale in `trimSilence`.
+            let trimmed = Self.trimSilence(Data(evenPayload), sampleRate: currentSampleRate)
+            TTSCache.shared.save(key: key, provider: provider, data: trimmed)
         }
     }
 
@@ -743,6 +881,58 @@ final class PremiumSpeechSynthesizer: NSObject {
             log.debug("event ignored: type=\(type ?? "<nil>", privacy: .public)")
         }
         return false
+    }
+
+    // MARK: - Silence trim
+
+    /// Crop leading + trailing near-silence from a raw s16le mono PCM payload, keeping a
+    /// short audible-pad on each side so the result doesn't click. Polly Neural and Azure
+    /// both pad utterances with 50-200 ms of low-amplitude noise on each end; for a
+    /// 1-second countdown ("ten" / "nine" / ...) that padding pushes total playback past
+    /// the 1-second tick and the next number gets dropped by
+    /// `LapAnnouncer.announceCountdown`'s `inflightUtteranceCount == 0` guard. Trimming
+    /// before write lets the cached file replay in real ~600-800 ms instead of ~1000-1200.
+    ///
+    /// Threshold: Int16 |sample| < `silenceThreshold` (≈ −50 dB) counts as silence. Set
+    /// conservative because Japanese stops like "ト" / "プ" / "ス" decay through a long
+    /// quiet tail (the consonant release after the vowel) that's still audible — an
+    /// aggressive threshold (e.g. −36 dB) chops the consonant off entirely and the
+    /// listener hears "スター" instead of "スタート". Padding: 60 ms on each side so even
+    /// if the threshold cuts mid-decay, the unvoiced tail past the cut still plays.
+    /// Returns the original `pcm` unchanged if the whole payload is below threshold
+    /// (cache would otherwise be a zero-length file).
+    private static let silenceThreshold: Int16 = 100
+    private static func trimSilence(_ pcm: Data, sampleRate: Double) -> Data {
+        let frameCount = pcm.count / 2
+        guard frameCount > 0 else { return pcm }
+        // ~60 ms padding: 960 frames @ 16 kHz, 1440 frames @ 24 kHz.
+        let padFrames = Int((sampleRate * 0.060).rounded())
+
+        return pcm.withUnsafeBytes { rawBuf -> Data in
+            guard let base = rawBuf.bindMemory(to: Int16.self).baseAddress else { return pcm }
+            var firstAudible = -1
+            for i in 0..<frameCount {
+                if abs(Int32(base[i])) >= Int32(Self.silenceThreshold) {
+                    firstAudible = i
+                    break
+                }
+            }
+            // Entirely below threshold — caller falls back to writing the untrimmed payload
+            // so a too-quiet phrase still plays something instead of a zero-byte file.
+            guard firstAudible >= 0 else { return pcm }
+            var lastAudible = firstAudible
+            for i in stride(from: frameCount - 1, through: firstAudible, by: -1) {
+                if abs(Int32(base[i])) >= Int32(Self.silenceThreshold) {
+                    lastAudible = i
+                    break
+                }
+            }
+            let start = max(0, firstAudible - padFrames)
+            let endExclusive = min(frameCount, lastAudible + 1 + padFrames)
+            let byteStart = start * 2
+            let byteEnd = endExclusive * 2
+            return pcm.subdata(in: byteStart..<byteEnd)
+        }
     }
 
     // MARK: - PCM → AVAudioPCMBuffer → AVAudioPlayerNode

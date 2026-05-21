@@ -61,11 +61,6 @@
             ReferencedContainer = "container:HDZap.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <CommandLineArguments>
-      </CommandLineArguments>
-      <StoreKitConfigurationFileReference
-         identifier = "../../HDZap/Resources/StoreKit/HDZapPremium.storekit">
-      </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

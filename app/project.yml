@@ -40,8 +40,11 @@ schemes:
     build:
       targets:
         HDZap: all
-    run:
-      # Local StoreKit configuration — Xcode swaps the real App Store transactions for the
-      # fake products defined in the .storekit file when this scheme is active. Doesn't
-      # affect Release / TestFlight builds, which always go through real StoreKit servers.
-      storeKitConfiguration: HDZap/Resources/StoreKit/HDZapPremium.storekit
+    # No `storeKitConfiguration` here on purpose: local-StoreKit transactions are
+    # signed with a Xcode-only key that fails Apple Root CA G3 verification on the
+    # `hdzap-premium` Worker, so the JWS auth path can't be exercised end-to-end.
+    # Default to Sandbox in every local Debug run — same flow TestFlight testers see,
+    # one Sandbox Apple Account setup buys all subsequent runs. Keep the `.storekit`
+    # file in `HDZap/Resources/StoreKit/` so we can flip back via Xcode → Edit Scheme
+    # → Run → Options → StoreKit Configuration on the rare day local fake
+    # transactions are useful (paywall layout iteration without sandbox round-trip).
