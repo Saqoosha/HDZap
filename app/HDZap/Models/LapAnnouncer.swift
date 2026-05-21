@@ -935,6 +935,67 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         return PremiumVoiceCatalog.voices.first { $0.id == voiceId }
     }
 
+    /// Best-effort: pre-populate the Premium TTS local cache for every phrase that has
+    /// a fixed, deterministic string (countdown numbers + start / last-lap cues) in the
+    /// currently selected language + voice. Idempotent — phrases already on disk are
+    /// skipped inside `PremiumSpeechSynthesizer.prefetch`. No-op when the operator is on
+    /// the System engine, since `AVSpeechSynthesizer` has no network round-trip to hide.
+    ///
+    /// Why: Premium TTS cold playback runs 600–1000 ms on Azure/Polly and the 1-second
+    /// countdown tick drops alternate numbers via `announceCountdown`'s `inflightUtteranceCount`
+    /// guard. Prefetching once per (language × voice) change collapses every countdown
+    /// number plus the start / last-lap cues to a near-zero local cache read at race time.
+    ///
+    /// Wired to four triggers:
+    ///   1. App launch (after `SubscriptionManager.start()` so `jwsProvider` is wired —
+    ///      the JWS itself may still be nil at this moment, but the bearer fallback in
+    ///      `PremiumSpeechSynthesizer.prefetch` (panel bearer → `BuildSecrets.workerBearer`)
+    ///      makes a missing JWS non-fatal for prefetching).
+    ///   2. Voice selection change in `AudioSettingsView`.
+    ///   3. Language change in `AudioSettingsView`.
+    ///   4. Engine toggle to "premium" in `AudioSettingsView` — covers the case where the
+    ///      operator picked their voice while still on System (no-op prewarm because
+    ///      `currentPremiumVoiceIfActive()` was nil) and only flipped Engine afterward.
+    ///
+    /// Fires on a detached Task so the caller doesn't await; the cache writes are pure
+    /// disk side-effects with no UI dependency.
+    func prewarmFixedPhrases() {
+        guard let voice = currentPremiumVoiceIfActive() else { return }
+        let phrases = fixedPrewarmPhrases(for: currentLanguage())
+        let synth = premiumSynth
+        let lang = voice.lang
+        Task.detached { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for phrase in phrases {
+                    group.addTask { @MainActor in
+                        await synth.prefetch(text: phrase, lang: lang, voice: voice)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The set of strings `LapAnnouncer` will ever pass to `speak()` whose value is
+    /// fixed (independent of lap time / number / total). Kept in sync with
+    /// `announceStart()`, `announceLastLap()`, and `announceCountdown()` — any new
+    /// fixed phrase must be added here or it won't be prewarmed.
+    private func fixedPrewarmPhrases(for language: LapAnnouncerLanguage) -> [String] {
+        let countdownMax = (UserDefaults.standard.object(forKey: LapAnnouncerDefaults.countdownStartSecondsKey) as? Int)
+            ?? LapAnnouncerDefaults.defaultCountdownStartSeconds
+        let upper = max(LapAnnouncerDefaults.minCountdownStartSeconds,
+                        min(LapAnnouncerDefaults.maxCountdownStartSeconds, countdownMax))
+        var phrases = (1...upper).map { String($0) }
+        switch language {
+        case .english:
+            phrases.append("Start")
+            phrases.append("Last lap!")
+        case .japanese:
+            phrases.append("スタート")
+            phrases.append("ファイナルラップです")
+        }
+        return phrases
+    }
+
     private func finalPhrase(lastLap: Lap?,
                              lapCount: Int,
                              totalTime: TimeInterval,

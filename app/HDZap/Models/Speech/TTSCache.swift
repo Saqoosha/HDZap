@@ -45,11 +45,18 @@ final class TTSCache {
         model: String,
         text: String
     ) -> String {
-        // "v2" prefix invalidates pre-PCM-migration cache entries — Polly/Azure used to be
-        // mp3 on disk + R2, now they're raw s16le PCM. Keep in lockstep with the Worker's
-        // buildCacheKey() prefix or local + R2 layers will point at different objects.
+        // "v4" prefix invalidates earlier cache entries whenever the client-side
+        // silence-trim parameters change. An earlier in-development trim setting
+        // (−36 dB threshold + 15 ms padding) chopped Japanese stop consonants
+        // ("ト", "プ", "ス") clean off — listeners heard "スター" instead of "スタート".
+        // v4 relaxes to −50 dB + 60 ms padding so the unvoiced tail survives. Bump
+        // the prefix again on any future trim parameter retune so stale entries get
+        // re-fetched instead of replaying with the wrong shape. The Worker's R2 cache
+        // still uses "v2" because it stores the untrimmed provider output — trimming
+        // is a client-side post-process. Layers are independent by design; only
+        // update the Worker prefix if R2 itself stores something new.
         let canonical = [
-            "v2",
+            "v4",
             provider.rawValue,
             voice,
             lang,

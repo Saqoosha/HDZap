@@ -71,6 +71,13 @@ struct HDZapApp: App {
                     lapAnnouncer.premiumSynth.jwsProvider = { [weak subscription] in
                         subscription?.currentJWS
                     }
+                    // Populate the Premium TTS local cache for fixed phrases (countdown
+                    // numbers + start / last-lap cues) before any race begins, so the
+                    // 1-second countdown tick can hit local disk (~10 ms) instead of
+                    // round-tripping to the Worker (~600–1000 ms on Azure/Polly) and
+                    // getting eaten by the `inflightUtteranceCount` guard. No-op if the
+                    // operator is on the System engine.
+                    lapAnnouncer.prewarmFixedPhrases()
                 }
         }
     }
