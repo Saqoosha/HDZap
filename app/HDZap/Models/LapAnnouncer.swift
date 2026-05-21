@@ -946,16 +946,19 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// guard. Prefetching once per (language × voice) change collapses every countdown
     /// number plus the start / last-lap cues to a near-zero local cache read at race time.
     ///
-    /// Wired to four triggers:
+    /// Wired to two triggers:
     ///   1. App launch (after `SubscriptionManager.start()` so `jwsProvider` is wired —
     ///      the JWS itself may still be nil at this moment, but the bearer fallback in
     ///      `PremiumSpeechSynthesizer.prefetch` (panel bearer → `BuildSecrets.workerBearer`)
     ///      makes a missing JWS non-fatal for prefetching).
-    ///   2. Voice selection change in `AudioSettingsView`.
-    ///   3. Language change in `AudioSettingsView`.
-    ///   4. Engine toggle to "premium" in `AudioSettingsView` — covers the case where the
-    ///      operator picked their voice while still on System (no-op prewarm because
-    ///      `currentPremiumVoiceIfActive()` was nil) and only flipped Engine afterward.
+    ///   2. Settings sheet dismissal in `TimerView` (`.onChange(of: showSettings)` on the
+    ///      true → false transition). Catches every Premium control change in one place:
+    ///      voice, language, engine toggle, countdown duration, AND the rate / pitch
+    ///      sliders. Per-`@AppStorage` onChange hooks were tried first and discarded —
+    ///      they fired multiple times per Settings session, missed rate / pitch entirely
+    ///      (per-tick prewarm would burn API on exploratory drags), and required
+    ///      boilerplate per setting. The dismissal point is the operator's "done
+    ///      tweaking, about to race" moment — exactly when the cache needs to be warm.
     ///
     /// Fires on a detached Task so the caller doesn't await; the cache writes are pure
     /// disk side-effects with no UI dependency.
