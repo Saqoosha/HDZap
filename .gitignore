@@ -42,3 +42,7 @@ _site/
 !.claude/commands/
 !.claude/skills/
 .superpowers/
+
+
+# Private ASC API scripts + research (App Store Connect operations, not committed)
+_private/
