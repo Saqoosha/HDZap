@@ -437,6 +437,36 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// the steady-state countdown path — only the start-of-count
     /// case (idle synth) ever passes the guard.
     func announceCountdown(_ seconds: Int) {
+        // Premium engine: route through `speakOverlap` so consecutive countdown
+        // numbers can play CONCURRENTLY at the audio level. At higher Premium
+        // rates (Azure 1.45 ×, etc.) each utterance runs ~1.4 s, so the 1-second
+        // tick would otherwise drop alternate numbers via the
+        // `inflightUtteranceCount` guard. The overlap pool's `AVAudioPlayerNode`s
+        // mix at `mainMixerNode`, so "10" can still be ringing out while "9"
+        // starts and the listener hears both. LAP / Start / Last lap utterances
+        // go through the primary `playerNode` and stop the overlap pool so the
+        // higher-priority callout is heard cleanly.
+        //
+        // **Cache miss in Premium is silently dropped, NOT fallen back to
+        // System voice.** Falling back would route through `speak()` → premium
+        // `speakAsync()` → `cancel()`, which tears down the overlap pool and
+        // disrupts every subsequent countdown tick for the duration of the live
+        // Worker fetch (~600-1000 ms). `prewarmFixedPhrases` reliably warms
+        // every countdown phrase on Settings dismissal, so a miss here means
+        // the operator started the race before prewarm completed — one
+        // dropped number is better than collapsing the whole countdown into a
+        // single long System-voice utterance plus drops.
+        if let premiumVoice = currentPremiumVoiceIfActive() {
+            configureSessionIfNeeded()
+            premiumSynth.speakOverlap(
+                text: String(seconds),
+                lang: premiumVoice.lang,
+                voice: premiumVoice,
+            )
+            return
+        }
+        // System engine path — the original drop guard stays so the
+        // single-channel `AVSpeechSynthesizer` doesn't pile up utterances.
         guard inflightUtteranceCount == 0 else { return }
         speak(String(seconds), cancelInflight: false)
     }

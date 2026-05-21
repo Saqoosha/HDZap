@@ -196,6 +196,29 @@ final class PremiumSpeechSynthesizer: NSObject {
     private var engineAttached = false
     private var sessionConfigured = false
 
+    /// Pool of additional `AVAudioPlayerNode`s used by `speakOverlap` for countdown
+    /// numbers. All four nodes are attached to `engine.mainMixerNode` at init time
+    /// alongside the primary `playerNode`, so the mixer sums any concurrently-playing
+    /// utterances at the hardware level — "10" can still be ringing out when "9"
+    /// starts, and the listener hears both. Sized at 4 because Azure at 1.45 × rate
+    /// runs each countdown number to ~1.4-1.7 seconds; with a 1-second tick the
+    /// pool only needs to cover the maximum number of *simultaneously* playing
+    /// utterances at any moment (~2), and 4 gives headroom for short utterances
+    /// that briefly stack 3-4 deep.
+    ///
+    /// Selection is **strict round-robin** — `overlapRoundRobinIndex` increments
+    /// each call. `AVAudioPlayerNode.isPlaying` stays `true` after a scheduled
+    /// buffer drains (until the node is explicitly stopped), so it cannot be used
+    /// to detect free vs busy. Round-robin sidesteps that by simply rotating
+    /// through the pool: with 4 nodes × ~1.4 s utterance / 1 s tick, by the time
+    /// we cycle back to the same node its previous buffer has long finished and
+    /// the new buffer plays immediately. If the cycle catches up to a still-busy
+    /// node (extremely rare), the new buffer is **queued** behind the current one
+    /// — audible as a small delay rather than dropped silence.
+    private static let overlapPoolSize = 4
+    private var overlapNodes: [AVAudioPlayerNode] = []
+    private var overlapRoundRobinIndex = 0
+
     /// `Task` we kick off in `speak(...)`. Cancelling it both aborts the URLSession stream
     /// (via `Task.checkCancellation`) AND tells the player to stop scheduling more buffers.
     private var currentTask: Task<Void, Never>?
@@ -257,11 +280,18 @@ final class PremiumSpeechSynthesizer: NSObject {
         super.init()
         engine.attach(playerNode)
         engine.connect(playerNode, to: engine.mainMixerNode, format: Self.sourceFormat)
+        // Pool of overlap nodes for `speakOverlap` — all parallel into the mixer.
+        for _ in 0..<Self.overlapPoolSize {
+            let node = AVAudioPlayerNode()
+            engine.attach(node)
+            engine.connect(node, to: engine.mainMixerNode, format: Self.sourceFormat)
+            overlapNodes.append(node)
+        }
         engineAttached = true
         // `prepare()` allocates the rendering resources up front. Without it the first
         // scheduleBuffer can race with engine.start() and drop the buffer on the floor.
         engine.prepare()
-        log.notice("engine init: outputFormat=\(self.engine.outputNode.outputFormat(forBus: 0).description, privacy: .public)  mixerFormat=\(self.engine.mainMixerNode.outputFormat(forBus: 0).description, privacy: .public)")
+        log.notice("engine init: outputFormat=\(self.engine.outputNode.outputFormat(forBus: 0).description, privacy: .public)  mixerFormat=\(self.engine.mainMixerNode.outputFormat(forBus: 0).description, privacy: .public)  overlapPool=\(Self.overlapPoolSize, privacy: .public)")
     }
 
     /// Stops any in-flight request and playback. Idempotent. Bumps `currentGeneration` so
@@ -281,19 +311,37 @@ final class PremiumSpeechSynthesizer: NSObject {
         // and they will replay on the next `play()` even though we consider the
         // utterance cancelled.
         playerNode.reset()
+        // Belt-and-braces: explicitly stop+reset every overlap node BEFORE the
+        // `engine.reset()` below. `engine.reset()` flushes their internal buffers
+        // too (they share the engine graph), but `AVAudioPlayerNode.isPlaying`
+        // is observed to lag the engine reset, so a subsequent `speakOverlap`
+        // could see `isPlaying == true` on a node whose render state was already
+        // wiped. Doing it explicitly here keeps the node's external state and
+        // internal state in lockstep before the engine-wide reset.
+        stopOverlapPlayback()
         if engine.isRunning { engine.stop() }
-        // `engine.reset()` flushes the pending buffers in every attached node — the
-        // player above plus the main mixer and the output unit. Without this, the
-        // tail of a previous utterance can sit in a downstream AudioUnit's internal
-        // render buffer (a few ms worth) and bleed into the next playback once
-        // `engine.start()` runs again. Symptom that motivated this: paywall / picker
-        // sample preview finished, operator tapped Start, and the new "スタート"
-        // playback opened with a phantom "ト" from the previous utterance's tail —
-        // not from the sample's last syllable (the JA sample text "ラップ3、12.34、
-        // ベストラップ" ends in "プ", not "ト"), so the bleed was the prior race's
-        // own "スタート" tail or a prewarm-buffered chunk that survived `stop()`.
-        // Called unconditionally — safe on a stopped engine, free insurance for the
-        // first-run path.
+        // `engine.reset()` flushes the AudioUnit-side render state — `mainMixerNode`
+        // and the output unit's internal buffers — so the tail of a previous
+        // utterance can't bleed into the next playback once `engine.start()` runs
+        // again. Symptom that motivated this: paywall / picker sample preview
+        // finished, operator tapped Start, and the new "スタート" playback opened
+        // with a phantom "ト" from the previous utterance's tail — not from the
+        // sample's last syllable (the JA sample text "ラップ3、12.34、ベストラップ"
+        // ends in "プ", not "ト"), so the bleed was the prior race's own "スタート"
+        // tail or a prewarm-buffered chunk that survived `stop()`.
+        //
+        // **`engine.reset()` does NOT reset the `AVAudioPlayerNode`s' scheduled
+        // buffer queues or their `isPlaying` flags** — those are per-node state
+        // that requires `node.stop()` + `node.reset()`. The primary `playerNode`
+        // is handled at the top of `cancel()`; the overlap pool is handled by
+        // `stopOverlapPlayback()` above. Without that explicit teardown, an
+        // overlap node would survive `engine.reset()` reporting `isPlaying ==
+        // true` while its internal render state was already wiped — the next
+        // `speakOverlap` would skip the `play()` call and schedule into a node
+        // that never renders.
+        //
+        // Called unconditionally — safe on a stopped engine, free insurance for
+        // the first-run path.
         engine.reset()
         // Drop the polyphase resampler so a Polly → Polly preview-then-race sequence
         // can't carry filter-tail state from the previous utterance — the same class
@@ -320,7 +368,24 @@ final class PremiumSpeechSynthesizer: NSObject {
         let cb = pendingOnEnd
         pendingOnEnd = nil
         isPlaying = false
+        // No overlap restoration needed — overlap nodes were hard-stopped on LAP
+        // start (not muted), so they're already in a fresh state ready for the
+        // next `speakOverlap`. `isPlaying = false` above also lets new overlap
+        // calls pass the LAP-active guard inside `speakOverlap`.
         cb?()
+    }
+
+    /// Hard-stop every overlap node and clear their scheduled-buffer queues. Used
+    /// when a LAP / Start / FINAL announce arrives and the operator's priority
+    /// shifts to the main utterance — countdown numbers currently ringing out are
+    /// cut off mid-syllable so the LAP message is heard cleanly. Paired with the
+    /// `isPlaying` guard inside `speakOverlap`, which refuses to schedule new
+    /// overlay buffers while the primary utterance is active.
+    private func stopOverlapPlayback() {
+        for node in overlapNodes {
+            if node.isPlaying { node.stop() }
+            node.reset()
+        }
     }
 
     /// Resets all debug counters so the next Speak shows a clean timeline.
@@ -389,6 +454,14 @@ final class PremiumSpeechSynthesizer: NSObject {
         // before `speak()` would set it) still produces a clean end notification through
         // `notifyEnd` instead of leaking `LapAnnouncer.inflightUtteranceCount`.
         isPlaying = true
+        // Hard-stop the overlap pool while the primary utterance is speaking. LAP /
+        // Start / FINAL announces represent the operator's current priority — any
+        // countdown numbers already ringing out (from `speakOverlap`) must be cut
+        // off so the LAP message is heard cleanly. `speakOverlap` also reads
+        // `isPlaying` and refuses to schedule new overlay buffers while the primary
+        // utterance is active, so once we get here all current AND future overlay
+        // counts are suppressed until `notifyEnd` flips `isPlaying` back to false.
+        stopOverlapPlayback()
         // Capture the generation this Task represents — bumped to a fresh value by the
         // `cancel()` above. If a NEW `speakAsync` arrives while this Task is running, its
         // own `cancel()` will bump again, fire our `pendingOnEnd` cleanly, and start a
@@ -602,6 +675,151 @@ final class PremiumSpeechSynthesizer: NSObject {
         } catch {
             log.debug("prefetch error: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Cache-hit playback that bypasses the primary `playerNode` queue so the new
+    /// utterance can sound concurrently with whatever is already speaking. Used by
+    /// `LapAnnouncer.announceCountdown` for the per-second numbers — at higher rates
+    /// (Azure 1.45 ×, etc.) each utterance may run ~1.4 s, making consecutive
+    /// 1-second ticks overlap. The pool of `overlapNodes` is wired into
+    /// `mainMixerNode` alongside the primary `playerNode`, so the mixer sums all
+    /// active nodes at the hardware level — the listener hears "10" tailing out
+    /// behind "9" instead of "9" being dropped by an `inflightUtteranceCount`
+    /// guard.
+    ///
+    /// Cache-hit only on purpose: `prewarmFixedPhrases` reliably warms every
+    /// countdown phrase before the race, and a cache miss here would either fall
+    /// through to the cancel-on-new primary path (defeating the overlap) or pay a
+    /// 600-1000 ms cold-fetch Worker round-trip (the very latency overlap is
+    /// trying to avoid). When the cache miss happens — rare in practice — the call
+    /// returns false and the caller can decide to drop the announce or fall back.
+    ///
+    /// Does NOT participate in `pendingOnEnd` / `notifyEnd` / `isPlaying` —
+    /// overlap utterances are fire-and-forget. The primary path's volume-mute on
+    /// LAP ensures countdown numbers stop sounding while LAP speaks; new overlap
+    /// calls during LAP inherit the muted node volume and stay silent until
+    /// `notifyEnd` restores it.
+    @discardableResult
+    func speakOverlap(text: String, lang: String, voice: PremiumVoiceOption) -> Bool {
+        // LAP / Start / FINAL announces hard-stop the overlap pool on speakAsync
+        // entry; while one of those is in flight (`isPlaying == true`), refuse to
+        // schedule new overlay buffers so a stray countdown tick can't sneak in
+        // behind the LAP message. The countdown number is dropped (returns true
+        // — caller treats as "handled, did nothing"); the next countdown after
+        // `notifyEnd` flips `isPlaying` false will resume normally.
+        if isPlaying {
+            log.notice("speakOverlap suppressed (primary speaking): text=\"\(text, privacy: .public)\"")
+            return true
+        }
+        let cacheKey = buildCacheKey(text: text, lang: lang, voice: voice)
+        guard let cacheFileURL = TTSCache.shared.url(forKey: cacheKey, provider: voice.provider) else {
+            log.notice("speakOverlap miss: text=\"\(text, privacy: .public)\" voice=\(voice.id, privacy: .public)")
+            return false
+        }
+        do {
+            try configureSession()
+            let pcm = try Data(contentsOf: cacheFileURL)
+            let sampleRate = Self.sampleRateFor(voice.provider)
+            let buffer = try buildOverlapBuffer(pcm: pcm, sampleRate: sampleRate)
+            // Strict round-robin — rotate through the pool by index. `isPlaying`
+            // cannot be used to detect free vs busy because `AVAudioPlayerNode`
+            // stays in the `isPlaying` state until explicitly stopped, even after
+            // a scheduled buffer drains. With 4 nodes × ~1.4 s utterance / 1 s
+            // tick the previous occupancy of any node is comfortably done before
+            // the cycle wraps; in the rare worst case the new buffer queues
+            // behind the current on the same node (small audible delay) instead
+            // of being dropped.
+            let nodeIndex = overlapRoundRobinIndex % overlapNodes.count
+            overlapRoundRobinIndex &+= 1
+            let node = overlapNodes[nodeIndex]
+            // The engine may not be running on the first overlap of a session
+            // (cold launch with no LAP yet). Start it lazily — same pattern as
+            // `schedulePCM`. Safe to call when already running.
+            if !engine.isRunning {
+                try engine.start()
+                log.notice("engine started (from speakOverlap)")
+            }
+            // Canonical order: `play()` before `scheduleBuffer`. Matches the
+            // primary `schedulePCM` pattern. After `stopOverlapPlayback` (called
+            // on LAP entry) the node is in a stopped state with an empty queue;
+            // calling `play()` re-engages it for the new buffer.
+            if !node.isPlaying {
+                node.play()
+            }
+            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack, completionHandler: nil)
+            log.notice("speakOverlap scheduled: text=\"\(text, privacy: .public)\" voice=\(voice.id, privacy: .public) frames=\(buffer.frameLength, privacy: .public) nodeIndex=\(nodeIndex, privacy: .public)")
+            return true
+        } catch {
+            // Surface the error to the observable `lastError` so the Settings
+            // banner (and any dev panel) can show it. `log.error` alone is
+            // invisible at race time. The most likely concrete failure here is
+            // `engine.start()` throwing because the audio session lost
+            // priority — leaving the operator with a silent race needs to be
+            // attributable.
+            lastError = error.localizedDescription
+            log.error("speakOverlap error: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// One-shot PCM → AVAudioPCMBuffer conversion for the overlap pool. Does NOT
+    /// share the `resampleConverter` state used by the primary playerNode's
+    /// chunk-streaming path — that converter keeps a polyphase filter tail across
+    /// chunks of a single utterance, which would corrupt both paths if reused.
+    /// Overlap utterances are always one buffer, so a fresh converter per call is
+    /// correct (and cheap — converter init is <1 ms).
+    private func buildOverlapBuffer(pcm: Data, sampleRate: Double) throws -> AVAudioPCMBuffer {
+        if sampleRate == Self.sourceFormat.sampleRate {
+            return try buildBuffer24kHz(pcm)
+        }
+        let inputFrameCount = AVAudioFrameCount(pcm.count / 2)
+        guard inputFrameCount > 0 else {
+            throw PremiumTTSError.engineFailure("empty PCM payload")
+        }
+        guard let inputFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: sampleRate,
+            channels: 1,
+            interleaved: true
+        ) else {
+            throw PremiumTTSError.engineFailure("overlap input format init failed at \(sampleRate) Hz")
+        }
+        guard let converter = AVAudioConverter(from: inputFormat, to: Self.sourceFormat) else {
+            throw PremiumTTSError.engineFailure("overlap converter init failed")
+        }
+        guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: inputFrameCount) else {
+            throw PremiumTTSError.engineFailure("overlap input PCMBuffer alloc failed")
+        }
+        inputBuffer.frameLength = inputFrameCount
+        guard let dst = inputBuffer.int16ChannelData?[0] else {
+            throw PremiumTTSError.engineFailure("overlap int16ChannelData unavailable")
+        }
+        pcm.withUnsafeBytes { rawBuf in
+            guard let src = rawBuf.bindMemory(to: Int16.self).baseAddress else { return }
+            for i in 0..<Int(inputFrameCount) {
+                dst[i] = src[i]
+            }
+        }
+        let ratio = Self.sourceFormat.sampleRate / sampleRate
+        let outputCapacity = AVAudioFrameCount(Double(inputFrameCount) * ratio) + 64
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: Self.sourceFormat, frameCapacity: outputCapacity) else {
+            throw PremiumTTSError.engineFailure("overlap output PCMBuffer alloc failed")
+        }
+        var consumed = false
+        var convertError: NSError?
+        let status = converter.convert(to: outputBuffer, error: &convertError) { _, outStatus in
+            if consumed {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            consumed = true
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+        if let err = convertError, status == .error {
+            throw PremiumTTSError.engineFailure("overlap convert failed: \(err.localizedDescription)")
+        }
+        return outputBuffer
     }
 
     /// Build the cache key for an in-flight speak(). Mirrors the Worker's `buildCacheKey` so
@@ -902,27 +1120,32 @@ final class PremiumSpeechSynthesizer: NSObject {
 
     // MARK: - Silence trim
 
-    /// Crop leading + trailing near-silence from a raw s16le mono PCM payload, keeping a
-    /// short audible-pad on each side so the result doesn't click. Polly Neural and Azure
-    /// both pad utterances with 50-200 ms of low-amplitude noise on each end; for a
+    /// Crop leading near-silence from a raw s16le mono PCM payload. Polly Neural and
+    /// Azure pad utterances with 50-200 ms of low-amplitude noise at the start; for a
     /// 1-second countdown ("ten" / "nine" / ...) that padding pushes total playback past
     /// the 1-second tick and the next number gets dropped by
     /// `LapAnnouncer.announceCountdown`'s `inflightUtteranceCount == 0` guard. Trimming
-    /// before write lets the cached file replay in real ~600-800 ms instead of ~1000-1200.
+    /// the head before write lets the cached file replay starting at the first audible
+    /// sample, saving ~100-150 ms per countdown utterance.
     ///
-    /// Threshold: Int16 |sample| < `silenceThreshold` (≈ −50 dB) counts as silence. Set
-    /// conservative because Japanese stops like "ト" / "プ" / "ス" decay through a long
-    /// quiet tail (the consonant release after the vowel) that's still audible — an
-    /// aggressive threshold (e.g. −36 dB) chops the consonant off entirely and the
-    /// listener hears "スター" instead of "スタート". Padding: 60 ms on each side so even
-    /// if the threshold cuts mid-decay, the unvoiced tail past the cut still plays.
-    /// Returns the original `pcm` unchanged if the whole payload is below threshold
-    /// (cache would otherwise be a zero-length file).
+    /// **Trailing silence is deliberately NOT trimmed**. Earlier attempts (v3 at −36 dB
+    /// / 15 ms padding, v4 at −50 dB / 60 ms padding) both chopped the natural decay of
+    /// voiced consonants — Japanese trailing /n/ /ɯː/ /i/ and English /n/ /m/ fade
+    /// through a long quiet tail that's still audible to a listener. Cutting before the
+    /// decay completes produces a perceptual "stop short" feel even when the spectrogram
+    /// confirms the audio truly ended. Leaving the trailing 50-200 ms of provider-added
+    /// silence in costs nothing at race time (still well inside the 1-second tick after
+    /// head trim + Azure 1.7x rate) and avoids the truncation perception entirely.
+    ///
+    /// Threshold: Int16 |sample| < `silenceThreshold` (≈ −50 dB) counts as silence.
+    /// Padding: 60 ms before the first audible sample so the head doesn't start mid-onset.
+    /// Returns the original `pcm` unchanged if the whole payload is below threshold (a
+    /// zero-byte cache file would silently break every replay).
     private static let silenceThreshold: Int16 = 100
     private static func trimSilence(_ pcm: Data, sampleRate: Double) -> Data {
         let frameCount = pcm.count / 2
         guard frameCount > 0 else { return pcm }
-        // ~60 ms padding: 960 frames @ 16 kHz, 1440 frames @ 24 kHz.
+        // ~60 ms leading padding: 960 frames @ 16 kHz, 1440 frames @ 24 kHz.
         let padFrames = Int((sampleRate * 0.060).rounded())
 
         return pcm.withUnsafeBytes { rawBuf -> Data in
@@ -934,21 +1157,12 @@ final class PremiumSpeechSynthesizer: NSObject {
                     break
                 }
             }
-            // Entirely below threshold — caller falls back to writing the untrimmed payload
-            // so a too-quiet phrase still plays something instead of a zero-byte file.
+            // Entirely below threshold — return the untrimmed payload so a too-quiet
+            // phrase still plays something instead of a zero-byte file.
             guard firstAudible >= 0 else { return pcm }
-            var lastAudible = firstAudible
-            for i in stride(from: frameCount - 1, through: firstAudible, by: -1) {
-                if abs(Int32(base[i])) >= Int32(Self.silenceThreshold) {
-                    lastAudible = i
-                    break
-                }
-            }
             let start = max(0, firstAudible - padFrames)
-            let endExclusive = min(frameCount, lastAudible + 1 + padFrames)
             let byteStart = start * 2
-            let byteEnd = endExclusive * 2
-            return pcm.subdata(in: byteStart..<byteEnd)
+            return pcm.subdata(in: byteStart..<pcm.count)
         }
     }
 

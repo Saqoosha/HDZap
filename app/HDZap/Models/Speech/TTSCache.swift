@@ -45,18 +45,21 @@ final class TTSCache {
         model: String,
         text: String
     ) -> String {
-        // "v4" prefix invalidates earlier cache entries whenever the client-side
-        // silence-trim parameters change. An earlier in-development trim setting
-        // (−36 dB threshold + 15 ms padding) chopped Japanese stop consonants
-        // ("ト", "プ", "ス") clean off — listeners heard "スター" instead of "スタート".
-        // v4 relaxes to −50 dB + 60 ms padding so the unvoiced tail survives. Bump
-        // the prefix again on any future trim parameter retune so stale entries get
-        // re-fetched instead of replaying with the wrong shape. The Worker's R2 cache
-        // still uses "v2" because it stores the untrimmed provider output — trimming
-        // is a client-side post-process. Layers are independent by design; only
-        // update the Worker prefix if R2 itself stores something new.
+        // "v5" prefix invalidates earlier cache entries whenever the client-side
+        // silence-trim parameters change. Earlier attempts trimmed silence from BOTH
+        // ends of the utterance; even the most conservative dual-end trim (v4 at
+        // −50 dB / 60 ms padding) clipped the natural decay of voiced consonants
+        // (Japanese /n/ /ɯː/ /i/, English /n/ /m/) before the fadeout completed,
+        // producing a perceptual "stops too early" feel on countdown announces. v5
+        // trims LEADING silence only and leaves the trailing 50-200 ms of provider
+        // silence intact. Bump the prefix again on any future trim parameter retune
+        // so stale entries get re-fetched instead of replaying with the wrong shape.
+        // The Worker's R2 cache still uses "v2" because it stores the untrimmed
+        // provider output — trimming is a client-side post-process. Layers are
+        // independent by design; only update the Worker prefix if R2 itself stores
+        // something new.
         let canonical = [
-            "v4",
+            "v5",
             provider.rawValue,
             voice,
             lang,
