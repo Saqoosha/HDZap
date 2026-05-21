@@ -13,44 +13,35 @@ enum PremiumTTSDevDefaults {
     static let bearerKey = "_premiumWorkerBearer"
     static let voiceIdKey = "_premiumWorkerVoiceId"
     static let defaultWorkerURL = "https://hdzap-premium.saqoosha.workers.dev/tts"
-    static let defaultVoiceId = "06950fa3-534d-46b3-93bb-f852770ea0b5"  // Takeshi - Hero (JA)
+    static let defaultVoiceId = "Takumi"  // Polly · Takumi (male, Neural, JA)
 }
 
-/// Which upstream TTS service should the Worker call for a given voice. Each provider returns
-/// a different audio format on the wire — the synth uses this to pick the decode path.
+/// Which upstream TTS service should the Worker call for a given voice. The Worker returns
+/// raw s16le mono PCM regardless of provider; only the sample rate differs (see `sampleRateFor`).
 enum PremiumVoiceProvider: String, Codable {
-    /// Cartesia Sonic 3.5 — SSE event stream of base64-encoded raw PCM s16le @ 24kHz.
-    case cartesia
-    /// AWS Polly Neural via SigV4 (Cognito Identity Pool) — chunked mp3 over HTTPS.
+    /// AWS Polly Neural via SigV4 (Cognito Identity Pool) — raw PCM at 16 kHz over HTTPS.
     case polly
-    /// Azure AI Speech Neural via subscription key — chunked mp3 over HTTPS.
+    /// Azure AI Speech Neural via subscription key — raw PCM at 24 kHz over HTTPS.
     case azure
 
-    /// `<prosody rate>` (or equivalent) support per provider as of 2026-05.
-    ///   - Cartesia Sonic 3.5: prosody controls explicitly disabled in the preview release
-    ///   - Polly Neural: rate yes via `<prosody rate>` percentage
-    ///   - Azure Neural: rate yes via SSML
-    var supportsRate: Bool {
-        switch self {
-        case .cartesia: return false
-        case .polly, .azure: return true
-        }
-    }
+    /// `<prosody rate>` (or equivalent) support per provider as of 2026-05. Both Polly Neural
+    /// (`<prosody rate>` percentage) and Azure Neural (SSML) honour rate.
+    var supportsRate: Bool { true }
 
     /// `<prosody pitch>` support. Polly Neural REJECTS pitch with "Unsupported Neural
     /// feature" — only Standard voices accept it, and our catalog ships Neural only.
-    /// Cartesia Sonic 3.5 also disabled it in preview. So only Azure is fully covered.
+    /// So only Azure is fully covered.
     var supportsPitch: Bool {
         switch self {
-        case .cartesia, .polly: return false
+        case .polly: return false
         case .azure: return true
         }
     }
 }
 
 /// One row in the voice picker. `provider` decides Worker routing and audio format on the
-/// client; the same `id` namespace per provider is opaque to us (Cartesia UUIDs, Polly Pascal
-/// names, Azure full locale-qualified names).
+/// client; the same `id` namespace per provider is opaque to us (Polly Pascal names, Azure
+/// full locale-qualified names).
 struct PremiumVoiceOption: Identifiable, Hashable {
     let id: String
     let label: String
@@ -58,35 +49,12 @@ struct PremiumVoiceOption: Identifiable, Hashable {
     let provider: PremiumVoiceProvider
 }
 
-/// Premium TTS voice catalog (Cartesia 22 JA + 3 EN, Polly 3 JA + 11 EN Neural, Azure 7 JA
-/// + 9 EN Neural). Polly + Azure each ship far more voices than this — we keep the menu
-/// scoped to race-announcer / friendly-narrator personas (US/UK/AU accents covered across
-/// providers) so the picker stays scannable mid-race.
+/// Premium TTS voice catalog (Polly 3 JA + 11 EN Neural, Azure 7 JA + 9 EN Neural). Polly +
+/// Azure each ship far more voices than this — we keep the menu scoped to race-announcer /
+/// friendly-narrator personas (US/UK/AU accents covered across providers) so the picker
+/// stays scannable mid-race.
 enum PremiumVoiceCatalog {
     static let voices: [PremiumVoiceOption] = [
-        // ── Cartesia JA (all 22) ───────────────────────────────────────────────────
-        .init(id: "498e7f37-7fa3-4e2c-b8e2-8b6e9276f956", label: "Cartesia · Aiko - Calming",                 lang: "ja", provider: .cartesia),
-        .init(id: "446f922f-c43a-4aad-9a8b-ad2af568e882", label: "Cartesia · Akira - Professional",           lang: "ja", provider: .cartesia),
-        .init(id: "63d6f469-8c2c-489d-b53f-d36f0bbdcd4b", label: "Cartesia · Ayako",                          lang: "ja", provider: .cartesia),
-        .init(id: "31c55968-a9f4-4115-8831-3a16952179c8", label: "Cartesia · Ayumi - Sales Guide",            lang: "ja", provider: .cartesia),
-        .init(id: "a759ecc5-ac21-487e-88c7-288bdfe76999", label: "Cartesia · Daichi - Baritone",              lang: "ja", provider: .cartesia),
-        .init(id: "e8a863c6-22c7-4671-86ca-91cacffc038d", label: "Cartesia · Daisuke - Businessman",          lang: "ja", provider: .cartesia),
-        .init(id: "c7eafe22-8b71-40cd-850b-c5a3bbd8f8d2", label: "Cartesia · Emi - Soft-Spoken",              lang: "ja", provider: .cartesia),
-        .init(id: "97e7d7a9-dfaa-4758-a936-f5f844ac34cc", label: "Cartesia · Fuji - Positive",                lang: "ja", provider: .cartesia),
-        .init(id: "861213b7-f057-45c8-9527-0f4c144f1a03", label: "Cartesia · Haruka - Gracious",              lang: "ja", provider: .cartesia),
-        .init(id: "d0ff6870-dd30-420d-8568-d756d806ea62", label: "Cartesia · Hinata - Graceful",              lang: "ja", provider: .cartesia),
-        .init(id: "1d210168-d764-462c-8ab6-288a6d5a9579", label: "Cartesia · Hiroshi - Director",             lang: "ja", provider: .cartesia),
-        .init(id: "44863732-e415-4084-8ba1-deabe34ce3d2", label: "Cartesia · Kaori - Friendly Narrator",      lang: "ja", provider: .cartesia),
-        .init(id: "9436e723-612d-4114-aeb0-fa00d4d639bf", label: "Cartesia · Katsuya - Promo Host",           lang: "ja", provider: .cartesia),
-        .init(id: "6b92f628-be90-497c-8f4c-3b035002df71", label: "Cartesia · Kenji - Calm",                   lang: "ja", provider: .cartesia),
-        .init(id: "177df681-25b1-48c2-bb47-03ca5fa27f0a", label: "Cartesia · Ren - Calm Navigator",           lang: "ja", provider: .cartesia),
-        .init(id: "9e7ef2cf-b69c-46ac-9e35-bbfd73ba82af", label: "Cartesia · Ren - High-Energy",              lang: "ja", provider: .cartesia),
-        .init(id: "0cd0cde2-3b93-42b5-bcb9-f214a591aa29", label: "Cartesia · Sayuri - Peppy",                 lang: "ja", provider: .cartesia),
-        .init(id: "b8e1169c-f16a-4064-a6e0-95054169e553", label: "Cartesia · Takashi - Professional",         lang: "ja", provider: .cartesia),
-        .init(id: "06950fa3-534d-46b3-93bb-f852770ea0b5", label: "Cartesia · Takeshi - Hero",                 lang: "ja", provider: .cartesia),
-        .init(id: "49e02441-83ea-4c77-bda8-79fdd7f07e92", label: "Cartesia · Tohru - Career Coach",           lang: "ja", provider: .cartesia),
-        .init(id: "59d4fd2f-f5eb-4410-8105-58db7661144f", label: "Cartesia · Yuki - Calm Woman",              lang: "ja", provider: .cartesia),
-        .init(id: "2b568345-1d48-4047-b25f-7baccf842eb0", label: "Cartesia · Yumiko - Friendly Agent",        lang: "ja", provider: .cartesia),
         // ── Polly JA (3 Neural) ─────────────────────────────────────────────────────
         .init(id: "Takumi", label: "Polly · Takumi (male, Neural)",   lang: "ja", provider: .polly),
         .init(id: "Kazuha", label: "Polly · Kazuha (female, Neural)", lang: "ja", provider: .polly),
@@ -99,10 +67,6 @@ enum PremiumVoiceCatalog {
         .init(id: "ja-JP-MayuNeural",   label: "Azure · Mayu (female)",   lang: "ja", provider: .azure),
         .init(id: "ja-JP-NanamiNeural", label: "Azure · Nanami (female)", lang: "ja", provider: .azure),
         .init(id: "ja-JP-ShioriNeural", label: "Azure · Shiori (female)", lang: "ja", provider: .azure),
-        // ── Cartesia EN (handpicked) ────────────────────────────────────────────────
-        .init(id: "2f22b9bc-b0eb-4cb6-b5ae-0c099a0fdfad", label: "Cartesia · Scott - Sportscaster",      lang: "en", provider: .cartesia),
-        .init(id: "820a3788-2b37-4d21-847a-b65d8a68c99a", label: "Cartesia · Tyler - Friendly Salesman", lang: "en", provider: .cartesia),
-        .init(id: "62305e79-9d39-4643-b003-5e0b096fe4f4", label: "Cartesia · Madison - Best Friend",     lang: "en", provider: .cartesia),
         // ── Polly EN (Neural, handpicked) ───────────────────────────────────────────
         // Newscaster-style (Matthew, Joanna, Stephen, Ruth) reads numbers cleanest for
         // race calls; conversational picks (Joey, Brian, Arthur) round out the menu.
@@ -154,14 +118,13 @@ enum PremiumTTSError: Error, LocalizedError {
     }
 }
 
-/// Streams cloud TTS audio (Cartesia SSE, Polly + Azure raw PCM) into `AVAudioPlayerNode`.
+/// Streams Polly + Azure raw PCM into `AVAudioPlayerNode`.
 ///
 /// Pipeline:
 /// 1. POST text/voice/lang to the Worker `/tts` endpoint. The Bearer is the Apple-signed
 ///    JWS for entitled subscribers (via `jwsProvider`) or the baked-in dev bearer otherwise.
 /// 2. Read the response body as a streaming byte sequence (`URLSession.AsyncBytes`).
-/// 3. Decode each provider's wire format: Cartesia is SSE-framed base64 PCM s16le 24 kHz;
-///    Polly + Azure are raw chunked PCM (Polly 16 kHz, Azure 24 kHz).
+/// 3. Both providers stream raw chunked s16le mono PCM (Polly 16 kHz, Azure 24 kHz).
 /// 4. Wrap each chunk in `AVAudioPCMBuffer` (24 kHz → direct, 16 kHz → AVAudioConverter
 ///    upsample) and schedule on a player node attached to a private `AVAudioEngine`.
 ///
@@ -177,10 +140,11 @@ final class PremiumSpeechSynthesizer: NSObject {
     /// `BuildSecrets.workerBearer` (the preview path the picker uses pre-subscription).
     var jwsProvider: () -> String? = { nil }
 
-    /// Cartesia returns `pcm_s16le` at 24kHz mono. We convert to Float32 on the fly because
-    /// AVAudioEngine's mixer is happiest with floats — going through Int16 hit silent failures
-    /// on iOS 18 where `int16ChannelData` returned nil and the buffer scheduled as silence.
-    /// Conversion is trivial (`Float(s16) / 32768`) and runs once per chunk on the main actor.
+    /// Engine source format: 24 kHz Float32 mono. Azure streams at the native 24 kHz
+    /// (manual `Int16 → Float32` in `buildBuffer24kHz`); Polly's 16 kHz path routes
+    /// through `AVAudioConverter` to upsample. Float32 is the engine mixer's preferred
+    /// type — Int16 hit silent failures on iOS 18 where `int16ChannelData` returned nil
+    /// and the buffer scheduled as silence.
     private static let sourceFormat: AVAudioFormat = {
         guard let f = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                     sampleRate: 24000,
@@ -250,9 +214,7 @@ final class PremiumSpeechSynthesizer: NSObject {
     /// real-world TTFA next to the network-only number Python measured.
     private(set) var lastFirstAudioMs: Double?
     /// Observable counters so the dev panel can show "what's the synth actually doing right now"
-    /// without depending on os_log capture. Updated on the main actor by the SSE parser.
-    private(set) var debugSseLines = 0
-    private(set) var debugSseEvents = 0
+    /// without depending on os_log capture.
     private(set) var debugChunks = 0
     private(set) var debugBytesScheduled = 0
     private(set) var debugEngineRunning = false
@@ -268,7 +230,7 @@ final class PremiumSpeechSynthesizer: NSObject {
         if debugFlow.count > 12 { debugFlow.removeLast() }
     }
 
-    /// True once `parseSSE` (or the mp3 download loop) has consumed the entire response body.
+    /// True once `playPCMFromStream` has consumed the entire response body.
     /// Used together with `pendingBuffers` so we only flip `isPlaying` false when BOTH the
     /// network is done AND every scheduled audio buffer has actually drained through the
     /// speaker — the previous logic flipped `isPlaying` at end-of-network, but for short
@@ -390,8 +352,6 @@ final class PremiumSpeechSynthesizer: NSObject {
 
     /// Resets all debug counters so the next Speak shows a clean timeline.
     func resetDebug() {
-        debugSseLines = 0
-        debugSseEvents = 0
         debugChunks = 0
         debugBytesScheduled = 0
         debugEngineRunning = engine.isRunning
@@ -403,14 +363,14 @@ final class PremiumSpeechSynthesizer: NSObject {
     }
 
     /// Cache key for the in-flight speak() request. Set at the top of `speak()` so the
-    /// SSE and raw-PCM write paths can save under the same key without re-deriving it.
+    /// stream write path can save under the same key without re-deriving it.
     /// Cleared on completion / failure so a subsequent miss writes to the right entry.
     private var currentCacheKey: String?
     /// Paired with `currentCacheKey` — the provider whose audio bytes we'll be saving, so
     /// `TTSCache.save()` can label the file correctly.
     private var currentCacheProvider: PremiumVoiceProvider?
 
-    /// Sample rate of the PCM stream for the in-flight speak(). Cartesia + Azure send
+    /// Sample rate of the PCM stream for the in-flight speak(). Azure sends
     /// 24 kHz so `schedulePCM` takes the fast manual-conversion path. Polly Neural's PCM
     /// output caps at 16 kHz, which routes through `resampleConverter` to upsample to the
     /// engine's 24 kHz before scheduling.
@@ -423,11 +383,10 @@ final class PremiumSpeechSynthesizer: NSObject {
     private var resampleConverter: AVAudioConverter?
     private var resampleConverterRate: Double = 0
 
-    /// Decoded raw PCM accumulated across the Cartesia SSE stream for this speak() call.
-    /// We write the concatenated bytes to `TTSCache` once the stream completes — way more
-    /// disk-efficient than caching the SSE wrapper (base64 + JSON framing adds ~30%).
-    /// Cleared at the start of every speak() so a partial stream from a prior failed call
-    /// can't bleed into the next entry.
+    /// Decoded raw PCM accumulated across the streamed response for this speak() call.
+    /// We write the concatenated bytes to `TTSCache` once the stream completes. Cleared at
+    /// the start of every speak() so a partial stream from a prior failed call can't bleed
+    /// into the next entry.
     private var accumulatedPCM = Data()
 
     /// Fire-and-forget version of `speak(text:lang:voice:)` for `Button` action callbacks.
@@ -600,7 +559,6 @@ final class PremiumSpeechSynthesizer: NSObject {
             "voice": voice.id,
             "lang": lang,
         ]
-        if voice.provider == .cartesia { bodyDict["model"] = "sonic-3.5" }
         if voice.provider.supportsRate {
             let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumRateKey) as? Double
             bodyDict["rate"] = raw ?? LapAnnouncerDefaults.defaultPremiumRate
@@ -616,50 +574,38 @@ final class PremiumSpeechSynthesizer: NSObject {
             // `data(for:)` (not `bytes(for:)`) — prefetch isn't time-critical and we don't
             // want byte-by-byte MainActor iteration over a 50-100 KB PCM body. One shot,
             // whole body, parse once, write once.
-            let (data, response) = try await URLSession.shared.data(for: req)
+            //
+            // Retry once on HTTP 429: Polly and Azure both have per-second TPS caps
+            // that a burst of prewarm requests can occasionally clip even with the
+            // concurrency cap of 3 in `prewarmFixedPhrases`. A single delayed retry
+            // after ~1 s clears the limit in practice. Two retries felt excessive —
+            // the operator can re-trigger prewarm by closing + re-opening Settings
+            // if the cache still has gaps.
+            var data: Data
+            var response: URLResponse
+            (data, response) = try await URLSession.shared.data(for: req)
+            if let http = response as? HTTPURLResponse, http.statusCode == 429 {
+                log.debug("prefetch 429 — retrying after 1 s for key=\(cacheKey.prefix(12), privacy: .public)")
+                // Propagate cancellation through the sleep: if `currentPrewarmTask`
+                // is cancelled while we're waiting (e.g. user tapped Start), the
+                // sleep throws CancellationError, which bubbles to the outer
+                // `do { ... } catch { log.debug(...) }` and exits cleanly without
+                // issuing the retry request. `try?` here would swallow the
+                // cancellation and burn an extra network call on the very
+                // provider we just stepped aside for.
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                (data, response) = try await URLSession.shared.data(for: req)
+            }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 log.debug("prefetch http fail: \(String(describing: response), privacy: .public)")
                 return
             }
-            let pcm: Data
-            switch voice.provider {
-            case .cartesia:
-                // SSE body: walk each line, pull base64 PCM from `data: {...}` chunks. Same
-                // shape `handleEventJSON` parses but without scheduling audio.
-                var collected = Data()
-                let bodyText = String(decoding: data, as: UTF8.self)
-                for rawLine in bodyText.split(separator: "\n", omittingEmptySubsequences: false) {
-                    let line = String(rawLine)
-                    let payload: String
-                    if line.hasPrefix("data: ") {
-                        payload = String(line.dropFirst(6))
-                    } else if line.hasPrefix("data:") {
-                        payload = String(line.dropFirst(5))
-                    } else {
-                        continue
-                    }
-                    guard let pdata = payload.data(using: .utf8),
-                          let obj = try? JSONSerialization.jsonObject(with: pdata) as? [String: Any] else {
-                        continue
-                    }
-                    if obj["type"] as? String == "chunk",
-                       let b64 = obj["data"] as? String,
-                       let chunk = Data(base64Encoded: b64) {
-                        collected.append(chunk)
-                    }
-                }
-                pcm = collected
-            case .polly, .azure:
-                pcm = data
-            }
-            // `pcm.count < 2` covers two edge cases that would poison the cache:
-            //   - Pathological 1-byte response (`evenCount = 0` after `& ~1` → zero-byte
-            //     `evenPayload` → zero-byte cached file → `buildBuffer24kHz` throws "empty
-            //     PCM chunk" on every cache hit, silently breaking that phrase forever).
-            //   - Cartesia SSE stream that emits only non-`chunk` events (e.g. `done`
-            //     with no audio), which collapses `collected` to empty here.
-            // One s16le frame = 2 bytes, so anything below 2 bytes is structurally
-            // invalid PCM and not worth saving.
+            // Polly + Azure both stream raw s16le PCM — the response body IS the audio.
+            let pcm = data
+            // Pathological 1-byte response would produce `evenCount = 0` after the
+            // `& ~1` mask below — a zero-byte cached file then throws "empty PCM
+            // chunk" on every cache hit and silently breaks that phrase forever.
+            // One s16le frame = 2 bytes; anything below is structurally invalid.
             guard pcm.count >= 2 else { return }
             let evenCount = pcm.count & ~1
             let evenPayload = evenCount == pcm.count ? pcm : pcm.prefix(evenCount)
@@ -824,10 +770,10 @@ final class PremiumSpeechSynthesizer: NSObject {
 
     /// Build the cache key for an in-flight speak(). Mirrors the Worker's `buildCacheKey` so
     /// the local + R2 layers refer to the same logical entity. When the provider doesn't
-    /// honour a control (Cartesia: neither rate nor pitch, Polly: pitch), we substitute the
-    /// default so two callers — one with a custom rate that's irrelevant to this provider,
-    /// one without — collapse to the same key. Matches the Worker's behaviour of clamping
-    /// the body's rate/pitch with defaults before hashing.
+    /// honour a control (Polly: pitch), we substitute the default so two callers — one
+    /// with a custom pitch that's irrelevant to this provider, one without — collapse to
+    /// the same key. Matches the Worker's behaviour of clamping the body's rate/pitch
+    /// with defaults before hashing.
     private func buildCacheKey(text: String, lang: String, voice: PremiumVoiceOption) -> String {
         let defaults = UserDefaults.standard
         let rate = voice.provider.supportsRate
@@ -838,14 +784,12 @@ final class PremiumSpeechSynthesizer: NSObject {
             ? (defaults.object(forKey: LapAnnouncerDefaults.premiumPitchKey) as? Double
                 ?? LapAnnouncerDefaults.defaultPremiumPitch)
             : LapAnnouncerDefaults.defaultPremiumPitch
-        let model = voice.provider == .cartesia ? "sonic-3.5" : ""
         return TTSCache.shared.key(
             provider: voice.provider,
             voice: voice.id,
             lang: lang,
             rate: rate,
             pitch: pitch,
-            model: model,
             text: text
         )
     }
@@ -857,7 +801,7 @@ final class PremiumSpeechSynthesizer: NSObject {
     private func playFromCacheFile(url: URL, voice: PremiumVoiceOption, startedAt t0: Date) throws {
         // Cache files for all providers now store raw s16le PCM at the provider's native
         // sample rate. Setting `currentSampleRate` before `schedulePCM` makes the resampler
-        // path activate for Polly's 16 kHz cache hits while Cartesia/Azure go through the
+        // path activate for Polly's 16 kHz cache hits while Azure goes through the
         // 24 kHz fast path. One big buffer per utterance is fine — AVAudioPCMBuffer caps
         // are well above the few hundred KB an utterance produces.
         currentSampleRate = Self.sampleRateFor(voice.provider)
@@ -883,7 +827,7 @@ final class PremiumSpeechSynthesizer: NSObject {
         }
     }
 
-    // MARK: - Network + SSE
+    // MARK: - Network
 
     private func sendAndStream(url: URL, bearer: String, text: String, lang: String, voice: PremiumVoiceOption) async throws {
         log.notice("speak start: url=\(url.absoluteString, privacy: .public) provider=\(voice.provider.rawValue, privacy: .public) voice=\(voice.id, privacy: .public) lang=\(lang, privacy: .public) chars=\(text.count, privacy: .public)")
@@ -897,12 +841,9 @@ final class PremiumSpeechSynthesizer: NSObject {
             "voice": voice.id,
             "lang": lang,
         ]
-        // Cartesia is the only provider that takes a model parameter today; the Worker rejects
-        // the field for the other two so we only send it for Cartesia.
-        if voice.provider == .cartesia { bodyDict["model"] = "sonic-3.5" }
         // Rate / pitch only meaningful for providers that actually honour them. Skipping the
         // fields entirely (vs sending defaults) makes the Worker side easier to reason about
-        // — Cartesia never sees them, Polly never sees pitch, Azure sees both.
+        // — Polly never sees pitch (Neural voices reject it), Azure honours both.
         let defaults = UserDefaults.standard
         if voice.provider.supportsRate {
             let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumRateKey) as? Double
@@ -937,36 +878,26 @@ final class PremiumSpeechSynthesizer: NSObject {
             throw PremiumTTSError.http(http.statusCode, bodyPrefix)
         }
 
-        // All three providers stream raw s16le PCM now — Cartesia via base64-in-SSE,
-        // Polly/Azure via plain chunked octet stream. Sample rate varies (Polly 16 kHz,
-        // others 24 kHz) so we stash it on the synth before draining the stream and
-        // `schedulePCM` routes through AVAudioConverter when it's not the native 24 kHz.
+        // Both providers stream raw s16le mono PCM as plain chunked octets. Sample rate
+        // varies (Polly 16 kHz, Azure 24 kHz) so we stash it on the synth before draining
+        // the stream and `schedulePCM` routes through AVAudioConverter when it's not the
+        // engine's native 24 kHz.
         currentSampleRate = Self.sampleRateFor(voice.provider)
 
-        switch voice.provider {
-        case .cartesia:
-            // Cartesia wraps each PCM chunk in an SSE `data:` event with a base64 payload.
-            try await parseSSE(bytes: bytes, startedAt: t0)
-            // Tell the buffer-completion callback the network side is done so it can fire
-            // `notifyEnd()` after the last scheduled buffer plays out.
-            streamReceiveComplete = true
-            if pendingBuffers == 0 { notifyEnd() }
-        case .polly, .azure:
-            // Raw s16le bytes on the wire — schedule each chunk as it arrives. First-audio
-            // latency is the time-to-first-chunk, not the total HTTP transfer.
-            try await playPCMFromStream(bytes: bytes, startedAt: t0)
-            streamReceiveComplete = true
-            if pendingBuffers == 0 { notifyEnd() }
-        }
+        // Raw s16le bytes on the wire — schedule each chunk as it arrives. First-audio
+        // latency is the time-to-first-chunk, not the total HTTP transfer.
+        try await playPCMFromStream(bytes: bytes, startedAt: t0)
+        streamReceiveComplete = true
+        if pendingBuffers == 0 { notifyEnd() }
     }
 
     /// Sample rate the Worker emits PCM at for each provider. Mirrors `sampleRateFor()` in
-    /// the Worker — keep both in sync. Polly Neural's PCM mode caps at 16 kHz; Cartesia
-    /// and Azure stream at the engine's native 24 kHz.
+    /// the Worker — keep both in sync. Polly Neural's PCM mode caps at 16 kHz; Azure
+    /// streams at the engine's native 24 kHz.
     private static func sampleRateFor(_ provider: PremiumVoiceProvider) -> Double {
         switch provider {
         case .polly: return 16000
-        case .cartesia, .azure: return 24000
+        case .azure: return 24000
         }
     }
 
@@ -1023,101 +954,6 @@ final class PremiumSpeechSynthesizer: NSObject {
         }
     }
 
-    /// Parse Cartesia's SSE stream. Each event Cartesia emits is `event: chunk\ndata: {…}\n\n`,
-    /// where the `data:` line holds a complete JSON object on its own (no multi-line
-    /// continuations). We *don't* buffer until the blank-line separator because
-    /// `URLSession.AsyncBytes.lines` on iOS silently skips empty lines — relying on it once
-    /// concatenated every event's JSON into one malformed blob and produced zero audio.
-    /// Decoding each `data:` line standalone is correct for Cartesia's format and robust to
-    /// the missing-empty-line quirk.
-    private func parseSSE(bytes: URLSession.AsyncBytes, startedAt t0: Date) async throws {
-        var lineCount = 0
-        var eventCount = 0
-        var chunkCount = 0
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
-            lineCount += 1
-            await MainActor.run { self.debugSseLines = lineCount }
-
-            let payload: String
-            if line.hasPrefix("data: ") {
-                payload = String(line.dropFirst(6))
-            } else if line.hasPrefix("data:") {
-                payload = String(line.dropFirst(5))
-            } else {
-                continue  // `event:`, `:`-comment, or stray blank — not a payload
-            }
-
-            eventCount += 1
-            if try handleEventJSON(payload, startedAt: t0) {
-                chunkCount += 1
-                await MainActor.run {
-                    self.debugSseEvents = eventCount
-                    self.debugChunks = chunkCount
-                }
-            }
-        }
-        log.notice("SSE done: lines=\(lineCount, privacy: .public) events=\(eventCount, privacy: .public) audioChunks=\(chunkCount, privacy: .public)")
-        await MainActor.run {
-            self.debugSseLines = lineCount
-            self.debugSseEvents = eventCount
-            self.debugChunks = chunkCount
-        }
-        // The Worker either streams real `data:` events or returns an error before headers
-        // — but if Cartesia changes its event schema we'd see lines flowing without any
-        // recognised chunks, parse cleanly to completion, and silently fall back to System
-        // voice with no signal at all. Treat "lines but zero chunks" as a stream failure so
-        // the caller's catch path runs and the dev panel surfaces what went wrong.
-        if chunkCount == 0 && lineCount > 0 {
-            throw PremiumTTSError.streamFailure("zero audio chunks decoded from \(lineCount) SSE lines — provider schema may have changed")
-        }
-        // Persist the concatenated PCM once the whole stream has drained cleanly. A
-        // cancelled / errored stream throws before reaching here, so we never write a
-        // partial utterance — which would play as a clipped audio file on every cache hit.
-        if chunkCount > 0, let key = currentCacheKey, let provider = currentCacheProvider {
-            let evenCount = accumulatedPCM.count & ~1
-            let evenPayload = evenCount == accumulatedPCM.count
-                ? accumulatedPCM
-                : accumulatedPCM.prefix(evenCount)
-            // Trim provider-added silence before persisting so the cached replay is the
-            // tightest possible — full rationale in `trimSilence`.
-            let trimmed = Self.trimSilence(Data(evenPayload), sampleRate: currentSampleRate)
-            TTSCache.shared.save(key: key, provider: provider, data: trimmed)
-        }
-    }
-
-    /// Returns true if this event produced an audio chunk (for stats).
-    @discardableResult
-    private func handleEventJSON(_ json: String, startedAt t0: Date) throws -> Bool {
-        guard let data = json.data(using: .utf8) else {
-            log.error("event utf8 decode failed")
-            return false
-        }
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            log.error("event JSON parse failed: \(json.prefix(80), privacy: .public)")
-            return false
-        }
-        let type = obj["type"] as? String
-
-        if type == "chunk", let b64 = obj["data"] as? String, let pcm = Data(base64Encoded: b64) {
-            // Accumulate the raw PCM so we can save the whole utterance to TTSCache at
-            // the end of the stream. We append in-order before scheduling playback, which
-            // means a cancelled-mid-stream call still gets dropped (the cache write only
-            // happens on parseSSE's clean exit).
-            accumulatedPCM.append(pcm)
-            try schedulePCM(pcm, startedAt: t0)
-            return true
-        } else if type == "done" || (obj["done"] as? Bool == true) {
-            log.debug("SSE done received")
-        } else if type == "error" {
-            let msg = (obj["error"] as? String) ?? "unknown"
-            throw PremiumTTSError.streamFailure("server error: \(msg)")
-        } else {
-            log.debug("event ignored: type=\(type ?? "<nil>", privacy: .public)")
-        }
-        return false
-    }
-
     // MARK: - Silence trim
 
     /// Crop leading near-silence from a raw s16le mono PCM payload. Polly Neural and
@@ -1169,9 +1005,8 @@ final class PremiumSpeechSynthesizer: NSObject {
     // MARK: - PCM → AVAudioPCMBuffer → AVAudioPlayerNode
 
     /// 24 kHz s16le mono → 24 kHz Float32 mono. Manual conversion path because it avoids
-    /// the AVAudioConverter overhead and matches what we used since the Cartesia-only
-    /// days. The Float32 target matches the engine's source format, so the buffer can
-    /// be scheduled with zero further conversion.
+    /// the AVAudioConverter overhead. The Float32 target matches the engine's source
+    /// format, so the buffer can be scheduled with zero further conversion.
     private func buildBuffer24kHz(_ pcm: Data) throws -> AVAudioPCMBuffer {
         let frameCount = AVAudioFrameCount(pcm.count / 2)
         guard frameCount > 0 else {

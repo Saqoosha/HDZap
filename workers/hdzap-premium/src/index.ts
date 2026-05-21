@@ -3,7 +3,6 @@ import { AwsClient } from "aws4fetch";
 import { AppleJwsError, verifyAppleJws } from "./appleJws";
 
 type Env = {
-  CARTESIA_API_KEY: string;
   AZURE_SPEECH_KEY: string;
   /**
    * IAM user (`hdzap-premium-polly`) scoped to a single permission:
@@ -30,8 +29,8 @@ type Env = {
   RATELIMIT: KVNamespace;
   /**
    * Cross-user shared TTS audio cache. Keys are hex SHA-256 of the canonical request
-   * (provider + voice + lang + rate + pitch + model + text). First caller pays the
-   * provider; everyone afterwards streams from R2 with the same content.
+   * (`v3|provider|voice|lang|rate|pitch|text` — see `buildCacheKey()`). First caller
+   * pays the provider; everyone afterwards streams from R2 with the same content.
    */
   TTS_CACHE: R2Bucket;
 };
@@ -42,7 +41,7 @@ type Env = {
  * Apple Private Relay, home WiFi all share an IP across many users) — a tighter cap
  * would break the legit first-time-audition session (~100-150 previews across 55 voices)
  * for any user behind a shared IP. The real ceilings on abuse are the TTS provider
- * spending caps (AWS Polly $50/mo budget, Cartesia + Azure fixed-tier models) and the
+ * spending caps (AWS Polly $50/mo budget, Azure fixed-tier model) and the
  * Apple-signed JWS gate; this cap exists to stop a single host running a curl loop, not
  * a determined attacker rotating residential proxies.
  */
@@ -51,8 +50,7 @@ const DAILY_CAP_JWS = 1000;
 
 const app = new Hono<{ Bindings: Env }>();
 
-const ALLOWED_PROVIDERS = new Set(["cartesia", "polly", "azure"]);
-const ALLOWED_CARTESIA_MODELS = new Set(["sonic-3.5", "sonic-3", "sonic-2", "sonic"]);
+const ALLOWED_PROVIDERS = new Set(["polly", "azure"]);
 const ALLOWED_LANGS = new Set(["ja", "en"]);
 
 // Two-tier text limits: JWS-authed callers (real subscribers) get a generous limit for
@@ -96,7 +94,7 @@ app.post("/tts", async (c) => {
   // Two-tier auth: real subscribers ship Apple-signed JWS; non-subscribers use the shared
   // dev bearer for in-app voice previews. The JWS path is Apple-cryptographic-proof, the
   // bearer path is rate-limited by text length so a leaked bearer can't bill us into the
-  // ground (60 chars max + Cartesia/Polly/Azure caps).
+  // ground (60 chars max + Polly/Azure caps).
   const auth = c.req.header("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
   if (!token) return c.json({ error: "unauthorized", reason: "missing-token" }, 401);
@@ -169,7 +167,6 @@ app.post("/tts", async (c) => {
     text?: string;
     voice?: string;
     lang?: string;
-    model?: string;
     rate?: number;
     pitch?: number;
   };
@@ -190,8 +187,8 @@ app.post("/tts", async (c) => {
   const lang = (body.lang || "").trim();
   // Rate (speech tempo) and pitch (semitone offset) are accepted as raw numbers from the
   // client and clamped here — out-of-range values would otherwise produce monster/chipmunk
-  // audio that's not useful for racing. Cartesia ignores both; Polly + Azure honour them
-  // via SSML `<prosody>`.
+  // audio that's not useful for racing. Polly + Azure both honour rate; only Azure honours
+  // pitch (Polly Neural rejects pitch outright, so the client side omits it).
   const rate = clamp(body.rate ?? 1.0, 0.5, 2.5);
   const pitch = clamp(body.pitch ?? 0.0, -10.0, 10.0);
 
@@ -205,19 +202,12 @@ app.post("/tts", async (c) => {
   // Build the cache key from every parameter that changes the audio. Two callers with
   // identical params share one cache entry regardless of who they are — that's the whole
   // point of R2 caching here vs. per-user storage.
-  const cartesiaModel = provider === "cartesia"
-    ? (body.model || "sonic-3.5").trim()
-    : "";
-  if (provider === "cartesia" && !ALLOWED_CARTESIA_MODELS.has(cartesiaModel)) {
-    return c.json({ error: "bad-model" }, 400);
-  }
   const cacheKey = await buildCacheKey({
     provider,
     voice,
     lang,
     rate,
     pitch,
-    model: cartesiaModel,
     text,
   });
 
@@ -245,9 +235,7 @@ app.post("/tts", async (c) => {
   mark("upstream-start");
   let upstream: Response;
   try {
-    if (provider === "cartesia") {
-      upstream = await proxyCartesia(c.env.CARTESIA_API_KEY, cartesiaModel, voice, lang, text);
-    } else if (provider === "polly") {
+    if (provider === "polly") {
       upstream = await proxyPolly(
         c.env.POLLY_ACCESS_KEY_ID,
         c.env.POLLY_SECRET_ACCESS_KEY,
@@ -294,9 +282,8 @@ app.post("/tts", async (c) => {
 
   // tee the body so the client keeps streaming on its branch; the cache-write branch we
   // drain into an ArrayBuffer first because R2 rejects unknown-length ReadableStreams
-  // ("Provided readable stream must have a known length"). Polly/Azure PCM + Cartesia
-  // SSE for a single utterance are both small (<100 KB), so buffering one isn't a
-  // memory concern.
+  // ("Provided readable stream must have a known length"). Polly/Azure PCM for a single
+  // utterance is small (<100 KB), so buffering one isn't a memory concern.
   const [toClient, toR2] = upstream.body.tee();
   c.executionCtx.waitUntil((async () => {
     try {
@@ -334,9 +321,9 @@ function clamp(n: number, lo: number, hi: number): number {
 /**
  * Canonical hex SHA-256 of every parameter that affects the generated audio. Stable across
  * callers — same params = same key = one shared R2 entry. The `|` separator is fine
- * because none of the field values (provider/voice/lang/model are enum-like, numbers are
- * floats, text is user input but `|` is rare in race phrases) can collide ambiguously at
- * this granularity.
+ * because none of the field values (provider/voice/lang are enum-like, numbers are floats,
+ * text is user input but `|` is rare in race phrases) can collide ambiguously at this
+ * granularity.
  */
 async function buildCacheKey(req: {
   provider: string;
@@ -344,21 +331,21 @@ async function buildCacheKey(req: {
   lang: string;
   rate: number;
   pitch: number;
-  model: string;
   text: string;
 }): Promise<string> {
-  // "v2" prefix invalidates the pre-PCM-migration cache (where Polly/Azure entries were
-  // mp3 bytes labelled as audio/pcm after the format switch). Bump again the next time
-  // the wire format changes incompatibly. Old v1 entries stay orphaned in R2 — Cloudflare
-  // doesn't charge enough on a few KB of stragglers to bother with a cleanup script.
+  // "v3" prefix invalidates the previous canonical-key shape, which carried a trailing
+  // `model` segment (only ever non-empty for the now-removed Cartesia provider). Same v3
+  // prefix is mirrored by the iOS client's `TTSCache.key()` once that side bumps too.
+  // Bump again the next time the wire format changes incompatibly. Stale v1/v2 entries
+  // stay orphaned in R2 — Cloudflare doesn't charge enough on a few KB of stragglers to
+  // bother with a cleanup script.
   const canonical = [
-    "v2",
+    "v3",
     req.provider,
     req.voice,
     req.lang,
     req.rate.toFixed(3),
     req.pitch.toFixed(3),
-    req.model,
     req.text,
   ].join("|");
   const buf = new TextEncoder().encode(canonical);
@@ -369,47 +356,40 @@ async function buildCacheKey(req: {
 }
 
 /**
- * What `Content-Type` we serve for each provider. Cartesia ships base64-PCM-in-SSE so the
- * client can parse event boundaries; Polly + Azure ship raw s16le PCM bytes streaming-
- * style so iOS schedules each chunk on AVAudioPlayerNode as soon as it lands. The cache
- * miss path also stuffs this into the R2 object's `httpMetadata.contentType` so cache
- * hits don't need a parallel lookup table.
+ * What `Content-Type` we serve for each provider. Polly and Azure both ship raw s16le PCM
+ * bytes streaming-style so iOS schedules each chunk on AVAudioPlayerNode as soon as it
+ * lands. The cache-miss path also stuffs this into the R2 object's
+ * `httpMetadata.contentType` so cache hits don't need a parallel lookup table.
  */
-function contentTypeFor(provider: string): string {
-  return provider === "cartesia" ? "text/event-stream" : "audio/pcm";
+function contentTypeFor(_provider: string): string {
+  return "audio/pcm";
 }
 
 /**
- * Sample rate of the raw PCM stream each provider emits. Cartesia and Azure stream at the
- * engine's native 24 kHz so iOS schedules buffers without resampling. Polly Neural's PCM
- * mode only supports 8 kHz or 16 kHz (22 / 24 kHz are mp3-only) — we use 16 kHz and let
- * iOS upsample to 24 kHz via AVAudioConverter.
+ * Sample rate of the raw PCM stream each provider emits. Azure streams at the engine's
+ * native 24 kHz so iOS schedules buffers without resampling. Polly Neural's PCM mode only
+ * supports 8 kHz or 16 kHz (22 / 24 kHz are mp3-only) — we use 16 kHz and let iOS
+ * upsample to 24 kHz via AVAudioConverter.
  */
 function sampleRateFor(provider: string): number {
   return provider === "polly" ? 16000 : 24000;
 }
 
 /**
- * Full response header set we send to the iOS client. Cartesia needs the SSE-streaming
- * hints (`X-Accel-Buffering: no`) so intermediaries don't buffer; raw PCM streams don't
- * need that hint but do carry their sample rate so iOS picks the right format up front.
- * Both modes tag `X-HDZap-Cache` so the client can log hit/miss without parsing the body.
+ * Full response header set we send to the iOS client. Both Polly and Azure stream raw
+ * chunked PCM, so the header set is uniform — `X-HDZap-SampleRate` tells iOS which
+ * AVAudioFormat to allocate up front. `X-HDZap-Cache` tags hit/miss so the client can log
+ * it without parsing the body.
  */
 function responseHeadersFor(provider: string, cacheStatus: "hit" | "miss"): Record<string, string> {
-  const base: Record<string, string> = {
+  return {
     "Content-Type": contentTypeFor(provider),
     "Cache-Control": "no-store",
     "X-HDZap-Provider": provider,
     "X-HDZap-Cache": cacheStatus,
+    "X-HDZap-Format": "pcm-raw",
+    "X-HDZap-SampleRate": String(sampleRateFor(provider)),
   };
-  if (provider === "cartesia") {
-    base["X-HDZap-Format"] = "pcm-sse";
-    base["X-Accel-Buffering"] = "no";
-  } else {
-    base["X-HDZap-Format"] = "pcm-raw";
-    base["X-HDZap-SampleRate"] = String(sampleRateFor(provider));
-  }
-  return base;
 }
 
 /**
@@ -440,63 +420,6 @@ async function consumeRateLimitToken(
   // counter, and self-evicts so the namespace doesn't grow unbounded.
   await kv.put(key, String(next), { expirationTtl: 60 * 60 * 48 });
   return { ok: true, count: next, retryAfterSeconds: 0 };
-}
-
-// MARK: - Cartesia (SSE → raw PCM s16le 24kHz)
-
-async function proxyCartesia(
-  apiKey: string,
-  model: string,
-  voiceId: string,
-  lang: string,
-  text: string,
-): Promise<Response> {
-  const resp = await fetch("https://api.cartesia.ai/tts/sse", {
-    method: "POST",
-    headers: {
-      "X-API-Key": apiKey,
-      "Cartesia-Version": "2024-11-13",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model_id: model,
-      transcript: text,
-      voice: { mode: "id", id: voiceId },
-      output_format: { container: "raw", encoding: "pcm_s16le", sample_rate: 24000 },
-      language: lang,
-    }),
-  });
-
-  if (!resp.ok) {
-    const errBody = await resp.text();
-    return new Response(
-      JSON.stringify({ error: "upstream-cartesia", status: resp.status, body: errBody.slice(0, 500) }),
-      { status: resp.status, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
-  // Defence against a 200 response whose body isn't actually SSE (Cartesia maintenance
-  // page / plaintext quota notice). Without this the body would stream through to iOS
-  // and play as static. Must inspect the upstream `resp` directly — once we wrap into a
-  // new Response with our own headers, the original Content-Type is lost.
-  const upstreamType = (resp.headers.get("Content-Type") || "").toLowerCase();
-  if (!upstreamType.startsWith("text/event-stream")) {
-    return new Response(
-      JSON.stringify({ error: "upstream-bad-content-type", provider: "cartesia", contentType: upstreamType }),
-      { status: 502, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
-  return new Response(resp.body, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/event-stream",
-      "X-HDZap-Provider": "cartesia",
-      "X-HDZap-Format": "pcm-sse",
-      "Cache-Control": "no-store",
-      "X-Accel-Buffering": "no",
-    },
-  });
 }
 
 // MARK: - AWS Polly (raw PCM streaming)
@@ -611,9 +534,9 @@ async function proxyAzure(
     `<prosody rate='${rateStr}' pitch='${pitchPct}'>${escapeSsml(text)}</prosody>` +
     `</voice></speak>`;
 
-  // raw-24khz-16bit-mono-pcm gives the exact same wire format as Cartesia, so iOS uses
-  // the same `schedulePCM` path with zero conversion needed (engine source format is
-  // 24 kHz mono). True streaming: first chunk plays as soon as it lands.
+  // raw-24khz-16bit-mono-pcm matches the engine's source format on iOS, so `schedulePCM`
+  // takes the no-conversion fast path (engine source is 24 kHz mono Float32). True
+  // streaming: first chunk plays as soon as it lands.
   const resp = await fetch(
     `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`,
     {
