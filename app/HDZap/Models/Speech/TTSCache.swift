@@ -5,25 +5,23 @@ import os
 private let log = Logger(subsystem: "sh.saqoo.HDZap", category: "TTSCache")
 
 /// Local disk cache for Premium TTS audio. Same canonical key shape as the Worker's R2
-/// cache (provider|voice|lang|rate|pitch|model|text → hex SHA-256), so the layers stack
+/// cache (provider|voice|lang|rate|pitch|text → hex SHA-256), so the layers stack
 /// cleanly: local hit → 0 RTT, local miss + R2 hit → ~150 ms, double-miss → ~400 ms
 /// provider cold call. The R2 fetch on the way down also warms this cache, so a phrase a
 /// user hears once is essentially free forever (up to the LRU cap).
 ///
 /// Every cached payload is raw s16le mono PCM at the provider's native sample rate
-/// (Polly 16 kHz, Cartesia + Azure 24 kHz). On cache hit we load the file into an
-/// `AVAudioPCMBuffer` and schedule it on the same player path the streaming code uses.
-/// Cartesia's SSE wrapper is stripped before caching since the framing adds ~30% overhead
-/// with no benefit when replaying a complete utterance from disk.
+/// (Polly 16 kHz, Azure 24 kHz). On cache hit we load the file into an `AVAudioPCMBuffer`
+/// and schedule it on the same player path the streaming code uses.
 final class TTSCache {
     static let shared = TTSCache()
 
     private let directory: URL
-    /// 50 MB cap. Every entry is raw s16le mono PCM now (16 kHz Polly = ~32 KB/sec,
-    /// 24 kHz Cartesia + Azure = ~48 KB/sec), so a typical 2-second race phrase lands
-    /// between 64 and 96 KB. The cap holds hundreds of unique phrases plus the entire
-    /// 55-voice picker sample set without thrashing. Falls back to LRU eviction at 50%
-    /// retention when exceeded so we don't flap right at the boundary.
+    /// 50 MB cap. Every entry is raw s16le mono PCM (16 kHz Polly = ~32 KB/sec, 24 kHz
+    /// Azure = ~48 KB/sec), so a typical 2-second race phrase lands between 64 and 96 KB.
+    /// The cap holds hundreds of unique phrases plus the entire 30-voice picker sample
+    /// set without thrashing. Falls back to LRU eviction at 50% retention when exceeded
+    /// so we don't flap right at the boundary.
     private let maxBytes: Int = 50 * 1024 * 1024
 
     init() {
@@ -42,30 +40,25 @@ final class TTSCache {
         lang: String,
         rate: Double,
         pitch: Double,
-        model: String,
         text: String
     ) -> String {
-        // "v5" prefix invalidates earlier cache entries whenever the client-side
-        // silence-trim parameters change. Earlier attempts trimmed silence from BOTH
-        // ends of the utterance; even the most conservative dual-end trim (v4 at
-        // −50 dB / 60 ms padding) clipped the natural decay of voiced consonants
-        // (Japanese /n/ /ɯː/ /i/, English /n/ /m/) before the fadeout completed,
-        // producing a perceptual "stops too early" feel on countdown announces. v5
-        // trims LEADING silence only and leaves the trailing 50-200 ms of provider
-        // silence intact. Bump the prefix again on any future trim parameter retune
-        // so stale entries get re-fetched instead of replaying with the wrong shape.
-        // The Worker's R2 cache still uses "v2" because it stores the untrimmed
-        // provider output — trimming is a client-side post-process. Layers are
-        // independent by design; only update the Worker prefix if R2 itself stores
-        // something new.
+        // "v6" prefix invalidates earlier cache entries. v5 (leading-only silence
+        // trim) is structurally fine, but the canonical-key shape changed when the
+        // Cartesia provider was removed — the trailing `model` segment (only ever
+        // set to "sonic-3.5" for Cartesia) is gone, so v5 keys hash differently
+        // from v6 even for identical Polly / Azure inputs. Bump the prefix again on
+        // any future canonical-key change so stale entries get re-fetched instead
+        // of replaying with the wrong shape. The Worker's R2 cache carries its own
+        // "v3" prefix (a different SHA-256 over a different canonical string), so
+        // local and remote layers are structurally independent by design; only
+        // update the Worker prefix if R2 itself stores something new.
         let canonical = [
-            "v5",
+            "v6",
             provider.rawValue,
             voice,
             lang,
             String(format: "%.3f", rate),
             String(format: "%.3f", pitch),
-            model,
             text,
         ].joined(separator: "|")
         let hash = SHA256.hash(data: Data(canonical.utf8))

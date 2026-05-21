@@ -38,12 +38,12 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Cloud-powered realistic AI announcer voices for lap times. Pick from 35+ voices across AWS Polly, Azure, and Cartesia.",
+              "description" : "Cloud-powered realistic AI announcer voices for lap times. Pick from 30+ voices across AWS Polly and Microsoft Azure.",
               "displayName" : "HDZap Premium Monthly",
               "locale" : "en_US"
             },
             {
-              "description" : "クラウド駆動のリアルな AI 実況音声でラップタイム読み上げ。AWS / Azure / Cartesia の 35+ ボイスから選べる。",
+              "description" : "クラウド駆動のリアルな AI 実況音声でラップタイム読み上げ。AWS Polly と Microsoft Azure の 30+ ボイスから選べる。",
               "displayName" : "HDZap Premium 月額",
               "locale" : "ja_JP"
             }

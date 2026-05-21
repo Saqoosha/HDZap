@@ -128,8 +128,8 @@ struct PaywallView: View {
             ValueRow(icon: "slider.horizontal.3",
                      title: Self.isJa ? "ペースを調整" : "Tune the pace",
                      subtitle: Self.isJa
-                        ? "Polly と Azure は Rate スライダー、Azure は Pitch スライダーで微調整。Cartesia は自然なまま再生。"
-                        : "Rate slider for Polly + Azure. Pitch slider for Azure. Cartesia plays natural.")
+                        ? "Polly と Azure 両方を Rate スライダーで調整、Azure はさらに Pitch も。"
+                        : "Rate slider for Polly + Azure. Pitch slider for Azure only.")
             ValueRow(icon: "wifi.exclamationmark",
                      title: Self.isJa ? "インターネット接続が必要" : "Internet connection required",
                      subtitle: Self.isJa
@@ -214,23 +214,21 @@ struct PaywallView: View {
         }
     }
 
-    /// Curated 3-voice teaser, one per provider, ordered fastest-first (Polly → Azure →
-    /// Cartesia) to match the picker. The voices are picked from the user's UI locale so a
-    /// Japanese-system iPhone hears Japanese voices and an English-system iPhone hears
-    /// English voices — showing the wrong-language side of the catalogue on the paywall
-    /// hides half the value (and produces a confused first impression).
+    /// Curated 2-voice teaser, one per provider, ordered Polly → Azure to match the
+    /// picker. The voices are picked from the user's UI locale so a Japanese-system iPhone
+    /// hears Japanese voices and an English-system iPhone hears English voices — showing
+    /// the wrong-language side of the catalogue on the paywall hides half the value (and
+    /// produces a confused first impression).
     fileprivate static var sampleVoices: [PremiumVoiceOption] {
         let isJapanese = Locale.current.language.languageCode?.identifier == "ja"
         let ids: [String] = isJapanese
             ? [
-                "Takumi",                                  // Polly · Takumi (male, Neural)
-                "ja-JP-NanamiNeural",                      // Azure · Nanami (female)
-                "06950fa3-534d-46b3-93bb-f852770ea0b5",    // Cartesia · Takeshi - Hero
+                "Takumi",              // Polly · Takumi (male, Neural)
+                "ja-JP-NanamiNeural",  // Azure · Nanami (female)
             ]
             : [
-                "Matthew",                                  // Polly · Matthew (US male, newscaster)
-                "en-US-SaraNeural",                         // Azure · Sara (US female)
-                "2f22b9bc-b0eb-4cb6-b5ae-0c099a0fdfad",     // Cartesia · Scott - Sportscaster
+                "Matthew",             // Polly · Matthew (US male, newscaster)
+                "en-US-SaraNeural",    // Azure · Sara (US female)
             ]
         return ids.compactMap { id in PremiumVoiceCatalog.voices.first { $0.id == id } }
     }
@@ -301,8 +299,8 @@ struct PaywallView: View {
     private static var headerSubtitle: String {
         let isJa = Locale.current.language.languageCode?.identifier == "ja"
         return isJa
-            ? "AI音声合成によるレース実況。AWS Polly・Azure・Cartesia の 50 種類以上の日本語・英語ボイスから選べます。"
-            : "Race-time call-outs powered by AI voice synthesis. 50+ voices in English and Japanese across AWS Polly, Azure, and Cartesia."
+            ? "AI音声合成によるレース実況。AWS Polly と Microsoft Azure の 30 種類以上の日本語・英語ボイスから選べます。"
+            : "Race-time call-outs powered by AI voice synthesis. 30+ voices in English and Japanese across AWS Polly and Microsoft Azure."
     }
 
     /// Value-prop body for the "Natural number reading" row. Localised so the example
@@ -393,14 +391,13 @@ private struct PaywallSampleRow: View {
 }
 
 private extension PremiumVoiceOption {
-    /// "Cartesia · Expressive male" → "Expressive male". Same de-prefixing logic as the
-    /// picker view but inlined here to keep the paywall self-contained.
+    /// "AWS Polly · clear newscaster" — one-line hint shown next to the play button on
+    /// each sample row, so the operator knows what character they're auditioning.
     var providerHint: String {
         let isJa = Locale.current.language.languageCode?.identifier == "ja"
         switch provider {
-        case .cartesia: return isJa ? "Cartesia · 最も表情豊か"   : "Cartesia · most expressive"
-        case .polly:    return isJa ? "AWS Polly · クリアな読み上げ" : "AWS Polly · clear newscaster"
-        case .azure:    return isJa ? "Azure · 放送局スタイル"    : "Azure · broadcast-style"
+        case .polly: return isJa ? "AWS Polly · クリアな読み上げ" : "AWS Polly · clear newscaster"
+        case .azure: return isJa ? "Azure · 放送局スタイル"    : "Azure · broadcast-style"
         }
     }
 }
