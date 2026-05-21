@@ -18,6 +18,12 @@ struct PaywallView: View {
     @Environment(SubscriptionManager.self) private var subscription
     @Environment(LapAnnouncer.self) private var announcer
     @Environment(\.dismiss) private var dismiss
+    // Read the editorial accent hue directly from AppStorage — when this view is hosted
+    // in a sheet, the parent's `.environment(\.accentHue, ...)` doesn't reach `.tint` here
+    // (the sheet's env-chain drops the value), so we bypass the indirection. Retest on
+    // each major iOS bump in case Apple fixes the sheet env-chain regression and we can
+    // switch back to `@Environment`.
+    @AppStorage(EditorialTheme.accentHueStorageKey) private var accentHue: Double = EditorialTheme.defaultAccentHue
     /// "products still loading" / "loaded N products" / "timed out, no products". Drives the
     /// product cards section so a stuck StoreKit configuration (e.g. running via devicectl
     /// instead of Xcode's Run button, no real ASC products yet) doesn't leave the operator
@@ -54,6 +60,13 @@ struct PaywallView: View {
                 }
             }
         }
+        // Pin the editorial pink as `.tint` through the entire paywall hierarchy. The
+        // paywall is presented as a sheet, and the sheet's env chain drops `.tint`
+        // somewhere between the host window and this view's children — without this
+        // pin, button-pressed states fall back to the SwiftUI default blue and the
+        // price-card stroke + play icons momentarily flash. Retest on each major iOS
+        // bump in case Apple closes the regression.
+        .tint(EditorialTheme.accent(hue: accentHue))
         .task {
             await loadProductsWithTimeout()
         }
@@ -141,7 +154,13 @@ struct PaywallView: View {
         case .loaded:
             VStack(spacing: 12) {
                 ForEach(subscription.products, id: \.id) { product in
-                    ProductCard(product: product, isPurchasing: subscription.purchasing == product.id) {
+                    ProductCard(
+                        product: product,
+                        comparisonProduct: product.id == SubscriptionProductID.yearly
+                            ? subscription.products.first(where: { $0.id == SubscriptionProductID.monthly })
+                            : nil,
+                        isPurchasing: subscription.purchasing == product.id
+                    ) {
                         await purchase(product)
                     }
                 }
@@ -205,12 +224,12 @@ struct PaywallView: View {
         let ids: [String] = isJapanese
             ? [
                 "Takumi",                                  // Polly · Takumi (male, Neural)
-                "ja-JP-DaichiNeural",                      // Azure · Daichi (male)
+                "ja-JP-NanamiNeural",                      // Azure · Nanami (female)
                 "06950fa3-534d-46b3-93bb-f852770ea0b5",    // Cartesia · Takeshi - Hero
             ]
             : [
                 "Matthew",                                  // Polly · Matthew (US male, newscaster)
-                "en-US-DavisNeural",                        // Azure · Davis (US male)
+                "en-US-SaraNeural",                         // Azure · Sara (US female)
                 "2f22b9bc-b0eb-4cb6-b5ae-0c099a0fdfad",     // Cartesia · Scott - Sportscaster
             ]
         return ids.compactMap { id in PremiumVoiceCatalog.voices.first { $0.id == id } }
@@ -344,7 +363,13 @@ private struct PaywallSampleRow: View {
             HStack(spacing: 12) {
                 Image(systemName: isPreviewing ? "stop.circle.fill" : "play.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(Color.accentColor)
+                    // `.tint` reads the live environment tint (set by the paywall's
+                    // top-level `.tint(...)`). `Color.accentColor` looked right on
+                    // first render but flipped to system blue once the button's
+                    // pressed state re-rendered the icon — the implicit accent
+                    // resolution doesn't survive that transition for plain-style
+                    // buttons. Don't switch back without retesting that flow.
+                    .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(voice.label)
                         .font(.subheadline.bold())
@@ -401,6 +426,9 @@ private struct ValueRow: View {
 
 private struct ProductCard: View {
     let product: Product
+    /// Optional sibling product used to compute the savings/per-month caption on the
+    /// yearly card. Pass the monthly product when rendering yearly; pass nil otherwise.
+    let comparisonProduct: Product?
     let isPurchasing: Bool
     let onTap: () async -> Void
 
@@ -417,6 +445,11 @@ private struct ProductCard: View {
                         Text("\(product.displayPrice) / \(periodLabel)")
                             .font(.title2.bold())
                             .foregroundStyle(.tint)
+                        if let caption = comparisonCaption {
+                            Text(caption)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     if isPurchasing {
@@ -437,11 +470,63 @@ private struct ProductCard: View {
             .padding()
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.accentColor.opacity(0.4), lineWidth: 1.5)
+                    // Read the live `.tint` instead of `Color.accentColor` so the
+                    // border tracks the paywall's tint override across re-renders.
+                    // With `Color.accentColor`, the stroke fell back to system blue
+                    // for a frame after a child play-button was tapped — the
+                    // implicit accent for accessory views inside this card stops
+                    // resolving correctly once that re-render fires.
+                    .strokeBorder(.tint.opacity(0.4), lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
         .disabled(isPurchasing)
+    }
+
+    /// Subtitle caption sat between the price and any intro-offer line.
+    ///
+    /// Monthly card: "about the price of a coffee" — a deliberately fuzzy, universally
+    /// understood subscription metaphor. Reads in every market we ship to without
+    /// invoking a specific brand (e.g. Starbucks) we don't have a marketing deal with.
+    ///
+    /// Yearly card: localised per-month equivalent + savings percentage vs. 12× monthly.
+    /// Both numbers come straight from StoreKit's product prices so they stay correct
+    /// across every territory even when our price ratio drifts a percent here or there.
+    private var comparisonCaption: String? {
+        guard let unit = product.subscription?.subscriptionPeriod.unit else { return nil }
+        switch unit {
+        case .month:
+            return Self.isJa ? "≈ コーヒー1杯分" : "≈ a cup of coffee"
+        case .year:
+            return yearlyCaption()
+        default:
+            return nil
+        }
+    }
+
+    private func yearlyCaption() -> String? {
+        // Defensive: a `.storekit` config file with a 0-priced test product would otherwise
+        // render "$0/mo · save 100%" — a real ASC product never reports 0 here, but local
+        // testing has tripped this before.
+        guard product.price > 0 else { return nil }
+        let perMonth = product.price / 12
+        let perMonthDisplay = perMonth.formatted(product.priceFormatStyle)
+        guard let monthlyPrice = comparisonProduct?.price, monthlyPrice > 0 else {
+            return Self.isJa ? "月割 約 \(perMonthDisplay)" : "≈ \(perMonthDisplay)/mo"
+        }
+        let monthlyTotal = monthlyPrice * 12
+        let savings = monthlyTotal - product.price
+        guard savings > 0 else {
+            return Self.isJa ? "月割 約 \(perMonthDisplay)" : "≈ \(perMonthDisplay)/mo"
+        }
+        // Round to nearest whole percent for display. Decimal arithmetic via Double here
+        // is fine — the result is bound to a small integer and we don't compound rounding.
+        let savingsDouble = NSDecimalNumber(decimal: savings).doubleValue
+        let totalDouble = NSDecimalNumber(decimal: monthlyTotal).doubleValue
+        let pct = Int(((savingsDouble / totalDouble) * 100).rounded())
+        return Self.isJa
+            ? "月割 約 \(perMonthDisplay)（\(pct)% お得）"
+            : "≈ \(perMonthDisplay)/mo · save \(pct)%"
     }
 
     /// Locale check — same logic as `PaywallView.isJa`, repeated here so the helpers can
