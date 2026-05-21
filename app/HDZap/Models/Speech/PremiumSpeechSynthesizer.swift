@@ -279,12 +279,29 @@ final class PremiumSpeechSynthesizer: NSObject {
         // `reset()` is the only way to drop scheduled buffers that haven't started
         // playing back yet — `stop()` alone leaves them in the node's internal queue,
         // and they will replay on the next `play()` even though we consider the
-        // utterance cancelled. Symptom that motivated this: after "スタート" finished
-        // (or was trimmed too aggressively), the next lap announcement opened with
-        // a phantom "ト" — the trailing chunk of the previous utterance bleeding
-        // into the new playback because `play()` after `stop()` resumed the queue.
+        // utterance cancelled.
         playerNode.reset()
         if engine.isRunning { engine.stop() }
+        // `engine.reset()` flushes the pending buffers in every attached node — the
+        // player above plus the main mixer and the output unit. Without this, the
+        // tail of a previous utterance can sit in a downstream AudioUnit's internal
+        // render buffer (a few ms worth) and bleed into the next playback once
+        // `engine.start()` runs again. Symptom that motivated this: paywall / picker
+        // sample preview finished, operator tapped Start, and the new "スタート"
+        // playback opened with a phantom "ト" from the previous utterance's tail —
+        // not from the sample's last syllable (the JA sample text "ラップ3、12.34、
+        // ベストラップ" ends in "プ", not "ト"), so the bleed was the prior race's
+        // own "スタート" tail or a prewarm-buffered chunk that survived `stop()`.
+        // Called unconditionally — safe on a stopped engine, free insurance for the
+        // first-run path.
+        engine.reset()
+        // Drop the polyphase resampler so a Polly → Polly preview-then-race sequence
+        // can't carry filter-tail state from the previous utterance — the same class
+        // of bleed `engine.reset()` solves for the AudioUnit side, but for the
+        // sample-rate converter the synth holds independently of the engine graph.
+        // `buildBufferResampled` lazy-inits a fresh converter on next use.
+        resampleConverter = nil
+        resampleConverterRate = 0
         pendingBuffers = 0
         streamReceiveComplete = false
         accumulatedPCM.removeAll(keepingCapacity: true)
