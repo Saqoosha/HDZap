@@ -18,6 +18,38 @@ enum LapAnnouncerDefaults {
     static let rateKey = "lapTTSRate"
     static let pitchKey = "lapTTSPitch"
     static let announceBestKey = "lapTTSAnnounceBest"
+    static let countdownEnabledKey = "lapTTSCountdownEnabled"
+    static let countdownStartSecondsKey = "lapTTSCountdownStartSeconds"
+
+    /// "system" (built-in `AVSpeechSynthesizer`) or "premium" (cloud TTS via the hdzap-premium
+    /// Worker). Stored as a raw string so it can be `@AppStorage`-bound directly. When set to
+    /// "premium" but no `premiumVoiceIdentifierKey` is selected, `speak()` falls back to the
+    /// system engine so the operator isn't left in silence.
+    static let engineKey = "lapTTSEngine"
+    /// Selected voice ID from `PremiumVoiceCatalog` — Cartesia UUID / Polly name / Azure
+    /// locale-qualified name depending on which provider the entry belongs to. Empty string
+    /// means "no premium voice picked yet".
+    static let premiumVoiceIdentifierKey = "lapTTSPremiumVoiceIdentifier"
+    /// Premium speech rate multiplier (1.0 = baseline cadence). Applied to Polly + Azure via
+    /// SSML `<prosody rate>` in the Worker; ignored for Cartesia (Sonic 3.5 disabled prosody
+    /// controls in the preview). 1.4× is the default because race announcers tend to talk
+    /// fast — YourLaps shipped `<prosody rate="x-fast">` (~1.4-1.5×) for years.
+    static let premiumRateKey = "lapTTSPremiumRate"
+    /// Premium pitch multiplier as semitone offset (0 = neutral). Polly + Azure both accept
+    /// signed semitone values via SSML `<prosody pitch>`; Cartesia ignored.
+    static let premiumPitchKey = "lapTTSPremiumPitch"
+    static let defaultEngine = "system"
+    static let defaultPremiumVoiceIdentifier = ""
+    static let defaultPremiumRate: Double = 1.4
+    static let defaultPremiumPitch: Double = 0.0
+    /// Bounds chosen so the SSML stays in the natural-sounding range — too slow gets robotic
+    /// and too fast becomes unintelligible. ~0.7× to 2.0× is the sweet spot for both engines.
+    static let minPremiumRate: Double = 0.7
+    static let maxPremiumRate: Double = 2.0
+    /// Semitone offset: roughly ±5 semitones keeps the voice recognisable. Beyond that Polly
+    /// in particular starts producing chipmunk / monster artifacts.
+    static let minPremiumPitch: Double = -5.0
+    static let maxPremiumPitch: Double = 5.0
 
     /// Mirrors `AVSpeechUtteranceDefaultSpeechRate` (iOS 18 = 0.5). Hardcoded
     /// so AudioSettingsView and HDZapApp can register and bind the default
@@ -32,6 +64,20 @@ enum LapAnnouncerDefaults {
     /// "best lap" callout default — on. Cheap, useful, and only fires
     /// at the moments that warrant a callout.
     static let defaultAnnounceBest = true
+    /// Final-seconds countdown ("10", "9", "8", ...) default — off.
+    /// Opt-in like the master toggle: silent until the operator asks
+    /// for it.
+    static let defaultCountdownEnabled = false
+    /// How many of the final seconds to call out when countdown is on.
+    /// 10 lands the first call at the standard FPV "10 to go" cue;
+    /// the bounds below let the operator widen (15) or tighten (5).
+    static let defaultCountdownStartSeconds = 10
+    /// Empirical bounds. Below 5 the first call ("5") leaves no time
+    /// to react before the FINAL lap window opens; above 15 the count
+    /// runs longer than most operators want over the start of a
+    /// closing-pace lap.
+    static let minCountdownStartSeconds = 5
+    static let maxCountdownStartSeconds = 15
     /// Empty string == "use the system default voice for the selected
     /// language" inside `LapAnnouncer.currentVoice()`. Keeps every
     /// `@AppStorage` site, the Reset button, and HDZapApp's register
@@ -118,10 +164,62 @@ enum LapAnnouncerLanguage: String, CaseIterable, Identifiable {
 @Observable
 final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private let synthesizer = AVSpeechSynthesizer()
+    /// Cloud TTS path (Cartesia / Polly / Azure). Owned here so AudioSettingsView can reach it
+    /// via `@Environment` for the dev panel, and so speak() can route to it when the operator
+    /// has selected the "premium" engine. The premium synth manages its own AVAudioSession +
+    /// AVAudioEngine — sharing one session with `synthesizer` here would force both to fight
+    /// over `setCategory`, so they each activate independently and the warm-keeper stays out
+    /// of the premium path.
+    let premiumSynth = PremiumSpeechSynthesizer()
     /// True only after `setCategory` *and* `setActive(true)` succeed —
     /// either failure leaves the flag false so the next utterance retries
     /// instead of silently never reactivating.
     private var sessionConfigured = false
+
+    /// When true, `deactivateSession` is a no-op so the AVAudioSession
+    /// stays active across utterances. Lets the operator hold the
+    /// session for the duration of a race — without this hold, every
+    /// announcement pays a setActive(true)/setActive(false) round-trip,
+    /// and even though both syscalls run on a background queue the
+    /// route-change interruption notifications iOS posts to other
+    /// audio apps land on the main thread and observably stutter the
+    /// UI right at the start and end of each utterance. TimerView
+    /// flips this on at fresh START (before `announceStart()` so the
+    /// session activated from that call stays put) and off on FINAL
+    /// / manual STOP / RESET. Setting it back to false while the
+    /// synth is idle triggers an immediate deactivate via `didSet`;
+    /// while speaking, the next `didFinish` / `didCancel` picks it up.
+    var sessionHoldActive = false {
+        didSet {
+            guard oldValue && !sessionHoldActive else { return }
+            // Gate on the inflight counter, NOT `synth.isSpeaking`:
+            // `speak()` increments the counter synchronously *before*
+            // dispatching to `synthQueue`, while `isSpeaking` only
+            // flips true once the synth worker has actually picked
+            // up the utterance. Without the counter check, a
+            // hold-release that fires right after `announceFinal`
+            // sees an "idle" synth, deactivates the session, and
+            // races the about-to-run summary speak — which then
+            // stutters because its session is mid-deactivation.
+            // Counter==0 means "no work pending or in flight"; the
+            // delegate path will call `deactivateSession` once the
+            // queue actually drains.
+            if inflightUtteranceCount == 0 && !synthesizer.isSpeaking {
+                deactivateSession()
+            }
+        }
+    }
+
+    /// Voice resolution result cached across utterances. Constructing
+    /// an `AVSpeechSynthesisVoice` does enough disk + metadata work
+    /// that calling it from every `speak()` shows up as ~10–30 ms of
+    /// main-thread stutter right at voice-start — and the underlying
+    /// selection (language + identifier) only changes when the
+    /// operator edits Settings, not between announcements. The
+    /// composite key lets us recompute on a real change while reusing
+    /// the resolved voice on the steady-state countdown / lap path.
+    private var cachedVoice: AVSpeechSynthesisVoice?
+    private var cachedVoiceKey: String?
     /// Serial queue for AVAudioSession syscalls. `setActive(true)` blocks
     /// 50–200ms, `setActive(false)` blocks 100–300ms (it sends ducking-end
     /// notifications to other audio apps). Running them on the main actor
@@ -131,6 +229,58 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private let audioSessionQueue = DispatchQueue(label: "sh.saqoo.HDZap.LapAnnouncer.audioSession",
                                                   qos: .userInitiated)
 
+    /// Dedicated serial queue for `AVSpeechSynthesizer` calls. Apple's
+    /// docs are silent on thread-safety, but empirical reports across
+    /// iOS 16/17/18 consistently show that the per-utterance UI hitch
+    /// at voice-start is caused by `speak()` taking an internal lock
+    /// on the calling thread and stalling main for ~30 ms during
+    /// audio-engine handoff. Moving the call off main eliminates the
+    /// stutter while leaving the synth's worker-thread rendering
+    /// unchanged. Serial so a `stopSpeaking` + `speak` pair issued
+    /// for a fast LAP-tap-during-countdown sequence can't reorder.
+    private let synthQueue = DispatchQueue(label: "sh.saqoo.HDZap.LapAnnouncer.synth",
+                                           qos: .userInteractive)
+
+    /// Warm-keeper engine + silent player. AVSpeechSynthesizer's
+    /// per-utterance hitch is the audio-output HAL cold-starting:
+    /// after ~1 s of idle the synth lets the playback path go to
+    /// sleep, and the *next* `speak()` pays the wake-up cost on
+    /// main. The operator saw exactly this — "10" stutters but "9",
+    /// "8", "7" are fine (the 1 s gap keeps the HAL warm between
+    /// them), and a LAP tap that lands seconds after the last
+    /// utterance also stutters. Streaming a continuous zero-amplitude
+    /// buffer through our own `AVAudioPlayerNode` while a race is in
+    /// flight keeps the HAL warm; subsequent `synth.speak()` calls
+    /// mix into the same active output and skip the wake-up.
+    ///
+    /// `warmKeeperAttached` survives across start/stop so the
+    /// attach/connect dance only runs once per `LapAnnouncer`
+    /// lifetime (cheap, but avoids redundant graph churn between
+    /// races).
+    private let warmKeeperEngine = AVAudioEngine()
+    private let warmKeeperNode = AVAudioPlayerNode()
+    private var warmKeeperAttached = false
+    private var warmKeeperRunning = false
+
+    /// Number of utterances that have been enqueued via `speak()` and
+    /// haven't yet fired `didFinish` / `didCancel`. Counter, not a
+    /// bool, because countdowns + lap calls can stack: the LAP path
+    /// passes `cancelInflight: true` which fires `didCancel` for the
+    /// preempted countdown *and* `didFinish` for the lap utterance
+    /// itself, so balancing increments-on-speak with decrements-on-
+    /// delegate keeps the count accurate across cancel-then-speak
+    /// sequences. Used by `stopWarmKeeperWhenIdle()` to defer the
+    /// engine stop past the final summary instead of cutting it off.
+    private var inflightUtteranceCount = 0
+    /// Set by `stopWarmKeeperWhenIdle()` so the next time
+    /// `inflightUtteranceCount` drops to 0 (the queue is empty), the
+    /// warm-keeper engine actually stops. Without this two-step the
+    /// race-end summary's speak — enqueued just before TimerView
+    /// asks for the stop — would land on an already-stopped engine
+    /// and pay the HAL cold-start cost we built the warm-keeper to
+    /// avoid.
+    private var stopWarmKeeperPending = false
+
     /// Set when AVAudioSession activation throws so the UI can show a
     /// banner like "Audio unavailable — announcements muted". Cleared on
     /// the next successful activation. Race operator with the phone in a
@@ -138,9 +288,43 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// would defeat the whole point of audio confirmation.
     private(set) var lastAudioError: String?
 
+    /// Live audio-output latency for the current route plus a small
+    /// fixed allowance for AVSpeechSynthesizer render + handoff time.
+    /// AirPods report ~150–200 ms (BT codec round-trip + jitter
+    /// buffer); USB-C / Lightning headphones and the built-in speaker
+    /// report tens of ms. Reading the system value means the
+    /// countdown lead-time auto-tracks the current route — if the
+    /// operator yanks AirPods mid-race, the next number fires with
+    /// the smaller built-in-speaker compensation instead of staying
+    /// 150 ms early forever.
+    ///
+    /// The +0.05 s is the empirical synthesis-and-enqueue overhead
+    /// of `AVSpeechUtterance` for a one- or two-syllable numeral —
+    /// `outputLatency` measures only the audio session's output
+    /// buffer, not the speech pipeline upstream of it. The raw value
+    /// is clamped to `≥ 0`: the property is documented to return 0
+    /// for an inactive session, but Apple has historically tightened
+    /// "undefined" to specific sentinels (NaN, -1) without warning,
+    /// and any negative value here would make
+    /// `fireAtElapsed = sessionLimit − n − leadSec` overshoot
+    /// `sessionLimit` and silently kill the countdown.
+    ///
+    /// The minimum is `0.05` (the synth-overhead floor): before
+    /// `startWarmKeeper()` activates the session the route latency
+    /// reads as 0, but the synth overhead is still there.
+    var estimatedOutputLatency: TimeInterval {
+        max(0, AVAudioSession.sharedInstance().outputLatency) + 0.05
+    }
+
     override init() {
         super.init()
         synthesizer.delegate = self
+        // NB: do NOT set `synthesizer.usesApplicationAudioSession =
+        // false` — the synth needs to share our AVAudioSession so
+        // the warm-keeper engine started by `startWarmKeeper()` can
+        // keep the audio-output HAL hot for it. With `false`, the
+        // synth uses its own private internal session and the
+        // warm-keeper has no effect on its per-utterance cold-start.
         // Tripwire for `defaultRate` drifting away from
         // `AVSpeechUtteranceDefaultSpeechRate` in a future SDK.
         assert(LapAnnouncerDefaults.defaultRate == AVSpeechUtteranceDefaultSpeechRate,
@@ -150,6 +334,17 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         Task.detached(priority: .background) {
             LapAnnouncerVoiceCatalog.dumpInstalledVoicesOnce()
         }
+    }
+
+    /// Mirrors the System synth's `didFinish` / `didCancel` delegate — decrement the
+    /// inflight counter and attempt session deactivation. Premium playback runs through
+    /// `PremiumSpeechSynthesizer.onEnd` callbacks, which call this so the warm-keeper /
+    /// session-hold lifecycle stays symmetric across both engines. Picker / paywall
+    /// previews bypass `LapAnnouncer.speak` and therefore MUST NOT pass this as their
+    /// `onEnd` — they never incremented the counter, so they have nothing to decrement.
+    private func premiumUtteranceEnded() {
+        utteranceDidEnd()
+        deactivateSession()
     }
 
     func announceLap(_ lap: Lap, isBest: Bool) {
@@ -188,9 +383,10 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     /// Announces the race start ("Start" / "スタート") so the operator
-    /// gets an audio cue when they tap START. Doubles as a warm-up for
-    /// the audio session so the first lap announcement isn't delayed by
-    /// the initial `setActive(true)` round-trip.
+    /// gets an audio cue when they tap START. Session warm-up is now
+    /// owned by `startWarmKeeper()` (called synchronously before
+    /// this utterance is enqueued), so the announcement is purely
+    /// the operator cue.
     func announceStart() {
         switch currentLanguage() {
         case .english: speak("Start")
@@ -198,14 +394,219 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    /// Drops any in-flight or queued speech.
+    /// Announces "Last lap!" / "ラストラップ！" the instant race time
+    /// runs out so the pilot knows the lap they're flying is the
+    /// FINAL lap. Fires once per race, gated by the same TTS master
+    /// toggle as the rest of the announcer; warm-keeper is still
+    /// running at this point (TimerView only releases it on the
+    /// FINAL/STOP/RESET path) so the HAL stays hot and the call
+    /// avoids the cold-start hitch.
+    func announceLastLap() {
+        switch currentLanguage() {
+        case .english: speak("Last lap!")
+        case .japanese: speak("ファイナルラップです")
+        }
+    }
+
+    /// Speaks a single countdown number near race end.
+    /// AVSpeechSynthesizer reads bare numerals naturally in both en
+    /// (`ten` / `nine`) and ja (`じゅう` / `きゅう`) voices, so no
+    /// per-language phrasing is needed.
+    ///
+    /// Guard on `inflightUtteranceCount == 0`, not `isSpeaking`:
+    /// `speak()` is dispatched to `synthQueue` and the counter is
+    /// incremented synchronously *before* the dispatch, while
+    /// `isSpeaking` only flips true once the synth worker picks up
+    /// the utterance. Reading `isSpeaking` would let a countdown
+    /// number slip past a still-pending lap callout that hasn't
+    /// reached the synth yet, and the operator would then hear the
+    /// stale number out-of-order after the lap announcement
+    /// finished. The counter check covers both the in-flight and
+    /// the queued cases.
+    ///
+    /// Dropping is safe — `nextCountdownN` in `TimerView` is only
+    /// advanced after this method is called (regardless of whether
+    /// `speak()` actually fired), so a dropped number is simply
+    /// skipped; the next 60 Hz `.onChange(of: elapsedTime)` tick
+    /// already targets the next-smaller integer and lands when the
+    /// synth has cleared. `cancelInflight: false` matches that
+    /// design: a LAP or FINAL utterance does *not* preempt the
+    /// count via `speak()`'s cancel path (it preempts the count
+    /// only by passing this guard), but the counter check makes the
+    /// `cancelInflight: false` parameter effectively unreachable on
+    /// the steady-state countdown path — only the start-of-count
+    /// case (idle synth) ever passes the guard.
+    func announceCountdown(_ seconds: Int) {
+        guard inflightUtteranceCount == 0 else { return }
+        speak(String(seconds), cancelInflight: false)
+    }
+
+    /// Starts the silent warm-keeper stream so the audio-output HAL
+    /// stays hot for the duration of a race. Called by TimerView at
+    /// fresh START, paired with `stopWarmKeeper()` on every race-end
+    /// path (FINAL / manual STOP / RESET). Idempotent.
+    func startWarmKeeper() {
+        guard !warmKeeperRunning else { return }
+        warmKeeperRunning = true
+
+        // The session has to be active before `AVAudioEngine.start()`
+        // can attach to it. We pay the 50–200 ms setCategory/setActive
+        // cost synchronously here — the operator's tap on the START
+        // button hides it, and it's a once-per-race expense.
+        configureSessionSync()
+        guard sessionConfigured else {
+            // configureSessionSync already wrote the root-cause to
+            // lastAudioError + fired the haptic. Bail out before
+            // `warmKeeperEngine.start()` runs on an inactive session
+            // and overwrites the diagnostic with a misleading
+            // "engine start failed" cascade error.
+            warmKeeperRunning = false
+            return
+        }
+
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                   sampleRate: 44100,
+                                   channels: 1,
+                                   interleaved: false)
+        guard let format,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format,
+                                            frameCapacity: 4410) else {
+            log.error("warm-keeper buffer allocation failed (format nil or PCMBuffer nil)")
+            lastAudioError = "Audio warm-up unavailable — announcements may stutter at race start."
+            warmKeeperRunning = false
+            return
+        }
+        // 100 ms looped — short enough that `.stop()` cuts cleanly at
+        // race end (worst-case ~100 ms tail before silence), long
+        // enough that any internal restart at the loop boundary stays
+        // well below audibility. AVAudioPCMBuffer's sample storage is
+        // *not* guaranteed to be zero-initialized — the allocator
+        // typically returns zeroed pages but it isn't part of the
+        // contract, and an uninitialized chunk would replay through
+        // the speaker as a click/burst loud enough to startle the
+        // operator. Memset is a few µs once per race start.
+        buffer.frameLength = 4410
+        if let channels = buffer.floatChannelData {
+            let bytes = Int(buffer.frameLength) * MemoryLayout<Float>.size
+            for c in 0..<Int(format.channelCount) {
+                memset(channels[c], 0, bytes)
+            }
+        }
+
+        if !warmKeeperAttached {
+            warmKeeperEngine.attach(warmKeeperNode)
+            warmKeeperEngine.connect(warmKeeperNode,
+                                     to: warmKeeperEngine.mainMixerNode,
+                                     format: format)
+            warmKeeperAttached = true
+        }
+
+        do {
+            if !warmKeeperEngine.isRunning {
+                try warmKeeperEngine.start()
+            }
+            warmKeeperNode.scheduleBuffer(buffer,
+                                          at: nil,
+                                          options: .loops,
+                                          completionHandler: nil)
+            warmKeeperNode.play()
+        } catch {
+            // Hide-the-error here defeats the whole point of the
+            // warm-keeper: silently failing means the operator's
+            // countdown audio stutters and they have no idea why.
+            // Surface the same lastAudioError + haptic pair that
+            // session activation uses, so the existing
+            // AudioSettingsView banner picks it up.
+            log.error("warm-keeper start failed: \(error.localizedDescription, privacy: .public)")
+            lastAudioError = "Audio warm-up failed — announcements may stutter at race start: \(error.localizedDescription)"
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            warmKeeperRunning = false
+        }
+    }
+
+    /// Stops the silent warm-keeper. Audio HAL is allowed to idle
+    /// back down once the engine is stopped — fine outside a race.
+    func stopWarmKeeper() {
+        // Any pending deferred stop is now superseded by the
+        // immediate stop. Without this clear, a RESET that lands
+        // mid-summary would stop the engine here, then a second
+        // stop from the deferred path would fire later (no-op via
+        // the `warmKeeperRunning` guard but still misleading state).
+        stopWarmKeeperPending = false
+        guard warmKeeperRunning else { return }
+        warmKeeperRunning = false
+        warmKeeperNode.stop()
+        warmKeeperEngine.stop()
+    }
+
+    /// Asks for the warm-keeper to stop once the synth queue drains.
+    /// Used by the FINAL-lap and STOP-with-laps paths so the race-
+    /// end summary — which has just been enqueued — still plays
+    /// through a warm HAL. The actual stop fires from
+    /// `utteranceDidEnd()` the moment `inflightUtteranceCount` drops
+    /// to 0. If the synth is already idle (e.g. TTS was disabled so
+    /// no summary was enqueued), stop immediately.
+    func stopWarmKeeperWhenIdle() {
+        if inflightUtteranceCount == 0 {
+            stopWarmKeeper()
+        } else {
+            stopWarmKeeperPending = true
+        }
+    }
+
+    /// Synchronous variant of `configureSessionIfNeeded` for callers
+    /// that need the session active before the next syscall (engine
+    /// start). Routes the setCategory/setActive pair through
+    /// `audioSessionQueue.sync` so this activate can't reorder
+    /// against a previous `deactivateSession()`'s queued
+    /// `setActive(false)` — otherwise the operator's RESET → immediate
+    /// START sequence would have the queued deactivate land *after*
+    /// our activate, deactivating the session we just brought up and
+    /// leaving `sessionConfigured == true` lying about it.
+    private func configureSessionSync() {
+        guard !sessionConfigured else { return }
+        var setupError: Error?
+        audioSessionQueue.sync {
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+                try session.setActive(true, options: [])
+            } catch {
+                setupError = error
+            }
+        }
+        if let setupError {
+            log.error("AVAudioSession activation (sync) failed: \(setupError.localizedDescription, privacy: .public)")
+            lastAudioError = "Audio unavailable: \(setupError.localizedDescription)"
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        } else {
+            sessionConfigured = true
+            lastAudioError = nil
+        }
+    }
+
+    /// Drops any in-flight or queued speech. Dispatched through the
+    /// same serial `synthQueue` as `speak()` so a cancel can't race
+    /// past a queued speak that hasn't started yet — otherwise RESET
+    /// could fire its `stopSpeaking` *before* the just-enqueued lap
+    /// utterance reached the synth, leaving the lap to play after
+    /// the visible state was already wiped.
     func cancel() {
-        let stopped = synthesizer.stopSpeaking(at: .immediate)
-        if !stopped {
-            // `false` from `stopSpeaking` means "no utterance was speaking"
-            // — benign during RESET, but logged so an unexpected failure
-            // (e.g. synth in stuck state) surfaces in Console.
-            log.debug("stopSpeaking returned false (no utterance to stop)")
+        // Premium synth gets stopped unconditionally — `cancel()` is also a no-op there if
+        // nothing is in flight, so the cheap call is fine even on a System-only race.
+        premiumSynth.cancel()
+
+        let synth = synthesizer
+        synthQueue.async {
+            // `stopSpeaking` returns false when there's nothing to
+            // cancel — benign during RESET in the no-utterance case
+            // but worth logging so a stuck-synth state (synth
+            // refusing to stop while still reporting `isSpeaking ==
+            // true`) shows up in Console for diagnosis instead of
+            // silently lingering until the next session activate.
+            if !synth.stopSpeaking(at: .immediate) {
+                log.debug("cancel: stopSpeaking returned false (no utterance to stop)")
+            }
         }
     }
 
@@ -217,29 +618,121 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// background-audio apps to ramp back up promptly.
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.deactivateSession() }
+        Task { @MainActor in
+            self.utteranceDidEnd()
+            self.deactivateSession()
+        }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didCancel utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.deactivateSession() }
+        Task { @MainActor in
+            self.utteranceDidEnd()
+            self.deactivateSession()
+        }
+    }
+
+    /// Decrement the in-flight counter and, if the queue is now empty
+    /// AND TimerView has asked for a deferred warm-keeper stop, run
+    /// it now. Centralized so `didFinish` and `didCancel` stay in
+    /// sync — a missing decrement on either path would leave the
+    /// warm-keeper running past the race end, ducking other apps'
+    /// audio forever.
+    private func utteranceDidEnd() {
+        let newCount = inflightUtteranceCount - 1
+        if newCount < 0 {
+            // The invariant is +1 in `speak()` paired with exactly one
+            // didFinish or didCancel from the synth. Underflow means
+            // one of: a delegate callback fired twice for the same
+            // utterance, a callback fired for an utterance we never
+            // counted, or `speak()` was bypassed for an enqueue. Any
+            // of those would silently corrupt warm-keeper / session
+            // lifecycle decisions downstream, so log and assert in
+            // debug — the `max(0, ...)` keeps release builds limping
+            // along instead of permanently gating `deactivateSession`.
+            log.error("inflightUtteranceCount underflow (\(self.inflightUtteranceCount, privacy: .public) -> \(newCount, privacy: .public)) — speak/utteranceDidEnd asymmetry")
+            assertionFailure("inflightUtteranceCount underflow")
+        }
+        inflightUtteranceCount = max(0, newCount)
+        if stopWarmKeeperPending && inflightUtteranceCount == 0 {
+            stopWarmKeeperPending = false
+            stopWarmKeeper()
+        }
     }
 
     // MARK: - Internals
 
-    private func speak(_ phrase: String) {
-        configureSessionIfNeeded()
-        // Drop the previous utterance: if laps fire faster than the synth
-        // can speak, the operator wants the latest time, not a backlog
-        // running seconds behind the actual race.
-        synthesizer.stopSpeaking(at: .immediate)
+    /// `cancelInflight: true` (default) drops anything currently
+    /// speaking — the right call for laps and the race-end summary
+    /// where the latest event is what the operator needs. Countdown
+    /// numbers pass `false` so consecutive ticks queue end-to-end
+    /// instead of clipping each previous numeral.
+    private func speak(_ phrase: String, cancelInflight: Bool = true) {
+        // Premium routing: when the operator has selected the Premium engine AND has picked a
+        // voice from the cloud catalog, dispatch the utterance to the cloud synth instead of
+        // AVSpeechSynthesizer. Fall through to the system path on any of:
+        //   - engine = "system" (explicit choice)
+        //   - no premium voice picked yet (operator hasn't completed setup)
+        //   - voice ID no longer matches a catalog entry (Premium catalog changed)
+        // Falling through means the operator never gets surprised silence — worst case the
+        // system voice speaks, which is what they'd have heard before opting in to Premium.
+        if let premiumVoice = currentPremiumVoiceIfActive() {
+            // Activate the shared session up front — Premium reuses the same `.playback /
+            // .spokenAudio / .duckOthers` configuration, and the warm-keeper engine relies
+            // on this having run at least once. Symmetric with the System path below.
+            configureSessionIfNeeded()
+            // Treat a Premium utterance exactly like a System one for inflight bookkeeping.
+            // Increment here; the matching decrement (+ deactivateSession) fires via the
+            // `onEnd` callback when the Premium synth's utterance ends — drained, cancelled
+            // by a subsequent `speakAsync`, or errored. Picker / paywall previews call
+            // `premiumSynth.speakAsync(...)` directly without passing `onEnd`, so they do
+            // NOT trigger this decrement (and they never incremented, so they don't need to).
+            inflightUtteranceCount += 1
+            premiumSynth.speakAsync(
+                text: phrase,
+                lang: premiumVoice.lang,
+                voice: premiumVoice,
+                onEnd: { [weak self] in self?.premiumUtteranceEnded() },
+            )
+            return
+        }
 
+        configureSessionIfNeeded()
+
+        // Build the utterance on main (cheap allocation + cached voice
+        // resolution + UserDefaults reads), then hand the synth calls
+        // off to a serial background queue so the ~30 ms enqueue lock
+        // inside `AVSpeechSynthesizer.speak()` doesn't stall the
+        // SwiftUI render cycle right at voice-start.
         let utterance = AVSpeechUtterance(string: phrase)
         utterance.voice = currentVoice()
         utterance.rate = currentRate()
         utterance.pitchMultiplier = currentPitch()
         utterance.volume = 1.0
-        synthesizer.speak(utterance)
+
+        let synth = synthesizer
+        inflightUtteranceCount += 1
+        synthQueue.async {
+            // `cancelInflight` is evaluated on this serial queue —
+            // not on main when speak() was called — so it can't be
+            // stale. Reading `synth.isSpeaking` on main and dispatching
+            // the decision risks the cancel being skipped when the
+            // previous speak is still pending in this same queue
+            // (`isSpeaking` is still false at the time of the read);
+            // by the time *this* closure runs that earlier speak has
+            // already begun, and the `cancelInflight: true` contract
+            // demands it be preempted. A `stopSpeaking` on an idle
+            // synth is a documented no-op; the debug log keeps the
+            // "stuck synth" observability the pre-refactor cancel()
+            // had.
+            if cancelInflight {
+                let stopped = synth.stopSpeaking(at: .immediate)
+                if !stopped {
+                    log.debug("speak: stopSpeaking returned false (no utterance to cancel)")
+                }
+            }
+            synth.speak(utterance)
+        }
     }
 
     /// `.duckOthers` lets the operator's racing playlist keep playing — it
@@ -251,17 +744,31 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// Bluetooth devices from staying ducked between announcements.
     private func configureSessionIfNeeded() {
         guard !sessionConfigured else { return }
-        // Optimistically mark configured so a fast double-tap doesn't queue
-        // the activation twice. The background result reverts the flag if
-        // the syscall fails so the next utterance retries.
-        sessionConfigured = true
+        // `sessionConfigured = true` only flips after `setActive`
+        // actually succeeds — an optimistic pre-dispatch flag lets
+        // `configureSessionSync` see "true" while the async setActive
+        // is still mid-flight and proceed against a not-yet-active
+        // session.
+        //
+        // The activation Task ends with a `deactivateSession()` call
+        // because `didFinish`'s deactivate Task can be scheduled
+        // before this activation Task lands on the main actor —
+        // Task @MainActor ordering across separate Task entries is
+        // not strictly FIFO. Without the retry, the deactivate sees
+        // `!sessionConfigured` and early-returns, leaving the
+        // session active forever for short out-of-race utterances
+        // (Test Voice, ad-hoc lap call).
         audioSessionQueue.async { [weak self] in
             let session = AVAudioSession.sharedInstance()
             do {
                 try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
                 try session.setActive(true, options: [])
                 Task { @MainActor [weak self] in
+                    self?.sessionConfigured = true
                     self?.lastAudioError = nil
+                    // Re-evaluate any pending deactivate that bailed
+                    // out on a stale `!sessionConfigured` read.
+                    self?.deactivateSession()
                 }
             } catch {
                 // Most likely cause: another app holds an exclusive audio
@@ -271,7 +778,6 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 // and fire a haptic so they know audio didn't take.
                 log.error("AVAudioSession activation failed: \(error.localizedDescription, privacy: .public)")
                 Task { @MainActor [weak self] in
-                    self?.sessionConfigured = false
                     self?.lastAudioError = "Audio unavailable: \(error.localizedDescription)"
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
                 }
@@ -286,6 +792,20 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         // the synth is mid-speech, deactivating now would cut audio off —
         // let the next `didFinish` / `didCancel` retry instead.
         guard !synthesizer.isSpeaking else { return }
+        // Same race the `sessionHoldActive` didSet has to guard against:
+        // an utterance can be queued (counter incremented in `speak()`)
+        // but not yet dispatched to the synth worker. Deactivating the
+        // session in that window glitches the about-to-start playback.
+        // The delegate path always decrements the counter *before*
+        // calling back into here, so when it drops to 0 we know the
+        // last utterance is fully done and it's safe to deactivate.
+        guard inflightUtteranceCount == 0 else { return }
+        // Hold mode: TimerView wants the session kept active across
+        // utterances during a race. The next `sessionHoldActive = false`
+        // either deactivates immediately (via `didSet` when synth is
+        // idle) or falls through to the subsequent `didFinish` /
+        // `didCancel` once the in-flight utterance ends.
+        guard !sessionHoldActive else { return }
         sessionConfigured = false
         audioSessionQueue.async {
             do {
@@ -314,6 +834,33 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         let id = UserDefaults.standard.string(forKey: LapAnnouncerDefaults.voiceIdentifierKey)
             ?? LapAnnouncerDefaults.defaultVoiceIdentifier
 
+        // Cache hit: the operator hasn't changed Settings since last
+        // resolve, so the same AVSpeechSynthesisVoice object is still
+        // valid. Skips the `AVSpeechSynthesisVoice(identifier:)` /
+        // `(language:)` construction that otherwise runs on every
+        // utterance.
+        let key = "\(language.rawValue)|\(id)"
+        if cachedVoiceKey == key, let cached = cachedVoice {
+            return cached
+        }
+
+        let resolved = resolveVoice(language: language, identifier: id)
+        // Only cache a successful resolution. Caching nil would pin
+        // the synth to its hidden default voice forever once a
+        // transient voice-data outage happens (Settings → Spoken
+        // Content → Voices is mid-download, locale just changed,
+        // etc.); on the next utterance we'd hand AVSpeechSynthesizer
+        // a `nil` voice and never retry. Leaving the cache empty
+        // means the next call re-tries the lookup — usually free
+        // once the voice is back on disk.
+        if let resolved {
+            cachedVoiceKey = key
+            cachedVoice = resolved
+        }
+        return resolved
+    }
+
+    private func resolveVoice(language: LapAnnouncerLanguage, identifier id: String) -> AVSpeechSynthesisVoice? {
         // Honor the saved voice only if it matches the current announcement
         // language. Without this check, switching language would happily
         // hand a `ja-JP` phrase to an `en-US` voice (or vice versa) and the
@@ -340,7 +887,20 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 log.info("Saved voice '\(id, privacy: .public)' no longer installed; using system default for \(language.fallbackVoiceLanguage, privacy: .public).")
             }
         }
-        return AVSpeechSynthesisVoice(language: language.fallbackVoiceLanguage)
+        let fallback = AVSpeechSynthesisVoice(language: language.fallbackVoiceLanguage)
+        if fallback == nil {
+            // No voice at all for this language — the system has no
+            // installed voice for, say, `ja-JP`, possibly because the
+            // operator restored to a region that doesn't ship one or
+            // the voice-data download is mid-flight. Without this
+            // surface, AVSpeechSynthesizer falls back to its hidden
+            // default voice silently and the operator hears `en-US`
+            // for a `ja-JP`-tagged race — easy to miss until a lap
+            // time reads as gibberish numbers.
+            log.error("No AVSpeechSynthesisVoice available for \(language.fallbackVoiceLanguage, privacy: .public) — synth will fall back to system default voice")
+            lastAudioError = "No voice installed for \(language.fallbackVoiceLanguage). Install one in Settings → Accessibility → Spoken Content → Voices."
+        }
+        return fallback
     }
 
     private func currentRate() -> Float {
@@ -357,6 +917,22 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         let raw = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.pitchKey) as? Double
         let value = raw.map(Float.init) ?? LapAnnouncerDefaults.defaultPitch
         return min(LapAnnouncerDefaults.maxPitch, max(LapAnnouncerDefaults.minPitch, value))
+    }
+
+    /// Returns the selected cloud voice IF the operator is set up to use the Premium engine
+    /// right now — engine prefence is "premium", a voice has been picked, and that voice ID
+    /// still resolves in the current catalog. Returning nil drops the caller back to the
+    /// system AVSpeechSynthesizer path, which is the right behaviour for every "premium isn't
+    /// ready yet" case so the operator never hears silence.
+    private func currentPremiumVoiceIfActive() -> PremiumVoiceOption? {
+        let defaults = UserDefaults.standard
+        let engine = defaults.string(forKey: LapAnnouncerDefaults.engineKey)
+            ?? LapAnnouncerDefaults.defaultEngine
+        guard engine == "premium" else { return nil }
+        let voiceId = (defaults.string(forKey: LapAnnouncerDefaults.premiumVoiceIdentifierKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !voiceId.isEmpty else { return nil }
+        return PremiumVoiceCatalog.voices.first { $0.id == voiceId }
     }
 
     private func finalPhrase(lastLap: Lap?,
@@ -377,9 +953,14 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             guard let bestStr else { return "レース終了。ラップ記録なし。" }
             let totalJP = japaneseMinSecString(totalTime)
             if let lastLap, let lastLapStr {
-                return "ラップ\(lastLap.id) \(lastLapStr)秒、トータル\(lapCount)周、\(totalJP)、ベストラップは\(bestStr)秒でした"
+                // `、` (instead of a space) between the lap number and the lap time is required
+                // for the Cartesia/Polly/Azure cloud voices to read "12.34" as the cardinal
+                // "じゅうにてん さんよん" — without the punctuation Cartesia in particular falls
+                // into digit-by-digit phone-number reading ("いちに さんよん"). System TTS handles
+                // both forms identically, so the same string works for both engines.
+                return "ラップ\(lastLap.id)、\(lastLapStr)秒、トータル\(lapCount)周、\(totalJP)、ベストラップは\(bestStr)秒でした"
             }
-            return "\(lapCount)周 \(totalJP)、ベストラップは\(bestStr)秒でした"
+            return "\(lapCount)周、\(totalJP)、ベストラップは\(bestStr)秒でした"
         }
     }
 
@@ -546,11 +1127,13 @@ enum LapAnnouncerVoiceCatalog {
     /// against the actual `speechVoices()` state at that moment.
     ///
     /// `nonisolated(unsafe)` because the catalog isn't `@MainActor`. In
-    /// practice the function is invoked from `LapAnnouncer.init`'s
-    /// background `Task.detached` once per launch and from the main-actor
-    /// AudioSettingsView body when its body renders — never concurrently —
-    /// so the unsynchronized read/write doesn't actually race. Marking it
-    /// explicitly silences the Swift 6 warning and documents the intent.
+    /// practice the function is invoked exactly once per app launch
+    /// from `LapAnnouncer.init`'s background `Task.detached`, so the
+    /// unsynchronized read/write of `lastDumpedVoiceIds` can't race.
+    /// Marking it explicitly silences the Swift 6 warning and
+    /// documents the single-caller invariant — adding a second caller
+    /// (e.g. from AudioSettingsView's `.onAppear`) would invalidate
+    /// this and require a real lock.
     nonisolated(unsafe) private static var lastDumpedVoiceIds: Set<String> = []
     static func dumpInstalledVoicesOnce() {
         let voices = AVSpeechSynthesisVoice.speechVoices()

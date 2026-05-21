@@ -27,6 +27,10 @@ build/
 # Misc
 *.log
 
+# Secrets — rendered from .tpl via `op inject`, never commit the rendered file.
+# See app/HDZap/Models/Speech/BuildSecrets.swift.tpl for setup.
+app/HDZap/Models/Speech/BuildSecrets.swift
+
 # Web flasher firmware bins (CI-generated, deployed via GitHub Pages)
 docs/flash/firmware/*.bin
 

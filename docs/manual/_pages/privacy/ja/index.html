@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HDZap プライバシーポリシー</title>
+<link rel="icon" href="../../favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="../../favicon-32x32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="../../favicon-16x16.png" />
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png" />
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --bg: #ffffff;
+    --border: #d0d7de;
+    --accent: #0969da;
+    --code-bg: #f6f8fa;
+    --max: 880px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --bg: #0d1117;
+      --border: #30363d;
+      --accent: #4493f8;
+      --code-bg: #151b23;
+    }
+  }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font: 16px/1.7 -apple-system, "BlinkMacSystemFont", "Helvetica Neue",
+          "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+  }
+  main {
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 32px 24px 96px;
+  }
+  h1, h2, h3 { line-height: 1.4; margin-top: 1.8em; }
+  h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: .3em; margin-top: 0; }
+  h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .muted { color: var(--muted); font-size: .9em; }
+  .lang-switch { margin-bottom: 1.5em; }
+</style>
+</head>
+<body>
+<main>
+<p class="lang-switch"><a href="../">English</a></p>
+<h1>HDZap プライバシーポリシー</h1>
+<p class="muted">最終更新: 2026年5月</p>
+
+<h2>概要</h2>
+<p>HDZap はラップタイマーアプリです。無料版では全ての処理を端末上で行い、サーバーとは一切通信しません。オプションの <strong>HDZap Premium</strong> サブスクリプションを有効化した場合のみ、自然な音声で実況を読み上げるためにクラウド TTS サービスへラップ実況のテキストを送信します。データが iPhone を離れるのはこの経路のみです。</p>
+
+<h2>無料版 — 端末からデータは出ません</h2>
+<p>Premium を無効にしている状態（デフォルト）では、HDZap は以下のいずれも収集・送信・共有しません：</p>
+<ul>
+  <li>個人情報（氏名、メールアドレス、電話番号など）</li>
+  <li>位置情報</li>
+  <li>利用統計やクラッシュレポート</li>
+  <li>広告 ID やデバイス ID</li>
+  <li>あなたの iPhone 以外の場所にあるレース履歴</li>
+</ul>
+<p>レース履歴（ラップタイム、レース記録）は iPhone の Application Support ディレクトリに保存されます。iCloud バックアップやローカルバックアップを有効にしていれば iOS の標準バックアップに含まれますが、開発者がそのデータを見ることはありません。</p>
+
+<h2>HDZap Premium — 送信される内容と送信先</h2>
+<p>HDZap Premium を有効化して Premium ボイスを選択すると、読み上げるフレーズごとに開発者運営のバックエンド（Cloudflare 上）にテキストが送信され、選択したボイスに応じて以下 3 つの音声合成（TTS）プロバイダーのいずれかに転送されます：</p>
+<ul>
+  <li><strong>AWS Polly</strong>（Amazon Web Services, Inc.） — Polly Neural ボイス</li>
+  <li><strong>Azure AI Speech</strong>（Microsoft Corporation） — Azure Neural ボイス</li>
+  <li><strong>Cartesia</strong>（Cartesia, Inc.） — Cartesia Sonic ボイス</li>
+</ul>
+<p>プロバイダーは音声を合成し、バックエンド経由で iPhone にストリーミングします。iPhone はその音声をスピーカー（または接続中の Bluetooth ヘッドホン）から再生します。</p>
+
+<h3>送信される内容</h3>
+<ul>
+  <li>実況する正確なフレーズ：ラップ番号、ラップタイム、「ベストラップ」のコール、カウントダウン番号など。例：<code>ラップ3、12.34、ベストラップ</code> や <code>Lap 3, 12.34, best lap</code>。</li>
+  <li>選択したボイス ID、言語タグ、（該当する場合）Rate / Pitch の調整値。</li>
+  <li>サブスクライバーの場合：サブスクリプションが有効であることを示す Apple 署名済み JSON Web Signature（JWS） トークン。JWS にはサブスクリプションの商品 ID、有効期限、Original Transaction ID が含まれます。Apple ID・メールアドレス・氏名・デバイス ID は含まれません。</li>
+</ul>
+
+<h3>送信されない内容</h3>
+<ul>
+  <li>レース履歴、現在の実況以外のラップデータ、その他の蓄積データ</li>
+  <li>氏名、メールアドレス、Apple ID、その他個人を特定できる情報</li>
+  <li>位置情報、IP ジオロケーション、デバイス ID</li>
+</ul>
+
+<h3>保持期間</h3>
+<p>バックエンドは合成済み音声を最大 30 日間キャッシュします（同じパラメータでのリクエストは再合成不要）。キャッシュには音声データのみが保存され、リクエストのメタデータは保持されません。キャッシュエントリは自動的に削除され、無期限に保管されることはありません。</p>
+
+<p>各 TTS プロバイダーはリクエストを処理して音声を生成します。各社のデータ処理ポリシーが適用されます：</p>
+<ul>
+  <li>AWS Polly: <a href="https://aws.amazon.com/privacy/">aws.amazon.com/privacy</a></li>
+  <li>Azure AI Speech: <a href="https://privacy.microsoft.com/privacystatement">privacy.microsoft.com/privacystatement</a></li>
+  <li>Cartesia: <a href="https://cartesia.ai/legal/privacy.html">cartesia.ai/legal/privacy.html</a></li>
+</ul>
+
+<h2>サブスクリプション課金</h2>
+<p>HDZap Premium は App Store 経由で販売されます。決済・請求・返金・本人確認はすべて Apple が処理します。開発者がクレジットカード情報・Apple ID・その他 Apple が管理する個人情報を見ることはありません。受け取るのは前述の匿名 Apple 署名済み JWS トークンのみです。解約方法：<em>設定 → Apple ID → サブスクリプション</em>、または paywall の「サブスク管理」ボタンから。</p>
+
+<h2>Bluetooth</h2>
+<p>HDZap は M5StickS3 ブリッジ機器との通信に Bluetooth Low Energy（BLE）を使用します。接続は端末間の直接通信で、開発者や第三者を経由しません。</p>
+
+<h2>サードパーティ SDK</h2>
+<p>HDZap には分析・広告・データ収集を行うサードパーティ SDK は含まれていません。Premium サブスクリプションの経路は iOS 標準の Apple StoreKit 2 と自社バックエンドのみを使用し、Firebase・Crashlytics などは利用していません。</p>
+
+<h2>13歳未満のお子様について</h2>
+<p>HDZap は 13 歳未満を対象としていません。当社は誰のデータも意図的に収集しないため、若年ユーザーが HDZap をインストールしても、その方のデータが端末から送信されることはありません。</p>
+
+<h2>本ポリシーの変更</h2>
+<p>データの流れが変更された場合（新しい TTS プロバイダーの追加、バックエンドの移転など）、本ページを更新します。冒頭の「最終更新」日が正式な変更日時です。</p>
+
+<h2>お問い合わせ</h2>
+<p>本ポリシーに関するお問い合わせ：<a href="mailto:a@saqoo.sh">a@saqoo.sh</a></p>
+
+<p class="muted"><a href="https://hdzap.saqoo.sh/ja/">← ユーザーマニュアルに戻る</a></p>
+</main>
+</body>
+</html>

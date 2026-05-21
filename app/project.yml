@@ -8,8 +8,8 @@ options:
   developmentLanguage: en
 settings:
   base:
-    MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "9"
+    MARKETING_VERSION: "1.1.0"
+    CURRENT_PROJECT_VERSION: "13"
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: VCFY2GFR89
     CODE_SIGN_STYLE: Automatic
@@ -82,3 +82,15 @@ targets:
         # app's bundle id with `.watchkitapp` appended. Apple has enforced
         # this since the WatchKit-extension split was retired in watchOS 9.
         PRODUCT_BUNDLE_IDENTIFIER: sh.saqoo.HDZap.watchkitapp
+
+schemes:
+  HDZap:
+    build:
+      targets:
+        HDZap: all
+    run:
+      # Local StoreKit configuration — Xcode swaps the real App Store transactions for the
+      # fake products defined in the .storekit file when this scheme is active. Doesn't
+      # affect Release / TestFlight builds, which always go through real StoreKit servers.
+      storeKitConfiguration: HDZap/Resources/StoreKit/HDZapPremium.storekit
+

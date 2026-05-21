@@ -1,10 +1,18 @@
 # HDZap
 
+<p align="center">
+  <img src="docs/manual/images/app-icon-squircle.png" alt="HDZap" width="120" border="0" style="border:0" />
+</p>
+
+<p align="center">
+  <a href="https://apps.apple.com/app/id6766197336">
+    <img src="https://toolbox.marketingtools.apple.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download HDZap on the App Store" height="40" />
+  </a>
+</p>
+
 iPhone manual lap timer that sends lap times to HDZero FPV goggles via ESP32 bridge.
 
 > 📖 **End-user manual:** **[English](https://saqoosha.github.io/HDZap/)** ・ **[日本語](https://saqoosha.github.io/HDZap/ja/)**
->
-> 🚧 **Status:** Beta — iOS app distributed via [TestFlight](https://testflight.apple.com/join/gjjbKFp3); App Store release coming soon.
 
 ```
 ┌──────────┐  BLE GATT  ┌──────────┐  ESP-NOW   ┌──────────┐
@@ -134,7 +142,7 @@ Row composition lives in [`app/HDZap/Models/RaceMetrics.swift`](app/HDZap/Models
 
 ## Install (end users)
 
-1. **iPhone app:** Join the [TestFlight beta](https://testflight.apple.com/join/gjjbKFp3) on your iPhone, install the TestFlight app from the App Store if you don't have it, then tap **Install** for HDZap.
+1. **iPhone app:** Install [HDZap from the App Store](https://apps.apple.com/app/id6766197336) on your iPhone.
 2. **Firmware:** Open the [Web Flasher](https://saqoosha.github.io/HDZap/flash/) in Chrome (Edge / Brave also work — Web Serial required, so Safari and Firefox don't), connect an M5StickS3 over USB-C, hold the small power button for 2 s to enter download mode, then click **Connect** → **Write**.
 
 The full step-by-step is in the [end-user manual](https://saqoosha.github.io/HDZap/).

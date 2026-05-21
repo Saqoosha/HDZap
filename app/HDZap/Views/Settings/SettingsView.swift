@@ -24,6 +24,7 @@ struct SettingsView: View {
     @AppStorage(WatchHapticsDefaults.enabledKey) private var watchHapticsEnabled
         = WatchHapticsDefaults.defaultEnabled
     @Environment(WatchBridge.self) private var watchBridge
+    @Environment(SubscriptionManager.self) private var subscription
 
     var body: some View {
         NavigationStack {
@@ -167,45 +168,64 @@ struct SettingsView: View {
     // MARK: - Drilldowns
 
     private var deviceSection: some View {
-        Section("Device") {
-            // M5StickS3 row leads the Device section so the connection
-            // state is glanceable above the goggle-side configuration
-            // (pairing, OSD layout) that depends on it. Two-line layout
-            // matches Apple Settings's connection rows: status dot +
-            // device name and battery on the secondary line. Tap-
-            // through opens ConnectionSettingsView for scan / Disconnect /
-            // discovered list.
-            NavigationLink {
-                ConnectionSettingsView()
-            } label: {
-                HStack(spacing: 10) {
-                    statusDot
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("M5StickS3")
-                        Text(statusSubtitle)
-                            .font(.caption)
+        // "Use bridge" toggle leads the section so users without an
+        // M5StickS3 see one row instead of three. The toggle owns the
+        // lazy `CBCentralManager` lifecycle — flipping it on is the
+        // moment iOS first asks for Bluetooth permission, so users who
+        // don't own the hardware never see that prompt. The three
+        // drilldowns (M5StickS3 status, Goggle pairing, OSD layout)
+        // hide when the toggle is off; the footer hint replaces them
+        // so the section doesn't read as "nothing to do here".
+        Section {
+            Toggle(isOn: Binding(
+                get: { bluetooth.isBridgeEnabled },
+                set: { bluetooth.setBridgeEnabled($0) }
+            )) {
+                Text("Use bridge")
+            }
+            if bluetooth.isBridgeEnabled {
+                // M5StickS3 row: same two-line Apple-Settings shape as
+                // before (status dot + name/battery), drills into
+                // scan / Disconnect / discovered list.
+                NavigationLink {
+                    ConnectionSettingsView()
+                } label: {
+                    HStack(spacing: 10) {
+                        statusDot
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("M5StickS3")
+                            Text(statusSubtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                NavigationLink {
+                    PairingSettingsView()
+                } label: {
+                    LabeledContent("Goggle pairing") {
+                        Text(pairingSummary)
+                            .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                NavigationLink {
+                    OSDLayoutSettingsView()
+                } label: {
+                    LabeledContent("OSD layout") {
+                        Text(osdLayoutSummary)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
                     }
                 }
             }
-            NavigationLink {
-                PairingSettingsView()
-            } label: {
-                LabeledContent("Goggle pairing") {
-                    Text(pairingSummary)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            NavigationLink {
-                OSDLayoutSettingsView()
-            } label: {
-                LabeledContent("OSD layout") {
-                    Text(osdLayoutSummary)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
+        } header: {
+            Text("Device")
+        } footer: {
+            if !bluetooth.isBridgeEnabled {
+                Text("Connect an M5Stick bridge to mirror lap times on your goggle OSD.")
+                    .font(.caption2)
             }
         }
     }
@@ -215,13 +235,20 @@ struct SettingsView: View {
     /// `BackpackTelemetryDebugView` and the in-development voltage chart
     /// preview so layout / wiring can be verified without scaffolding.
     /// Wrapped in `#if DEBUG` so release builds never ship the entry.
+    /// The BackpackTelemetryDebugView entry is additionally gated on
+    /// `isBridgeEnabled` so a debug build with the bridge toggled off
+    /// can't reach a BLE-write surface — same contract as the
+    /// drilldowns in `deviceSection`. The voltage-chart preview is
+    /// UI-only and stays visible.
     @ViewBuilder
     private var debugSection: some View {
         Section("Debug") {
-            NavigationLink {
-                BackpackTelemetryDebugView()
-            } label: {
-                Text("Backpack telemetry")
+            if bluetooth.isBridgeEnabled {
+                NavigationLink {
+                    BackpackTelemetryDebugView()
+                } label: {
+                    Text("Backpack telemetry")
+                }
             }
             NavigationLink {
                 RaceDetailView(previewRecord: VoltageChartPreview.sampleRecord())
@@ -265,8 +292,10 @@ struct SettingsView: View {
     /// Same condensed-status pattern as `audioSummary` — "Off" when the
     /// toggle is off; otherwise a one-word state derived from the
     /// bridge so the row reflects whether the next race will actually
-    /// reach the wrist or fall on the floor.
+    /// reach the wrist or fall on the floor. Non-subscribers see
+    /// "Premium" — the drilldown handles the upsell.
     private var watchSummary: String {
+        if !subscription.isEntitled { return String(localized: "Premium") }
         if !watchHapticsEnabled { return String(localized: "Off") }
         if !watchBridge.isPaired { return String(localized: "On · No watch") }
         if !watchBridge.isWatchAppInstalled { return String(localized: "On · App missing") }

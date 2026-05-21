@@ -1,0 +1,36 @@
+name = "hdzap-premium"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers Free plan supports SSE streaming via the standard Response.body ReadableStream.
+# No special bindings yet — we'll add KV (ENTITLEMENTS, USAGE_COUNTERS) and Apple webhook
+# routes when adding JWS verification.
+
+# Daily per-IP request counter for the /tts endpoint. Two tiers in code: bearer-only
+# callers get a tight cap (preview path can't be turned into a free competitor), JWS-
+# authed subscribers get a much higher cap (real race-time usage). Keys are
+# `rl:<ip>:<date>`; entries TTL out after 48h so the namespace stays small.
+[[kv_namespaces]]
+binding = "RATELIMIT"
+id = "5d72e23bb7f047a1a14dbf7a767965b5"
+
+# Cross-user shared TTS audio cache. Keys are SHA-256 hex of
+# `provider|voice|lang|rate|pitch|model|text`, so two callers asking the same provider
+# for the same parameters reuse one generation across all clients globally. First caller
+# pays the provider; everyone after them streams from R2 (~150 ms TTFA, $0 marginal).
+[[r2_buckets]]
+binding = "TTS_CACHE"
+bucket_name = "hdzap-tts-cache"
+
+# NOTE: ALLOW_XCODE_LOCAL_JWS is intentionally NOT declared here. It's set as a Worker
+# secret (`wrangler secret put ALLOW_XCODE_LOCAL_JWS`) when we want the Worker to honour
+# self-signed Xcode `.storekit`-test JWS (kid: "Apple_Xcode_Key") during dev. Keeping the
+# flag out of the public repo means an attacker reading wrangler.toml can't tell whether
+# Xcode-local JWS is currently accepted — they'd have to probe the live Worker to find out.
+# Real Sandbox / TestFlight / Production JWS always goes through the full Apple Root CA G3
+# chain check regardless, so the production attack surface doesn't change. Delete the
+# secret before App Store release.
+
+[observability]
+enabled = true

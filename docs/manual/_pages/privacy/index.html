@@ -44,39 +44,81 @@
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   .muted { color: var(--muted); font-size: .9em; }
+  .lang-switch { margin-bottom: 1.5em; }
 </style>
 </head>
 <body>
 <main>
+<p class="lang-switch"><a href="ja/">日本語</a></p>
 <h1>HDZap Privacy Policy</h1>
 <p class="muted">Last updated: May 2026</p>
 
 <h2>Overview</h2>
-<p>HDZap does not collect, transmit, or share any personal data. All information the app handles stays entirely on your device.</p>
+<p>HDZap is a lap-timer application. The free tier handles everything on your device and never contacts a server. The optional <strong>HDZap Premium</strong> subscription sends lap-announcement text to a cloud TTS service so the app can speak the call-out in a natural-sounding voice; that's the only path where data leaves your iPhone.</p>
 
-<h2>Data We Do Not Collect</h2>
-<p>HDZap does not collect:</p>
+<h2>Free tier — no data leaves your device</h2>
+<p>With Premium disabled (the default), HDZap collects, transmits, or shares <strong>none</strong> of the following:</p>
 <ul>
-  <li>Personal information (name, email, phone number, etc.)</li>
+  <li>Personal information (name, email address, phone number)</li>
   <li>Location data</li>
   <li>Usage analytics or crash reports</li>
-  <li>Device identifiers</li>
-  <li>Any data sent to external servers</li>
+  <li>Advertising identifiers or device identifiers</li>
+  <li>Race history beyond your own iPhone</li>
+</ul>
+<p>Race history (lap times, race records) lives in your iPhone's Application Support directory. It's included in standard iOS device backups if you have iCloud Backup or local backup enabled, but the developer never sees it.</p>
+
+<h2>HDZap Premium — what we send and to whom</h2>
+<p>When you enable HDZap Premium and select a Premium voice, the app sends each spoken phrase to our backend (operated by the developer on Cloudflare), which forwards the text to one of three text-to-speech (TTS) providers based on the voice you picked:</p>
+<ul>
+  <li><strong>AWS Polly</strong> (Amazon Web Services, Inc.) — for Polly Neural voices</li>
+  <li><strong>Azure AI Speech</strong> (Microsoft Corporation) — for Azure Neural voices</li>
+  <li><strong>Cartesia</strong> (Cartesia, Inc.) — for Cartesia Sonic voices</li>
+</ul>
+<p>The provider synthesises audio and streams it back through our backend to your iPhone, which plays it through the speaker (or Bluetooth headphones, if connected).</p>
+
+<h3>What is sent</h3>
+<ul>
+  <li>The exact phrase the announcer reads: lap number, lap time, "best lap" cue, countdown numbers, etc. Example: <code>Lap 3, 12.34, best lap</code> or <code>ラップ3、12.34、ベストラップ</code>.</li>
+  <li>The voice ID you selected, language tag, and (if applicable) rate / pitch adjustments.</li>
+  <li>For subscribers: an Apple-signed JSON Web Signature (JWS) from StoreKit 2 confirming your subscription is active. The JWS contains your subscription product ID, expiration date, and original transaction ID; no Apple ID, email, name, or device identifier is included.</li>
 </ul>
 
-<h2>Local Storage</h2>
-<p>Race history (lap times, race records) is saved locally in your iPhone's Application Support directory. This data is included in standard iOS backups if you have iCloud or local backup enabled — it is never uploaded to any server controlled by the developer.</p>
+<h3>What is NOT sent</h3>
+<ul>
+  <li>Race history, lap data outside the current announcement, or any other accumulated data</li>
+  <li>Your name, email, Apple ID, or any personally-identifiable information</li>
+  <li>Location, IP geolocation, or device identifiers</li>
+</ul>
+
+<h3>How long it is kept</h3>
+<p>Our backend caches the synthesised audio (keyed on the same parameters above) for up to 30 days so repeated phrases ("Lap 5, 12.34", countdown "10", etc.) don't need to be re-generated. The cache holds audio only — never the request metadata. Cached entries are automatically evicted; nothing is retained indefinitely.</p>
+
+<p>The TTS providers process each request to produce audio. Their data-handling policies apply:</p>
+<ul>
+  <li>AWS Polly: <a href="https://aws.amazon.com/privacy/">aws.amazon.com/privacy</a></li>
+  <li>Azure AI Speech: <a href="https://privacy.microsoft.com/privacystatement">privacy.microsoft.com/privacystatement</a></li>
+  <li>Cartesia: <a href="https://cartesia.ai/legal/privacy.html">cartesia.ai/legal/privacy.html</a></li>
+</ul>
+
+<h2>Subscription billing</h2>
+<p>HDZap Premium is sold through the App Store. Apple handles all payment, billing, refunds, and identity. We never see your credit card information, Apple ID, or any other Apple-billed personal data — only the anonymous Apple-signed JWS token described above. To cancel: <em>Settings → Apple ID → Subscriptions</em>, or use the "Manage Subscription" button on the paywall.</p>
 
 <h2>Bluetooth</h2>
-<p>HDZap uses Bluetooth Low Energy (BLE) to communicate with your M5StickS3 bridge device. No data is transmitted to the developer or any third party through this connection. The connection is direct, device-to-device only.</p>
+<p>HDZap uses Bluetooth Low Energy (BLE) to talk to your M5StickS3 bridge device. The connection is direct device-to-device; no data passes through the developer or a third party.</p>
 
-<h2>Third-Party SDKs</h2>
-<p>HDZap contains no third-party analytics, advertising, or data collection SDKs.</p>
+<h2>Third-party SDKs</h2>
+<p>HDZap contains no third-party analytics, advertising, or data-collection SDKs. The Premium subscription path uses Apple's StoreKit 2 (built into iOS) and our own backend; no Firebase, Crashlytics, or similar.</p>
+
+<h2>Children</h2>
+<p>HDZap is not directed at children under 13. We don't knowingly collect data from anyone, so if a younger user installs HDZap, no data about them leaves the device.</p>
+
+<h2>Changes to this policy</h2>
+<p>We'll update this page if the data flow changes (e.g., a new TTS provider is added, the backend is moved). The "Last updated" date at the top is the canonical signal.</p>
 
 <h2>Contact</h2>
 <p>Questions about this policy: <a href="mailto:a@saqoo.sh">a@saqoo.sh</a></p>
 
-<p class="muted"><a href="https://saqoosha.github.io/HDZap/">← Back to User Manual</a></p>
+<p class="muted"><a href="https://hdzap.saqoo.sh/">← Back to User Manual</a></p>
 </main>
 </body>
 </html>
