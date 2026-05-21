@@ -335,9 +335,22 @@ struct TimerView: View {
         // without ever entering the layout editor — or the editor's
         // disappear flush somehow missed (notification ordering, etc.)
         // — re-flush on the sheet's true→false transition.
+        //
+        // The Settings dismissal is ALSO the single source of truth for the
+        // Premium TTS cache warm. Any setting that changes the
+        // `buildCacheKey` inputs — voice, language, engine, countdown
+        // duration, AND the rate / pitch sliders — funnels through Settings
+        // and lands at this transition. Catching the dismissal once is
+        // cheaper than wiring per-`@AppStorage` onChange hooks across the
+        // form (each slider tick would otherwise either spam prewarm or
+        // require a per-control debounce), and the operator's intent on
+        // closing Settings is "done tweaking, about to race" — exactly when
+        // the cache needs to be warm. `prewarmFixedPhrases()` is idempotent;
+        // entries already on disk are no-ops inside `prefetch`.
         .onChange(of: showSettings) { _, isOpen in
-            guard !isOpen, bluetooth.isReady else { return }
-            flushCurrentRaceFrame()
+            guard !isOpen else { return }
+            if bluetooth.isReady { flushCurrentRaceFrame() }
+            announcer.prewarmFixedPhrases()
         }
         // Race start: switch the goggle from any prior Ready frame
         // (which uses the all-visible layout variant — different

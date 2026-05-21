@@ -108,15 +108,6 @@ struct AudioSettingsView: View {
                                     .monospacedDigit()
                             }
                         }
-                        .onChange(of: countdownStartSeconds) { _, _ in
-                            // Prewarm the new range — `fixedPrewarmPhrases` reads
-                            // `countdownStartSecondsKey` at call time, so bumping 10 → 15
-                            // leaves "11"…"15" uncached until something else triggers a
-                            // prewarm. Without this hook the operator's next race hits the
-                            // cold-fetch path the PR is trying to eliminate. Phrases already
-                            // on disk are no-ops inside `PremiumSpeechSynthesizer.prefetch`.
-                            announcer.prewarmFixedPhrases()
-                        }
                     }
                 }
             } header: {
@@ -144,17 +135,6 @@ struct AudioSettingsView: View {
                         // bad Japanese-accented English.
                         voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
                         premiumLapVoiceId = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
-                        // No-op until the operator picks a Premium voice in the new
-                        // language — `prewarmFixedPhrases()` early-returns when
-                        // `currentPremiumVoiceIfActive()` is nil. Kept here so a future
-                        // change that defaults to a per-language voice still prewarms.
-                        announcer.prewarmFixedPhrases()
-                    }
-                    .onChange(of: premiumLapVoiceId) { _, _ in
-                        // Premium voice picked / changed — fire the cache prewarm for
-                        // the fixed phrases against the new voice so the next race's
-                        // countdown / start cues skip the cold-TTS round trip.
-                        announcer.prewarmFixedPhrases()
                     }
 
                     // Engine selector — switches the entire announce path between the built-in
@@ -184,16 +164,11 @@ struct AudioSettingsView: View {
                             // see "premium-locked" persisted.
                             ttsEngine = "system"
                             navigateToPicker = true
-                        } else if newValue == "premium" {
-                            // The voice + language onChange hooks above only fire on those
-                            // values changing. If the operator picked their voice while still
-                            // on System (no-op in `prewarmFixedPhrases`, since
-                            // `currentPremiumVoiceIfActive()` returns nil), the flip to
-                            // Premium is the first moment a prewarm could actually populate
-                            // the cache — without this hook, the first race after enabling
-                            // Premium hits the cold-fetch path the PR is trying to eliminate.
-                            announcer.prewarmFixedPhrases()
                         }
+                        // No `prewarmFixedPhrases()` call on engine flips either — TimerView
+                        // fires the single prewarm on Settings sheet dismissal, which is
+                        // when the operator has settled on every Premium control (voice +
+                        // language + engine + countdown duration + rate + pitch).
                     }
 
                     // Non-subscriber preview entry — sits under the Engine picker so the
