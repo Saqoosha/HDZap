@@ -18,9 +18,11 @@ struct PaywallView: View {
     @Environment(SubscriptionManager.self) private var subscription
     @Environment(LapAnnouncer.self) private var announcer
     @Environment(\.dismiss) private var dismiss
-    // Read the editorial accent hue directly from AppStorage — the parent's
-    // `.environment(\.accentHue, ...)` doesn't propagate cleanly through SwiftUI
-    // sheets in iOS 18, so we bypass the Environment indirection here.
+    // Read the editorial accent hue directly from AppStorage — when this view is hosted
+    // in a sheet, the parent's `.environment(\.accentHue, ...)` doesn't reach `.tint` here
+    // (the sheet's env-chain drops the value), so we bypass the indirection. Retest on
+    // each major iOS bump in case Apple fixes the sheet env-chain regression and we can
+    // switch back to `@Environment`.
     @AppStorage(EditorialTheme.accentHueStorageKey) private var accentHue: Double = EditorialTheme.defaultAccentHue
     /// "products still loading" / "loaded N products" / "timed out, no products". Drives the
     /// product cards section so a stuck StoreKit configuration (e.g. running via devicectl
@@ -59,10 +61,11 @@ struct PaywallView: View {
             }
         }
         // Pin the editorial pink as `.tint` through the entire paywall hierarchy. The
-        // paywall is presented as a sheet, so it doesn't automatically inherit the parent
-        // window's tint context (iOS 18 sheet presentation breaks the environment chain
-        // for tint specifically). Without this, button-pressed states fall back to the
-        // SwiftUI default blue and the price-card stroke + play icons momentarily flash.
+        // paywall is presented as a sheet, and the sheet's env chain drops `.tint`
+        // somewhere between the host window and this view's children — without this
+        // pin, button-pressed states fall back to the SwiftUI default blue and the
+        // price-card stroke + play icons momentarily flash. Retest on each major iOS
+        // bump in case Apple closes the regression.
         .tint(EditorialTheme.accent(hue: accentHue))
         .task {
             await loadProductsWithTimeout()
@@ -153,9 +156,6 @@ struct PaywallView: View {
                 ForEach(subscription.products, id: \.id) { product in
                     ProductCard(
                         product: product,
-                        // Pass the monthly product to the yearly card so it can compute
-                        // per-month and savings %. Monthly card gets nil — it doesn't
-                        // need a comparison.
                         comparisonProduct: product.id == SubscriptionProductID.yearly
                             ? subscription.products.first(where: { $0.id == SubscriptionProductID.monthly })
                             : nil,
@@ -364,11 +364,11 @@ private struct PaywallSampleRow: View {
                 Image(systemName: isPreviewing ? "stop.circle.fill" : "play.circle.fill")
                     .font(.title2)
                     // `.tint` reads the live environment tint (set by the paywall's
-                    // top-level `.tint(...)`). Using `Color.accentColor` here looked
-                    // right at first render but switched to the system blue when
-                    // SwiftUI re-rendered the icon after `isPreviewing` flipped — the
-                    // button's pressed state appears to break the implicit accent
-                    // resolution in iOS 18.
+                    // top-level `.tint(...)`). `Color.accentColor` looked right on
+                    // first render but flipped to system blue once the button's
+                    // pressed state re-rendered the icon — the implicit accent
+                    // resolution doesn't survive that transition for plain-style
+                    // buttons. Don't switch back without retesting that flow.
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(voice.label)
@@ -471,9 +471,11 @@ private struct ProductCard: View {
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     // Read the live `.tint` instead of `Color.accentColor` so the
-                    // border tracks the paywall's tint override across re-renders
-                    // (iOS 18 loses the implicit accent for accessory views after a
-                    // child button is pressed).
+                    // border tracks the paywall's tint override across re-renders.
+                    // With `Color.accentColor`, the stroke fell back to system blue
+                    // for a frame after a child play-button was tapped — the
+                    // implicit accent for accessory views inside this card stops
+                    // resolving correctly once that re-render fires.
                     .strokeBorder(.tint.opacity(0.4), lineWidth: 1.5)
             )
         }
@@ -503,6 +505,10 @@ private struct ProductCard: View {
     }
 
     private func yearlyCaption() -> String? {
+        // Defensive: a `.storekit` config file with a 0-priced test product would otherwise
+        // render "$0/mo · save 100%" — a real ASC product never reports 0 here, but local
+        // testing has tripped this before.
+        guard product.price > 0 else { return nil }
         let perMonth = product.price / 12
         let perMonthDisplay = perMonth.formatted(product.priceFormatStyle)
         guard let monthlyPrice = comparisonProduct?.price, monthlyPrice > 0 else {
