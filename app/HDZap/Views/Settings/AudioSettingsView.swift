@@ -54,7 +54,7 @@ struct AudioSettingsView: View {
         = LapAnnouncerDefaults.defaultPremiumPitch
 
     /// Trailing-text label for the NavigationLink to the Premium voice picker. Shows the
-    /// short name (post-`Cartesia · ` / `Polly · ` / `Azure · ` prefix) so the row stays
+    /// short name (post-`Polly · ` / `Azure · ` prefix) so the row stays
     /// scannable; the picker itself groups by provider so we don't need the prefix here.
     private var currentPremiumVoiceLabel: String {
         guard let v = PremiumVoiceCatalog.voices.first(where: { $0.id == premiumLapVoiceId }) else {
@@ -139,7 +139,7 @@ struct AudioSettingsView: View {
 
                     // Engine selector — switches the entire announce path between the built-in
                     // AVSpeechSynthesizer (free, no network) and the hdzap-premium Worker
-                    // (Cartesia / Polly / Azure). When Premium is chosen the system voice/rate/
+                    // (AWS Polly + Microsoft Azure). When Premium is chosen the system voice/rate/
                     // pitch controls below stay visible so the operator can flip back without
                     // losing their old settings; LapAnnouncer's routing key is `ttsEngine`.
                     //
@@ -218,9 +218,8 @@ struct AudioSettingsView: View {
                         }
 
                         // Per-provider prosody sliders. Polly Neural rejects pitch outright
-                        // ("Unsupported Neural feature" 400), and Cartesia Sonic 3.5 disabled
-                        // both controls in preview, so we drive visibility off the voice's
-                        // provider capabilities rather than hard-coding by name.
+                        // ("Unsupported Neural feature" 400), so we drive visibility off the
+                        // voice's provider capabilities rather than hard-coding by name.
                         let selectedProvider = PremiumVoiceCatalog.voices.first {
                             $0.id == premiumLapVoiceId
                         }?.provider
@@ -261,11 +260,6 @@ struct AudioSettingsView: View {
                             }
                         }
 
-                        if selectedProvider == .cartesia {
-                            Text("Cartesia Sonic 3.5 (preview) doesn't honour rate / pitch controls yet.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
                     } else {
                         Picker("Voice", selection: $voiceIdentifier) {
                             Text("System default").tag(LapAnnouncerDefaults.defaultVoiceIdentifier)
@@ -309,12 +303,11 @@ struct AudioSettingsView: View {
                     }
 
                     // Rate / pitch are AVSpeechUtterance properties — they don't carry over to
-                    // the cloud TTS path. Cartesia/Polly/Azure each have their own prosody
-                    // controls (SSML on Polly, "voice settings" on Cartesia, none on Azure
-                    // streaming endpoint), and exposing the System sliders while Premium is
-                    // active would be misleading. Hide them when Premium is on; their values
-                    // persist in UserDefaults so flipping back to System brings them right
-                    // back without a reset.
+                    // the cloud TTS path. Polly and Azure each have their own SSML prosody
+                    // controls applied server-side, and exposing the System sliders while
+                    // Premium is active would be misleading. Hide them when Premium is on;
+                    // their values persist in UserDefaults so flipping back to System brings
+                    // them right back without a reset.
                     if ttsEngine == "system" {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
@@ -352,20 +345,21 @@ struct AudioSettingsView: View {
                             .buttonStyle(.bordered)
                         Spacer()
                         Button("Reset", role: .destructive) {
-                            // Restores every Audio @AppStorage key to the value
-                            // registered in HDZapApp.init(), including the master
-                            // toggle — otherwise "Reset" leaves TTS enabled while
-                            // claiming defaults were restored. All defaults route
-                            // through `LapAnnouncerDefaults` so a future tweak to
-                            // the registered default propagates here in one edit.
-                            lapTTSEnabled = LapAnnouncerDefaults.defaultEnabled
+                            // Scoped to Voice-section keys only — restoring the master
+                            // toggle / announce-best / countdown settings here would
+                            // surprise the operator, because those live under the
+                            // Announcement section and aren't visually related to the
+                            // button. All defaults route through `LapAnnouncerDefaults`
+                            // so a future tweak to a registered default propagates here
+                            // in one edit.
+                            ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
+                            ttsEngine = LapAnnouncerDefaults.defaultEngine
+                            voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
                             ttsRate = Double(LapAnnouncerDefaults.defaultRate)
                             ttsPitch = Double(LapAnnouncerDefaults.defaultPitch)
-                            ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
-                            voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
-                            announceBest = LapAnnouncerDefaults.defaultAnnounceBest
-                            countdownEnabled = LapAnnouncerDefaults.defaultCountdownEnabled
-                            countdownStartSeconds = LapAnnouncerDefaults.defaultCountdownStartSeconds
+                            premiumLapVoiceId = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
+                            premiumRate = LapAnnouncerDefaults.defaultPremiumRate
+                            premiumPitch = LapAnnouncerDefaults.defaultPremiumPitch
                         }
                         .buttonStyle(.bordered)
                     }
@@ -414,7 +408,8 @@ struct AudioSettingsView: View {
 
 #if DEBUG
     /// DEBUG-only Premium TTS harness. Lets the developer paste a Worker bearer, pick a
-    /// Cartesia voice, and audition a phrase end-to-end before the StoreKit wiring lands.
+    /// Polly or Azure voice, and audition a phrase end-to-end before the StoreKit wiring
+    /// lands.
     private var premiumTestSection: some View {
         Section {
             HStack {

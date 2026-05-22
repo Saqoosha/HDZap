@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Drill-in voice picker for the Premium engine. The flat 32-voice list got unmanageable
 /// inside a `Picker` (a sheet of 32 rows with no grouping), so we surface the catalog as a
-/// `List` grouped by provider — the labels already prefix `Cartesia · / Polly · / Azure · `,
+/// `List` grouped by provider — the labels already prefix `Polly · / Azure · `,
 /// but the section header lets the operator skip past whole providers when they know which
 /// flavor they want.
 ///
@@ -15,6 +15,12 @@ struct PremiumVoicePickerView: View {
 
     @AppStorage(LapAnnouncerDefaults.premiumVoiceIdentifierKey) private var selectedId
         = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
+    /// Engine routing key. Selecting a voice from this picker means "I want this voice on
+    /// the track", which only works if the router is on `premium`. Flipping the engine
+    /// here (instead of forcing the operator back to AudioSettingsView to do it manually)
+    /// matches the user's mental model: picking a premium voice = engaging premium.
+    @AppStorage(LapAnnouncerDefaults.engineKey) private var ttsEngine
+        = LapAnnouncerDefaults.defaultEngine
     @Environment(\.dismiss) private var dismiss
     // The synth that's wired into the rest of the app — we reuse it so the preview
     // plays through the same audio session + AVAudioPlayer as a real lap call.
@@ -49,10 +55,10 @@ struct PremiumVoicePickerView: View {
 
     private var voicesByProvider: [(PremiumVoiceProvider, [PremiumVoiceOption])] {
         let voices = PremiumVoiceCatalog.voices(for: language)
-        // Operator-facing order: AWS first (lowest TTFA / cleanest reading), then Azure
-        // (more voice variety), then Cartesia (most expressive). Matches the order they
-        // tend to A/B test in, so the most likely picks sit at the top.
-        let providers: [PremiumVoiceProvider] = [.polly, .azure, .cartesia]
+        // Operator-facing order: AWS Polly first (lowest TTFA / cleanest reading), then
+        // Azure (more voice variety). Matches the order they tend to A/B test in, so the
+        // most likely picks sit at the top.
+        let providers: [PremiumVoiceProvider] = [.polly, .azure]
         return providers.compactMap { provider in
             let filtered = voices.filter { $0.provider == provider }
             return filtered.isEmpty ? nil : (provider, filtered)
@@ -88,6 +94,7 @@ struct PremiumVoicePickerView: View {
                             onSelect: {
                                 if subscription.isEntitled {
                                     selectedId = voice.id
+                                    ttsEngine = "premium"
                                     dismiss()
                                 } else {
                                     // Stash the tapped voice — if the operator completes
@@ -146,6 +153,7 @@ struct PremiumVoicePickerView: View {
             // picker so they're dropped back at AudioSettingsView with the new voice live.
             guard nowEntitled, let id = pendingSelectionId else { return }
             selectedId = id
+            ttsEngine = "premium"
             pendingSelectionId = nil
             dismiss()
         }
@@ -239,8 +247,8 @@ private struct VoiceRow: View {
         }
     }
 
-    /// Strip the `Cartesia · / AWS Polly · / Azure · ` prefix from the catalog label since
-    /// the section header already conveys the provider.
+    /// Strip the `Polly · / Azure · ` prefix from the catalog label since the section
+    /// header already conveys the provider.
     private var displayLabel: String {
         let prefix = "\(providerLabelPrefix) · "
         if voice.label.hasPrefix(prefix) {
@@ -249,11 +257,10 @@ private struct VoiceRow: View {
         return voice.label
     }
 
-    /// `PremiumVoiceCatalog` labels use "Cartesia", "Polly", "Azure" as prefixes — match
-    /// those, not the display-name strings from `PremiumVoicePickerView`.
+    /// `PremiumVoiceCatalog` labels use "Polly", "Azure" as prefixes — match those, not
+    /// the display-name strings from `PremiumVoicePickerView`.
     private var providerLabelPrefix: String {
         switch provider {
-        case .cartesia: return "Cartesia"
         case .polly:    return "Polly"
         case .azure:    return "Azure"
         }
@@ -263,23 +270,18 @@ private struct VoiceRow: View {
 private extension PremiumVoiceProvider {
     var displayName: String {
         switch self {
-        case .cartesia: return "Cartesia"
         case .polly:    return "AWS Polly"
         case .azure:    return "Azure"
         }
     }
 
     /// One-liner per provider that the operator might want to see while comparing — quality
-    /// character is what they're picking between (response time is fast enough across all
-    /// three that the difference doesn't matter for race-time use). Localised so a JP
-    /// iPhone reads the picker entirely in Japanese.
+    /// character is what they're picking between (response time is fast enough across both
+    /// that the difference doesn't matter for race-time use). Localised so a JP iPhone
+    /// reads the picker entirely in Japanese.
     var footerHint: String {
         let isJa = Locale.current.language.languageCode?.identifier == "ja"
         switch self {
-        case .cartesia:
-            return isJa
-                ? "日本語・英語対応。最も表情豊かでキャラクター性のあるボイス。"
-                : "JA + EN. Most expressive — character and personality range."
         case .polly:
             return isJa
                 ? "AWS Neural。クリアでニュートラルなニュースキャスター調。"

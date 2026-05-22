@@ -29,6 +29,21 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.premiumRateKey: LapAnnouncerDefaults.defaultPremiumRate,
             LapAnnouncerDefaults.premiumPitchKey: LapAnnouncerDefaults.defaultPremiumPitch,
         ])
+        // Clear stale premium voice IDs that no longer exist in the catalog (e.g. the
+        // 25 Cartesia voices removed when that provider was dropped). Without this, an
+        // upgraded subscriber whose stored ID is a removed UUID would silently fall
+        // back to System voice with no UI surface — `premiumLapVoiceId.isEmpty` is the
+        // signal AudioSettingsView uses to render the "Choose voice" banner. Idempotent:
+        // after the first clear the value is empty and the guard short-circuits.
+        let savedPremiumVoiceId = UserDefaults.standard
+            .string(forKey: LapAnnouncerDefaults.premiumVoiceIdentifierKey) ?? ""
+        if !savedPremiumVoiceId.isEmpty,
+           !PremiumVoiceCatalog.voices.contains(where: { $0.id == savedPremiumVoiceId }) {
+            UserDefaults.standard.set(
+                LapAnnouncerDefaults.defaultPremiumVoiceIdentifier,
+                forKey: LapAnnouncerDefaults.premiumVoiceIdentifierKey
+            )
+        }
         #if DEBUG
         // Screenshot-mode override: force the session-limit + target-lap
         // defaults so the seeded LapTimer / history records always render
