@@ -747,7 +747,13 @@ final class PremiumSpeechSynthesizer: NSObject {
             }
         }
         let ratio = Self.sourceFormat.sampleRate / sampleRate
-        let outputCapacity = AVAudioFrameCount(Double(inputFrameCount) * ratio) + 64
+        // `+1024` headroom (not `+64`) ensures the polyphase upsampler's FIR group delay
+        // tail fits when `.endOfStream` flushes the converter. For 16 kHz → 24 kHz Polly,
+        // typical linear-phase FIR group delay is ~200-400 input samples = ~300-600 output
+        // samples at 24 kHz; +64 (~2.7 ms) leaves no margin and risks silently re-clipping
+        // the tail that `.endOfStream` is supposed to recover. +1024 (~43 ms) costs an extra
+        // ~2 KB per utterance — trivial — and covers the FIR tail with a 2× safety factor.
+        let outputCapacity = AVAudioFrameCount(Double(inputFrameCount) * ratio) + 1024
         guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: Self.sourceFormat, frameCapacity: outputCapacity) else {
             throw PremiumTTSError.engineFailure("overlap output PCMBuffer alloc failed")
         }
@@ -772,6 +778,17 @@ final class PremiumSpeechSynthesizer: NSObject {
         }
         if let err = convertError, status == .error {
             throw PremiumTTSError.engineFailure("overlap convert failed: \(err.localizedDescription)")
+        }
+        // Defensive: convert() can return a non-error status (.endOfStream / .inputRanDry)
+        // while still leaving `outputBuffer.frameLength == 0` — e.g. when the converter
+        // decides the input was below its minimum window. Scheduling a zero-frame buffer
+        // on AVAudioPlayerNode is a silent no-op (no error path), which would surface as
+        // a missing countdown number with no log line. Throw so `speakOverlap`'s catch
+        // sets `lastError` and the operator gets a visible signal.
+        guard outputBuffer.frameLength > 0 else {
+            throw PremiumTTSError.engineFailure(
+                "overlap resampler produced zero frames (inputFrames=\(inputFrameCount), sampleRate=\(sampleRate))"
+            )
         }
         return outputBuffer
     }
