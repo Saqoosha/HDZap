@@ -345,20 +345,21 @@ struct AudioSettingsView: View {
                             .buttonStyle(.bordered)
                         Spacer()
                         Button("Reset", role: .destructive) {
-                            // Restores every Audio @AppStorage key to the value
-                            // registered in HDZapApp.init(), including the master
-                            // toggle — otherwise "Reset" leaves TTS enabled while
-                            // claiming defaults were restored. All defaults route
-                            // through `LapAnnouncerDefaults` so a future tweak to
-                            // the registered default propagates here in one edit.
-                            lapTTSEnabled = LapAnnouncerDefaults.defaultEnabled
+                            // Scoped to Voice-section keys only — restoring the master
+                            // toggle / announce-best / countdown settings here would
+                            // surprise the operator, because those live under the
+                            // Announcement section and aren't visually related to the
+                            // button. All defaults route through `LapAnnouncerDefaults`
+                            // so a future tweak to a registered default propagates here
+                            // in one edit.
+                            ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
+                            ttsEngine = LapAnnouncerDefaults.defaultEngine
+                            voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
                             ttsRate = Double(LapAnnouncerDefaults.defaultRate)
                             ttsPitch = Double(LapAnnouncerDefaults.defaultPitch)
-                            ttsLanguageRaw = LapAnnouncerDefaults.defaultLanguageRaw
-                            voiceIdentifier = LapAnnouncerDefaults.defaultVoiceIdentifier
-                            announceBest = LapAnnouncerDefaults.defaultAnnounceBest
-                            countdownEnabled = LapAnnouncerDefaults.defaultCountdownEnabled
-                            countdownStartSeconds = LapAnnouncerDefaults.defaultCountdownStartSeconds
+                            premiumLapVoiceId = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
+                            premiumRate = LapAnnouncerDefaults.defaultPremiumRate
+                            premiumPitch = LapAnnouncerDefaults.defaultPremiumPitch
                         }
                         .buttonStyle(.bordered)
                     }

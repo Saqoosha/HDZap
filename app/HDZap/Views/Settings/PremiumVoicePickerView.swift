@@ -15,6 +15,12 @@ struct PremiumVoicePickerView: View {
 
     @AppStorage(LapAnnouncerDefaults.premiumVoiceIdentifierKey) private var selectedId
         = LapAnnouncerDefaults.defaultPremiumVoiceIdentifier
+    /// Engine routing key. Selecting a voice from this picker means "I want this voice on
+    /// the track", which only works if the router is on `premium`. Flipping the engine
+    /// here (instead of forcing the operator back to AudioSettingsView to do it manually)
+    /// matches the user's mental model: picking a premium voice = engaging premium.
+    @AppStorage(LapAnnouncerDefaults.engineKey) private var ttsEngine
+        = LapAnnouncerDefaults.defaultEngine
     @Environment(\.dismiss) private var dismiss
     // The synth that's wired into the rest of the app — we reuse it so the preview
     // plays through the same audio session + AVAudioPlayer as a real lap call.
@@ -88,6 +94,7 @@ struct PremiumVoicePickerView: View {
                             onSelect: {
                                 if subscription.isEntitled {
                                     selectedId = voice.id
+                                    ttsEngine = "premium"
                                     dismiss()
                                 } else {
                                     // Stash the tapped voice — if the operator completes
@@ -146,6 +153,7 @@ struct PremiumVoicePickerView: View {
             // picker so they're dropped back at AudioSettingsView with the new voice live.
             guard nowEntitled, let id = pendingSelectionId else { return }
             selectedId = id
+            ttsEngine = "premium"
             pendingSelectionId = nil
             dismiss()
         }
