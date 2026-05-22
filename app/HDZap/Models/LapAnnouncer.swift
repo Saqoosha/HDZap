@@ -26,17 +26,18 @@ enum LapAnnouncerDefaults {
     /// "premium" but no `premiumVoiceIdentifierKey` is selected, `speak()` falls back to the
     /// system engine so the operator isn't left in silence.
     static let engineKey = "lapTTSEngine"
-    /// Selected voice ID from `PremiumVoiceCatalog` — Cartesia UUID / Polly name / Azure
+    /// Selected voice ID from `PremiumVoiceCatalog` — Polly Pascal name / Azure
     /// locale-qualified name depending on which provider the entry belongs to. Empty string
     /// means "no premium voice picked yet".
     static let premiumVoiceIdentifierKey = "lapTTSPremiumVoiceIdentifier"
     /// Premium speech rate multiplier (1.0 = baseline cadence). Applied to Polly + Azure via
-    /// SSML `<prosody rate>` in the Worker; ignored for Cartesia (Sonic 3.5 disabled prosody
-    /// controls in the preview). 1.4× is the default because race announcers tend to talk
-    /// fast — YourLaps shipped `<prosody rate="x-fast">` (~1.4-1.5×) for years.
+    /// SSML `<prosody rate>` in the Worker, honoured by both Polly and Azure. 1.4× is the
+    /// default because race announcers tend to talk fast — YourLaps shipped
+    /// `<prosody rate="x-fast">` (~1.4-1.5×) for years.
     static let premiumRateKey = "lapTTSPremiumRate"
-    /// Premium pitch multiplier as semitone offset (0 = neutral). Polly + Azure both accept
-    /// signed semitone values via SSML `<prosody pitch>`; Cartesia ignored.
+    /// Premium pitch multiplier as semitone offset (0 = neutral). Azure honours it via SSML
+    /// `<prosody pitch>`; Polly Neural rejects it ("Unsupported Neural feature") so the
+    /// pitch field is omitted from Polly requests on the client side.
     static let premiumPitchKey = "lapTTSPremiumPitch"
     static let defaultEngine = "system"
     static let defaultPremiumVoiceIdentifier = ""
@@ -164,13 +165,22 @@ enum LapAnnouncerLanguage: String, CaseIterable, Identifiable {
 @Observable
 final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private let synthesizer = AVSpeechSynthesizer()
-    /// Cloud TTS path (Cartesia / Polly / Azure). Owned here so AudioSettingsView can reach it
+    /// Cloud TTS path (Polly / Azure). Owned here so AudioSettingsView can reach it
     /// via `@Environment` for the dev panel, and so speak() can route to it when the operator
     /// has selected the "premium" engine. The premium synth manages its own AVAudioSession +
     /// AVAudioEngine — sharing one session with `synthesizer` here would force both to fight
     /// over `setCategory`, so they each activate independently and the warm-keeper stays out
     /// of the premium path.
     let premiumSynth = PremiumSpeechSynthesizer()
+    /// Currently-running prewarm `Task` from `prewarmFixedPhrases()`. Held so a
+    /// race-critical utterance (LAP / Start / Last lap / FINAL) can cancel the
+    /// in-flight prefetch burst before its own Worker request goes out — without
+    /// this, an upstream provider's per-IP rate limit could 429 the user-visible utterance
+    /// because 3 prewarm prefetches are already inflight on the same provider.
+    /// `premiumUtteranceEnded` re-fires `prewarmFixedPhrases` after the utterance
+    /// finishes; the prefetch idempotency (cache-hit short-circuit) means resumed
+    /// prewarms only fetch the phrases the cancelled run hadn't reached yet.
+    private var currentPrewarmTask: Task<Void, Never>?
     /// True only after `setCategory` *and* `setActive(true)` succeed —
     /// either failure leaves the flag false so the next utterance retries
     /// instead of silently never reactivating.
@@ -345,6 +355,25 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private func premiumUtteranceEnded() {
         utteranceDidEnd()
         deactivateSession()
+        // Resume the prewarm `speak()` cancelled before invoking `speakAsync`.
+        // `prefetch` is idempotent on cache hits, so the restarted run only
+        // re-fetches phrases the cancelled batch didn't reach (in practice,
+        // most of the countdown numbers when the cancel happened on the first
+        // Start cue). Race-time cadence makes this comfortably re-converge
+        // before countdown fires: Start utterance ≈ 1 s, race timer ≈ 30+ s
+        // before countdown starts, leaving the resumed prewarm plenty of
+        // window. Each subsequent LAP / Last lap / FINAL re-fires too — no-op
+        // once the cache is fully populated.
+        //
+        // BUT only when the queue is fully drained — `onEnd` callbacks from a
+        // cancelled prior utterance (e.g. Start cue replaced mid-flight by a
+        // countdown tick) fire while a fresh utterance is still mid-play, and
+        // resuming prewarm there would re-bombard the provider with parallel
+        // requests during the exact window we're trying to keep clear. The
+        // last utterance to complete will see `inflightUtteranceCount == 0`
+        // and will run the resume itself.
+        guard inflightUtteranceCount == 0 else { return }
+        prewarmFixedPhrases()
     }
 
     func announceLap(_ lap: Lap, isBest: Bool) {
@@ -711,6 +740,16 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             // .spokenAudio / .duckOthers` configuration, and the warm-keeper engine relies
             // on this having run at least once. Symmetric with the System path below.
             configureSessionIfNeeded()
+            // Cancel any in-flight prewarm so the user-visible utterance doesn't race
+            // against the prefetch burst for the upstream provider's per-IP rate limit.
+            // Without this, tapping Start while prewarm is still issuing 3 concurrent
+            // prefetches would make `speakAsync`'s Worker call the 4th simultaneous
+            // request — the provider 429s, the Worker propagates it, and the operator's
+            // Start cue silently fails. `premiumUtteranceEnded` re-fires the prewarm once
+            // utterance ends; prefetch is idempotent on cache hits, so the resumed run
+            // only picks up phrases the cancelled run hadn't reached.
+            currentPrewarmTask?.cancel()
+            currentPrewarmTask = nil
             // Treat a Premium utterance exactly like a System one for inflight bookkeeping.
             // Increment here; the matching decrement (+ deactivateSession) fires via the
             // `onEnd` callback when the Premium synth's utterance ends — drained, cancelled
@@ -997,9 +1036,33 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         let phrases = fixedPrewarmPhrases(for: currentLanguage())
         let synth = premiumSynth
         let lang = voice.lang
-        Task.detached { @MainActor in
+        // Cancel any prior prewarm before starting fresh — repeated Settings
+        // dismissals (or `premiumUtteranceEnded` re-fires) would otherwise stack
+        // up multiple concurrent TaskGroups, multiplying the upstream per-IP load.
+        currentPrewarmTask?.cancel()
+        currentPrewarmTask = Task.detached { @MainActor in
+            // Streaming TaskGroup with bounded concurrency. Firing all 14
+            // phrases in parallel previously triggered the upstream provider's
+            // per-IP rate limit (Worker propagates upstream 429 verbatim), so
+            // some prefetches dropped on a voice switch and the next race lost
+            // countdown numbers. A cap of 3 keeps the burst inside the provider
+            // allowance while still finishing the whole prewarm in ~3-5 s on a
+            // warm network. Polly and Azure are both more permissive than the
+            // cap, but the cap is the floor in case future providers are tighter.
+            let maxConcurrent = 3
             await withTaskGroup(of: Void.self) { group in
-                for phrase in phrases {
+                var iterator = phrases.makeIterator()
+                // Seed up to `maxConcurrent` tasks.
+                for _ in 0..<maxConcurrent {
+                    guard let phrase = iterator.next() else { break }
+                    group.addTask { @MainActor in
+                        await synth.prefetch(text: phrase, lang: lang, voice: voice)
+                    }
+                }
+                // For each completion, top up with the next pending phrase
+                // so the inflight count stays at the cap until exhausted.
+                while await group.next() != nil {
+                    guard let phrase = iterator.next() else { continue }
                     group.addTask { @MainActor in
                         await synth.prefetch(text: phrase, lang: lang, voice: voice)
                     }
@@ -1048,8 +1111,8 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             let totalJP = japaneseMinSecString(totalTime)
             if let lastLap, let lastLapStr {
                 // `、` (instead of a space) between the lap number and the lap time is required
-                // for the Cartesia/Polly/Azure cloud voices to read "12.34" as the cardinal
-                // "じゅうにてん さんよん" — without the punctuation Cartesia in particular falls
+                // for the Polly/Azure cloud voices to read "12.34" as the cardinal
+                // "じゅうにてん さんよん" — without the punctuation the synth in particular falls
                 // into digit-by-digit phone-number reading ("いちに さんよん"). System TTS handles
                 // both forms identically, so the same string works for both engines.
                 return "ラップ\(lastLap.id)、\(lastLapStr)秒、トータル\(lapCount)周、\(totalJP)、ベストラップは\(bestStr)秒でした"
