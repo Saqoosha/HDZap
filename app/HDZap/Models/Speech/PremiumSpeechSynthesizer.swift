@@ -753,9 +753,17 @@ final class PremiumSpeechSynthesizer: NSObject {
         }
         var consumed = false
         var convertError: NSError?
+        // `.endOfStream` (not `.noDataNow`) is critical for one-shot resampling:
+        // `.noDataNow` makes `convert()` return early with `inputRanDry`, leaving the
+        // polyphase upsampler's FIR-filter tail buffered inside the converter. For a
+        // Polly 16 kHz → engine 24 kHz pass that tail is ~200-400 samples = ~10-20 ms
+        // of audio that never reaches `outputBuffer` → the trailing phoneme of every
+        // countdown number audibly cuts off mid-word. `.endOfStream` flushes the tail.
+        // Azure overlap utterances dodge this because their 24 kHz native rate
+        // short-circuits to `buildBuffer24kHz` and skips the converter entirely.
         let status = converter.convert(to: outputBuffer, error: &convertError) { _, outStatus in
             if consumed {
-                outStatus.pointee = .noDataNow
+                outStatus.pointee = .endOfStream
                 return nil
             }
             consumed = true
