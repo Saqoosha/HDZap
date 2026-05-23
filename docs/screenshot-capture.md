@@ -41,8 +41,17 @@ upload the same PNG twice or capture once and reuse.
 
 ## Step 1 — Boot the simulator
 
+The simulator's iOS runtime should match (or be ≥) the version most pilots run, because iOS 26 sub-versions changed Settings card padding and section-header casing (`FORMAT` → `Format` between 26.4 and 26.5). Captures from a stale runtime look subtly different from what readers see on their own phone.
+
 ```bash
-SIM=$(xcrun simctl list devices available | grep "iPhone 16 Plus" | head -1 | grep -oE '[0-9A-F-]{36}')
+# Pick the newest iOS 26.x runtime available locally
+RUNTIME=$(xcrun simctl list runtimes | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-26-[0-9]+' | sort -t'-' -k4 -n | tail -1)
+# Reuse an existing iPhone 16 Plus on that runtime, or create one
+SIM=$(xcrun simctl list devices "$RUNTIME" | grep "iPhone 16 Plus" | head -1 | grep -oE '[0-9A-F-]{36}')
+if [ -z "$SIM" ]; then
+  SIM=$(xcrun simctl create "iPhone 16 Plus" \
+        com.apple.CoreSimulator.SimDeviceType.iPhone-16-Plus "$RUNTIME")
+fi
 xcrun simctl boot "$SIM"
 open -a Simulator
 ```
@@ -223,6 +232,127 @@ iOS Timer enough that the bottom panel reads stale:
   trying to capture screenshots from a TestFlight build will silently
   produce an empty timer view because the launch args are ignored.
 
+## Manual / marketing screenshots (Settings panes)
+
+The App Store screenshots above cover the headline surfaces (Timer +
+History). The end-user manual at `docs/manual/{en,ja}.md` needs
+Settings sub-views too — those go through a separate launch-arg path:
+`-screenshotRoute <name>` (parsed in
+`app/HDZap/Utils/ScreenshotMode.swift`).
+
+Each route auto-opens the matching sub-screen on first appear:
+`SettingsView.applyScreenshotRouteIfNeeded()` pushes drilldowns via
+hidden `.navigationDestination(isPresented:)` flags, and
+`AudioSettingsView.applyScreenshotRouteIfNeeded()` walks the rest of
+the audio sub-tree (Premium voice picker / Paywall). Model layer
+fakes a connected M5Stick (`BluetoothManager.seedConnectedForScreenshot()`)
+and entitled Premium (`SubscriptionManager.seedEntitledForScreenshot()`)
+where the route needs them.
+
+Available routes (ScreenshotMode.swift is the authoritative list):
+
+| Route | Surface |
+|---|---|
+| `settingsRoot` | Settings root (bridge ON, fake connected) |
+| `settingsRootStandalone` | Settings root (bridge OFF — standalone hint visible) |
+| `settingsRootBridgeOnUnconnected` | Settings root — bridge ON but not yet linked |
+| `settingsRootAbout` | Settings root scrolled so the About card is in view |
+| `connection` | Settings → M5StickS3 (Connection) |
+| `rename` | Settings → M5StickS3 → Rename device |
+| `pairing` | Settings → Goggle pairing (Bind Phrase mode pre-filled) |
+| `pairingManualUID` | Goggle pairing with Manual UID mode pre-filled |
+| `pairingNewPairing` | Goggle pairing with New Pairing mode |
+| `pairingSuccess` | Goggle pairing with green "Pairing works" banner |
+| `osdLayout` | Settings → OSD layout |
+| `audio` | Settings → Lap announcer (System engine) |
+| `audioCountdownOn` | Lap announcer with "Count down final seconds" toggled ON |
+| `audioPremium` | Settings → Lap announcer (Premium engine, entitled) |
+| `premiumVoicePicker` | Settings → Lap announcer → Premium voice (entitled) |
+| `premiumVoicePickerLocked` | Same picker, non-subscriber view (Subscribers-only banner) |
+| `paywall` | Premium subscribe sheet |
+| `timerReady` | Main timer, pre-race READY state |
+| `timerRunning` | Main timer mid-race (VBAT strip + 4 laps) |
+| `timerDone` | Main timer post-race DONE state |
+| `historyList` | History sheet listing past races |
+| `historyDetail` | History sheet drilled into a specific race detail (with VBAT chart) |
+
+Capture loop (run from `app/`):
+
+```bash
+SIM=$(xcrun simctl list devices available | grep "iPhone 16 Plus" | head -1 | grep -oE '[0-9A-F-]{36}')
+APP=build/derived/Build/Products/Debug-iphonesimulator/HDZap.app
+# Uninstall + reinstall first — UserDefaults persist across launches in the
+# simulator, so a stale `ttsLanguageRaw` / `premiumLapVoiceId` from a prior
+# capture session can leak through and make e.g. the JA Premium-voice
+# screenshot pre-pick an English voice. A clean reinstall guarantees the
+# route walkers see only the values they explicitly set.
+xcrun simctl uninstall "$SIM" sh.saqoo.HDZap
+xcrun simctl install "$SIM" "$APP"
+mkdir -p /tmp/hdzap_settings_shots
+
+for ROUTE in settingsRoot settingsRootStandalone settingsRootBridgeOnUnconnected \
+             settingsRootAbout \
+             connection rename \
+             pairing pairingManualUID pairingNewPairing pairingSuccess \
+             osdLayout \
+             audio audioCountdownOn audioPremium \
+             premiumVoicePicker premiumVoicePickerLocked paywall \
+             timerReady timerRunning timerDone \
+             historyList historyDetail; do
+  for LANG in en ja; do
+    xcrun simctl terminate "$SIM" sh.saqoo.HDZap 2>/dev/null
+    APPLELANG=$([ "$LANG" = "ja" ] && echo "(ja)" || echo "(en)")
+    APPLELOC=$([ "$LANG" = "ja" ] && echo "ja_JP" || echo "en_US")
+    xcrun simctl launch "$SIM" sh.saqoo.HDZap \
+      -AppleLanguages "$APPLELANG" -AppleLocale "$APPLELOC" \
+      -screenshotRoute "$ROUTE" >/dev/null
+    sleep 8
+    xcrun simctl io "$SIM" screenshot "/tmp/hdzap_settings_shots/${ROUTE}-${LANG}.png"
+  done
+done
+
+# Crop each multi-section settings screenshot into per-iOS-section PNGs and
+# downscale full-screen ones. The script auto-detects the iOS section card
+# boundaries (gray-band gaps between white cards) and writes the cropped
+# pieces to /tmp/hdzap_crops/.
+python3 scripts/crop_settings_screenshots.py
+# (then rename + copy /tmp/hdzap_crops/* into docs/manual/images/)
+```
+
+The DEBUG-only `Debug` section in SettingsView and the DEBUG-only
+`Premium TTS (Debug)` section in AudioSettingsView both auto-hide when
+`ScreenshotMode.isActive` is true, so captures don't leak dev panels
+into the published manual.
+
+Persisted-state caveat: simulator `UserDefaults` survive across
+launches. The route walkers explicitly reset the bridge state, TTS
+engine, and Premium voice ID on each capture so a `.audioPremium`
+followed by a plain `.audio` doesn't render the premium controls in
+both shots. If you add a new route that toggles persisted state, do
+the symmetric reset in the route handler.
+
+Sleep tuning: the capture loop above waits 8 s after `xcrun simctl
+launch` before grabbing the framebuffer. iOS 26.5's Settings sheet
+takes longer to settle than 26.4 — a shorter sleep produces captures
+mid-sheet-animation with the underlying `TimerView` partly visible
+at the top, which then confuses the section detector in
+`crop_settings_screenshots.py` (it sees masthead row blocks as
+unrelated cards). Don't drop below 6 s unless you've verified the
+target runtime's animation timing.
+
+Edge fade: cropped sub-section PNGs get a linear fade to white at
+the top and bottom (see `FADE_PX` in `apply_edge_fade` /
+`crop_with_header` in the crop script — currently 80 px) so the
+horizontal mid-screen cut blends into the white manual page rather
+than ending with a hard iOS-gutter-to-white band. The crop is
+deliberately extended *beyond* the detected section by the same
+FADE_PX so the gradient lives outside the section content — the
+section header + card body stay fully visible. Full-screen captures
+(timer / history / picker / paywall) skip the fade because they're
+complete iPhone surfaces — the status bar at top and home indicator
+at bottom are part of what the user actually sees, not something to
+soften away.
+
 ## When the seed-based approach isn't enough
 
 If a future release adds UI surfaces that need their own screenshot
@@ -230,4 +360,6 @@ If a future release adds UI surfaces that need their own screenshot
 seed by adding a new launch-arg branch in
 `seedScreenshotIfNeeded` and a corresponding model setup. Keep the
 arg names `-screenshot<Capitalized>` so they sort alphabetically with
-the existing ones.
+the existing ones. For new Settings sub-screens that need auto-open
+behavior, prefer the `-screenshotRoute` mechanism above — add the new
+case to `ScreenshotRoute` and the corresponding nav handler.

@@ -8,6 +8,20 @@ struct HistoryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var pendingClearAll = false
 
+    #if DEBUG
+    /// Programmatic detail push for the `.historyDetail` screenshot route.
+    /// The record itself is sourced from `VoltageChartPreview.sampleRecord()`
+    /// (set when the route fires) so the detail view renders a populated
+    /// VBAT chart — the seeded history rows don't carry CRSF samples and
+    /// would render a chartless detail. A separate boolean drives the
+    /// `.navigationDestination(isPresented:)` so we don't need RaceRecord
+    /// to conform to `Hashable` (which the `.navigationDestination(item:)`
+    /// variant requires).
+    @State private var ssDetailRecord: RaceRecord?
+    @State private var ssShowDetail = false
+    @State private var ssRouteApplied = false
+    #endif
+
     var body: some View {
         NavigationStack {
             Group {
@@ -59,6 +73,27 @@ struct HistoryView: View {
             } message: { msg in
                 Text(msg)
             }
+            #if DEBUG
+            .navigationDestination(isPresented: $ssShowDetail) {
+                if let record = ssDetailRecord {
+                    RaceDetailView(previewRecord: record)
+                }
+            }
+            .onAppear {
+                guard !ssRouteApplied else { return }
+                if ScreenshotMode.route == .historyDetail {
+                    ssRouteApplied = true
+                    // ORDER IS LOAD-BEARING. The `isPresented` binding
+                    // below evaluates its destination body the moment it
+                    // flips true; if `ssShowDetail = true` ran first,
+                    // SwiftUI would push an `EmptyView` (the `if let`
+                    // would fail) and silently swallow the route. Always
+                    // populate `ssDetailRecord` first.
+                    ssDetailRecord = VoltageChartPreview.sampleRecord()
+                    ssShowDetail = true
+                }
+            }
+            #endif
         }
     }
 

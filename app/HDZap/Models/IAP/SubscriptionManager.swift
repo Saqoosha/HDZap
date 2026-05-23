@@ -69,6 +69,16 @@ final class SubscriptionManager {
     /// product catalog + current entitlement. Re-entrant: a second call is ignored.
     func start() {
         guard updateListenerTask == nil else { return }
+        #if DEBUG
+        // Screenshot capture: fake the entitled state so the Premium controls / picker
+        // render without needing a Sandbox account signed into the simulator. Skips the
+        // Transaction.updates listener and product fetch entirely — the screenshot UI
+        // doesn't exercise StoreKit, it only reads `isEntitled`.
+        if ScreenshotMode.wantsEntitled {
+            seedEntitledForScreenshot()
+            return
+        }
+        #endif
         updateListenerTask = Task.detached(priority: .background) { [weak self] in
             for await result in Transaction.updates {
                 // Apple's `Transaction.updates` is how out-of-band events reach the app:
@@ -84,6 +94,18 @@ final class SubscriptionManager {
             await self?.refreshEntitlement()
         }
     }
+
+    #if DEBUG
+    /// Force `isEntitled == true` without touching StoreKit. Used by manual / marketing
+    /// screenshot capture so the Settings audio screen renders the Premium engine
+    /// selection + Premium voice picker drilldown without needing a real subscription.
+    /// `currentJWS` stays nil — no Premium-audio network calls happen during capture, so
+    /// the absence of a real JWS is fine; if a future screenshot route exercises the
+    /// `/tts` endpoint live, this seed must be paired with a stub JWS provider.
+    func seedEntitledForScreenshot() {
+        status = .active(expires: nil)
+    }
+    #endif
 
     /// Fetch product metadata for the paywall. Empty array means StoreKit couldn't reach the
     /// store — either offline, or App Store Connect hasn't approved the products yet.

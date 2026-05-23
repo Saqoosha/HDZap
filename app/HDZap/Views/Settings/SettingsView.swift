@@ -22,18 +22,41 @@ struct SettingsView: View {
     @AppStorage(LapAnnouncerDefaults.languageKey) private var ttsLanguageRaw
         = LapAnnouncerDefaults.defaultLanguageRaw
 
+    #if DEBUG
+    // One-shot programmatic-navigation triggers used only by manual-screenshot
+    // capture (-screenshotRoute <name>). Each flag is paired with a
+    // .navigationDestination below that pushes the matching sub-view. Kept
+    // under #if DEBUG so release builds never carry the dead state.
+    @State private var ssRouteApplied = false
+    @State private var ssGoConnection = false
+    @State private var ssGoPairing = false
+    @State private var ssGoOSDLayout = false
+    @State private var ssGoAudio = false
+    #endif
+
     var body: some View {
         NavigationStack {
-            List {
-                errorSection
-                raceSection
-                deviceSection
-                appSection
-                #if DEBUG
-                debugSection
-                #endif
-                aboutSection
-            }
+            // ScrollViewReader wraps the List only so the manual-screenshot
+            // route `.settingsRootAbout` can programmatically scroll to the
+            // About section. The wrapper is invisible at runtime and adds
+            // zero overhead for production users.
+            ScrollViewReader { proxy in
+                List {
+                    errorSection
+                    raceSection
+                    deviceSection
+                    appSection
+                    #if DEBUG
+                    // Hide the dev-only Debug section during manual-screenshot
+                    // capture — Backpack telemetry / Voltage chart preview
+                    // entries don't belong in the published manual.
+                    if !ScreenshotMode.isActive {
+                        debugSection
+                    }
+                    #endif
+                    aboutSection
+                        .id("about-section")
+                }
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -42,9 +65,69 @@ struct SettingsView: View {
             }
             .onAppear {
                 clampTargetLapCountSetting()
+                #if DEBUG
+                applyScreenshotRouteIfNeeded(proxy: proxy)
+                #endif
             }
+            #if DEBUG
+            // Hidden destinations for the screenshot routes — each fires once
+            // per app launch via `applyScreenshotRouteIfNeeded()` and pushes the
+            // matching sub-view onto the navigation stack on first appear.
+            .navigationDestination(isPresented: $ssGoConnection) {
+                ConnectionSettingsView()
+            }
+            .navigationDestination(isPresented: $ssGoPairing) {
+                PairingSettingsView()
+            }
+            .navigationDestination(isPresented: $ssGoOSDLayout) {
+                OSDLayoutSettingsView()
+            }
+            .navigationDestination(isPresented: $ssGoAudio) {
+                AudioSettingsView()
+            }
+            #endif
+            }  // end ScrollViewReader
         }
     }
+
+    #if DEBUG
+    private func applyScreenshotRouteIfNeeded(proxy: ScrollViewProxy) {
+        guard !ssRouteApplied, let route = ScreenshotMode.route else { return }
+        ssRouteApplied = true
+        switch route {
+        case .settingsRoot, .settingsRootStandalone,
+             .settingsRootBridgeOnUnconnected:
+            break
+        case .settingsRootAbout:
+            // The About section can sit below the default iPhone 16 Plus
+            // viewport (where it lands depends on iOS version + accessory
+            // sizing). This route guarantees the captured PNG actually
+            // shows the App version + Firmware rows by explicitly
+            // scrolling them into view before the screenshot fires.
+            proxy.scrollTo("about-section", anchor: .bottom)
+        case .connection, .rename:
+            // ConnectionSettingsView walks `.rename` from there.
+            ssGoConnection = true
+        case .pairing, .pairingManualUID, .pairingNewPairing, .pairingSuccess:
+            // PairingSettingsView reads the route again to pick its mode.
+            ssGoPairing = true
+        case .osdLayout:
+            ssGoOSDLayout = true
+        case .audio, .audioCountdownOn, .audioPremium, .premiumVoicePicker,
+             .premiumVoicePickerLocked, .paywall:
+            // AudioSettingsView walks the rest of the route from there.
+            ssGoAudio = true
+        case .timerReady, .timerRunning, .timerDone,
+             .historyList, .historyDetail:
+            // Timer / history routes don't target the Settings sheet —
+            // TimerView already short-circuited to its own seed in
+            // `applyScreenshotRoute(_:)`, so if SettingsView ends up
+            // mounted under one of these the safest move is to dismiss
+            // the sheet on appear and let TimerView's seed land.
+            dismiss()
+        }
+    }
+    #endif
 
     // MARK: - Error
 

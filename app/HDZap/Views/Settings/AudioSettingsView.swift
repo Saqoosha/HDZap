@@ -12,6 +12,9 @@ struct AudioSettingsView: View {
     /// (the conversion surface) instead of popping a modal paywall.
     @State private var navigateToPicker = false
 #if DEBUG
+    /// One-shot guard for the manual-screenshot route walker. Prevents a second onAppear
+    /// (after the picker dismisses, etc.) from re-pushing the same destination.
+    @State private var ssRouteApplied = false
     // Standalone Premium synth used by the dev panel below. Production playback flows
     // through `announcer.premiumSynth` (wired in `HDZapApp`); this separate instance lets
     // the panel exercise an utterance without disturbing the announcer's session/engine
@@ -384,7 +387,12 @@ struct AudioSettingsView: View {
             }
 
 #if DEBUG
-            premiumTestSection
+            // Hide the dev-only Premium TTS test panel during manual-screenshot
+            // capture — the bearer field + worker URL + raw voice picker only
+            // confuse end users in the published manual.
+            if !ScreenshotMode.isActive {
+                premiumTestSection
+            }
 #endif
         }
         .navigationTitle("Lap announcer")
@@ -404,7 +412,109 @@ struct AudioSettingsView: View {
                 ttsEngine = "system"
             }
         }
+        #if DEBUG
+        .onAppear { applyScreenshotRouteIfNeeded() }
+        #endif
     }
+
+    #if DEBUG
+    /// Manual-screenshot route walker for the AudioSettings sub-tree.
+    /// `.audioPremium` flips the engine + seeds a real Premium voice ID so the
+    /// "Premium" branch of the body actually renders. The picker / paywall
+    /// variants push the next surface on appear.
+    private func applyScreenshotRouteIfNeeded() {
+        guard !ssRouteApplied, let route = ScreenshotMode.route else { return }
+        ssRouteApplied = true
+        // Force `lapTTSEnabled = true` for every audio-related screenshot so the
+        // Voice section is on screen — otherwise an iPhone simulator persisted
+        // from a prior route (or with the master toggle flipped off) would
+        // render an audio screenshot with no voice controls at all.
+        lapTTSEnabled = true
+        switch route {
+        case .audio:
+            // Ensure a clean System-engine screenshot — the simulator's
+            // UserDefaults persist across launches, so a prior `.audioPremium`
+            // capture would otherwise leave the engine on Premium.
+            ttsEngine = "system"
+            countdownEnabled = false
+            syncLanguageWithLocale()
+        case .audioCountdownOn:
+            // Same as `.audio` but flip the countdown toggle on so the
+            // "Start at" stepper sub-row renders — used by the manual to
+            // document the optional countdown behaviour.
+            ttsEngine = "system"
+            countdownEnabled = true
+            syncLanguageWithLocale()
+        case .audioPremium:
+            ttsEngine = "premium"
+            // Always force the language picker to match the current display
+            // locale so a prior run (e.g. en capture) can't leak its
+            // `ttsLanguageRaw` into a JA screenshot (or vice-versa).
+            syncLanguageWithLocale()
+            // Pick the first Premium voice that matches the (now-locale-correct)
+            // language so the "Premium voice" label / rate / pitch sliders all
+            // render against a real entry. ALWAYS re-pick — UserDefaults persists
+            // across launches and a stale ID from a different-language run would
+            // otherwise show through (e.g. JA capture rendering Matthew because
+            // the en capture wrote it first).
+            // Deferred via `Task { @MainActor }` so it lands AFTER the
+            // Language Picker's `.onChange(of: ttsLanguageRaw)` handler
+            // (lines 132-141) — which resets `premiumLapVoiceId` to the
+            // default whenever the language changes — has flushed. A
+            // synchronous write here would get clobbered on the next
+            // runloop tick when `syncLanguageWithLocale` actually
+            // changed the value.
+            Task { @MainActor in
+                if let voice = PremiumVoiceCatalog.voices(for: ttsLanguageRaw).first {
+                    premiumLapVoiceId = voice.id
+                }
+            }
+        case .premiumVoicePicker:
+            // Entitled picker view — pre-select the first voice so the row
+            // shows the ✓ checkmark, communicating "this is the active voice
+            // you'd hear at race time". Same `Task { @MainActor }` rationale
+            // as `.audioPremium` above: defer past the language onChange.
+            syncLanguageWithLocale()
+            Task { @MainActor in
+                if let voice = PremiumVoiceCatalog.voices(for: ttsLanguageRaw).first {
+                    premiumLapVoiceId = voice.id
+                }
+                navigateToPicker = true
+            }
+        case .premiumVoicePickerLocked:
+            // Non-subscriber picker view — explicitly CLEAR any persisted
+            // selection so no row carries a stale ✓ from an earlier
+            // `.premiumVoicePicker` / `.audioPremium` capture run. A
+            // non-subscriber has by definition never committed a voice,
+            // so a check mark would mis-tell the story. Deferred for the
+            // same onChange-race reason as the above two cases.
+            syncLanguageWithLocale()
+            Task { @MainActor in
+                premiumLapVoiceId = ""
+                navigateToPicker = true
+            }
+            navigateToPicker = true
+        case .paywall:
+            showingPaywall = true
+        default:
+            break
+        }
+    }
+
+    /// Force `ttsLanguageRaw` to match the current iOS display locale so the
+    /// language picker and the pre-selected voice can't fall out of sync with
+    /// the system language during screenshot capture. Without this, a stale
+    /// `ttsLanguageRaw` from a prior different-locale launch leaks through
+    /// (e.g. the JA capture rendering an English voice because the en run
+    /// wrote `"en"` to UserDefaults first).
+    private func syncLanguageWithLocale() {
+        let langCode = Locale.current.language.languageCode?.identifier ?? "en"
+        let target: LapAnnouncerLanguage = langCode == "ja" ? .japanese : .english
+        if ttsLanguageRaw != target.rawValue {
+            ttsLanguageRaw = target.rawValue
+        }
+    }
+    #endif
 
 #if DEBUG
     /// DEBUG-only Premium TTS harness. Lets the developer paste a Worker bearer, pick a
