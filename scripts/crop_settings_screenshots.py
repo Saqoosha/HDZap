@@ -19,9 +19,12 @@ import numpy as np
 BG_RGB = (242, 242, 247)
 TOL = 12
 
-# Crops will be downscaled so the longest side fits this many px — matches
-# the existing manual image sizes so the page balance stays consistent.
-TARGET_LONG_EDGE = 720
+# Crops will be downscaled so the longest side fits this many px. Picked
+# for retina sharpness: manuals embed images at `width="360"` CSS px, so
+# 1440 source pixels = 4× of the displayed width, which renders crisp on
+# both 2× and 3× displays (iPhone 16 Plus + Pro Max are both 3×).
+# Going below 1080 would visibly soften on 3× devices.
+TARGET_LONG_EDGE = 1440
 
 # Pixels of buffer added above and below the detected section band, AND
 # the height of the fade-to-white gradient applied to that buffer. The

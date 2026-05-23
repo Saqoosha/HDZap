@@ -183,6 +183,13 @@ Connect the iPhone to the M5StickS3 over Bluetooth.
 
 1. Power on the M5StickS3 (the LCD should be lit).
 2. Open the HDZap app on the iPhone, then tap the **gear icon (⚙️)** in the top right to open the Settings sheet.
+
+   <p align="center">
+     <img src="images/timer-masthead.png" alt="Top of the timer screen — gear icon on the right" width="360" />
+     <br />
+     <em>Top of the timer screen — tap the gear icon on the right</em>
+   </p>
+
 3. Under the **Device** section, flip on **Use bridge** if it isn't already. On a fresh install the toggle is off and the **M5StickS3**, **Goggle pairing**, and **OSD layout** rows stay hidden until you turn it on; iOS also asks for Bluetooth permission the first time you flip it on.
 
    <p align="center">

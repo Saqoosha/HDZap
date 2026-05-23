@@ -183,6 +183,13 @@ iPhone と M5StickS3 を Bluetooth で接続します。操作場所は iOS ア�
 
 1. M5StickS3 の電源を入れます（LCD に表示が出ている状態）。
 2. iPhone の HDZap アプリを開き、画面右上の **歯車アイコン（⚙️）** をタップして設定シートを開きます。
+
+   <p align="center">
+     <img src="images/timer-masthead-ja.png" alt="タイマー画面上部 — 右側に歯車アイコン" width="360" />
+     <br />
+     <em>タイマー画面の上部 — 右側の歯車アイコンをタップ</em>
+   </p>
+
 3. 設定シートの **デバイス** セクションで **ブリッジを使う** が OFF なら ON にします。新規インストール時は OFF で、**M5StickS3** / **ゴーグルペアリング** / **OSD レイアウト** の 3 行は ON にするまで表示されません（初回 ON 時に iOS が Bluetooth の利用許可を求めます）。
 
    <p align="center">
