@@ -36,6 +36,9 @@ struct PairingSettingsView: View {
     @State private var selectedMode: UIDConfigMode = .bindPhrase
     @State private var bindPhrase = ""
     @State private var manualUIDText = ""
+    #if DEBUG
+    @State private var ssRouteApplied = false
+    #endif
     /// Set when the user taps "Apply UID" to defer the actual write
     /// behind a confirmation alert. Tapping Apply by itself shouldn't
     /// silently mutate the M5Stick's current UID — losing a working
@@ -102,7 +105,46 @@ struct PairingSettingsView: View {
             pairingTask?.cancel()
             pairingTask = nil
         }
+        #if DEBUG
+        .onAppear { applyScreenshotRouteIfNeeded() }
+        #endif
     }
+
+    #if DEBUG
+    /// Manual-screenshot route walker. Pre-selects the mode picker AND
+    /// types representative input into the active field so the mode-form
+    /// crop shows a populated UI rather than an empty placeholder.
+    private func applyScreenshotRouteIfNeeded() {
+        guard !ssRouteApplied, let route = ScreenshotMode.route else { return }
+        ssRouteApplied = true
+        switch route {
+        case .pairing:
+            selectedMode = .bindPhrase
+            bindPhrase = "demo-pilot"
+        case .pairingManualUID:
+            selectedMode = .manualUID
+            // Decimal-comma form (no spaces) matches both what the field
+            // accepts AND the comma-only formatting that the goggle UI
+            // and `formatUIDDecimal` use elsewhere in the app — so the
+            // captured screenshot stays internally consistent with every
+            // other UID rendering in the manual.
+            manualUIDText = "168,109,180,18,79,124"
+        case .pairingNewPairing:
+            selectedMode = .newPairing
+        case .pairingSuccess:
+            // Manual-screenshot "happy path" — pre-paint the green
+            // "Pairing works" banner without running the real flow.
+            // Same Bind Phrase seed as `.pairing` so the configure card
+            // matches the bind that supposedly succeeded; the banner
+            // sits below it in the on-screen layout.
+            selectedMode = .bindPhrase
+            bindPhrase = "demo-pilot"
+            pairingPhase = .success
+        default:
+            break
+        }
+    }
+    #endif
 
     // MARK: - Sections
 

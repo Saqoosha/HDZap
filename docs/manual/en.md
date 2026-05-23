@@ -14,7 +14,7 @@
   <strong>English</strong> ・ <a href="https://saqoosha.github.io/HDZap/ja/">日本語</a>
 </p>
 
-> **Need help?** Email [a@saqoo.sh](mailto:a@saqoo.sh) or open an issue on [GitHub Issues](https://github.com/Saqoosha/HDZap/issues). Common problems are covered in [§11 Troubleshooting](#11-troubleshooting) below.
+> **Need help?** Email [a@saqoo.sh](mailto:a@saqoo.sh) or open an issue on [GitHub Issues](https://github.com/Saqoosha/HDZap/issues). Common problems are covered in [§12 Troubleshooting](#12-troubleshooting) below.
 
 ---
 
@@ -29,18 +29,21 @@
 7. [Flight battery telemetry](#7-flight-battery-telemetry)
 8. [Running a race](#8-running-a-race)
 9. [After the race](#9-after-the-race)
-10. [Settings reference](#10-settings-reference)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Appendix](#12-appendix)
+10. [Premium voices (subscription)](#10-premium-voices-subscription)
+11. [Settings reference](#11-settings-reference)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Appendix](#13-appendix)
 
 ---
 
 ## 1. What is this?
 
 <p align="center">
-  <iframe width="640" height="480"
-          src="https://www.youtube.com/embed/FXDKoBYkyB4"
+  <iframe src="https://www.youtube.com/embed/FXDKoBYkyB4"
           title="HDZap demo"
+          width="640"
+          height="480"
+          style="max-width: 100%; aspect-ratio: 4 / 3; height: auto; border: 0;"
           frameborder="0"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowfullscreen></iframe>
@@ -64,7 +67,7 @@ The system has three components:
 
 ### Glossary at a glance
 
-These terms come up throughout the manual. Full definitions are in the [Appendix](#12-appendix).
+These terms come up throughout the manual. Full definitions are in the [Appendix](#13-appendix).
 
 | Term | One-line description |
 |---|---|
@@ -166,7 +169,9 @@ HDZap is available on the App Store.
 
 3. On first launch, iOS asks you to **allow Bluetooth access** — tap **Allow**. If you decline, the app can't talk to the M5StickS3.
 
-   <img src="images/04-bluetooth-permission.png" alt="Bluetooth permission dialog" width="320" />
+   <p align="center">
+     <img src="images/04-bluetooth-permission.png" alt="Bluetooth permission dialog" width="320" />
+   </p>
 
 ---
 
@@ -179,14 +184,39 @@ Connect the iPhone to the M5StickS3 over Bluetooth.
 1. Power on the M5StickS3 (the LCD should be lit).
 2. Open the HDZap app on the iPhone, then tap the **gear icon (⚙️)** in the top right to open the Settings sheet.
 3. Under the **Device** section, flip on **Use bridge** if it isn't already. On a fresh install the toggle is off and the **M5StickS3**, **Goggle pairing**, and **OSD layout** rows stay hidden until you turn it on; iOS also asks for Bluetooth permission the first time you flip it on.
-4. Tap **M5StickS3** to drill into the connection screen.
+
+   <p align="center">
+     <img src="images/settings-device-standalone.png" alt="Bridge OFF — drilldowns hidden" width="360" />
+     <br />
+     <em>Before: bridge OFF on a fresh install</em>
+   </p>
+
+4. With the toggle on, three rows appear: **M5StickS3** / **Goggle pairing** / **OSD layout**. Tap **M5StickS3** to drill into the connection screen.
+
+   <p align="center">
+     <img src="images/settings-device-bridgeon.png" alt="Bridge just turned on — M5StickS3 not connected, Goggle pairing not set" width="360" />
+     <br />
+     <em>Right after enabling — M5StickS3 reads <strong>Not connected</strong>, Goggle pairing reads <strong>—</strong>. Tap M5StickS3 to open the connection screen.</em>
+   </p>
+
 5. Tap **Scan**. Nearby M5StickS3 devices appear under **Other devices**.
+
+   <p align="center">
+     <img src="images/connection-other-devices.png" alt="Other devices card (empty before scan)" width="360" />
+     <br />
+     <img src="images/connection-scan.png" alt="Scan button" width="360" />
+   </p>
+
 6. Tap **Connect** next to the device named **HDZapBridge** (or whatever name you previously gave it — see [Renaming the M5StickS3](#renaming-the-m5sticks3-optional) below).
 
 7. On a successful connection:
    - A green dot appears in the **Connected** section with the device name and a Disconnect button
    - The battery percentage, charging icon, and a **Version** row (app + firmware) appear below the name
    - The M5StickS3's LCD also shows the connected state
+
+   <p align="center">
+     <img src="images/connection-connected.png" alt="Connected card after a successful link" width="360" />
+   </p>
 
 You now have a working link between the iPhone and the M5StickS3. Next: bind to the Goggle.
 
@@ -196,6 +226,11 @@ If you have several M5StickS3 units, the default `HDZapBridge` name makes them h
 
 1. Settings → **Device** → **M5StickS3**.
 2. Tap **Bluetooth name**.
+
+   <p align="center">
+     <img src="images/rename.png" alt="Rename device screen" width="360" />
+   </p>
+
 3. Type the new name (UTF-8, up to 20 bytes — most emoji count as 4+ bytes, ZWJ-joined or flag-pair emoji more) and tap **Save**.
 4. The M5StickS3 reboots once (about 3 seconds). The iPhone reconnects automatically; the new name appears on the M5StickS3's LCD UID band and in the iOS connected section.
 
@@ -209,6 +244,14 @@ If you have several M5StickS3 units, the default `HDZapBridge` name makes them h
 ---
 
 ## 6. Binding to the Digital FPV Goggle
+
+Every bind path below starts from the same place: **Settings (⚙) → Device → Goggle pairing** (the sub-screen is titled **Pairing**). The smoke test for any path is **Settings → Device → OSD layout** — opening it auto-pushes a preview to the Goggle.
+
+<p align="center">
+  <img src="images/settings-device.png" alt="Device section — Goggle pairing row" width="360" />
+  <br />
+  <em>All bind paths start here — tap the <strong>Goggle pairing</strong> row</em>
+</p>
 
 ### Prerequisite
 
@@ -233,7 +276,7 @@ flowchart TD
 ### Bind phrase vs UID
 
 - **bind phrase**: a human-readable string you choose (e.g. `my-race-2026`).
-- **UID**: a 6-byte number (e.g. `123, 45, 67, 89, 0, 12`).
+- **UID**: a 6-byte number (e.g. `123,45,67,89,0,12`).
 
 The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same bind phrase always produces the same UID on any device.**
 
@@ -254,6 +297,11 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
    4. The Goggle is now waiting for a bind broadcast.
 2. App Settings sheet → **Device** → **Goggle pairing**.
 3. Set the segmented control to **New Pairing**.
+
+   <p align="center">
+     <img src="images/pairing-configure-new-pairing.png" alt="Pairing — New Pairing mode" width="360" />
+   </p>
+
 4. Tap **Pair with new goggle**. The M5StickS3 broadcasts a bind packet.
 5. The Goggle accepts and the binding is complete.
 6. The status banner should step through `Verifying…` → `Pairing works`.
@@ -272,6 +320,11 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 1. Power on the Goggle and confirm it's actually bound to the radio. **Video showing up by itself isn't proof** — that's the VTX side. The real check is: change the VTX channel from EdgeTX's ExpressLRS Lua script and see whether the Goggle picks up the change.
 2. App Settings sheet → **Device** → **Goggle pairing**. Scroll down to the **TX UID Capture** section.
 3. Tap **Start TX UID Capture**. The M5StickS3 starts listening for ESP-NOW broadcasts.
+
+   <p align="center">
+     <img src="images/pairing-tx-uid-capture.png" alt="Pairing — TX UID Capture card" width="360" />
+   </p>
+
 4. **Open the ExpressLRS Lua script on EdgeTX and run the Bind menu** from there.
 5. The M5StickS3 receives the bind broadcast, extracts the UID, and shows it on screen.
 6. Tap **Apply** → `Switching pairing…` → `Verifying…` → `Pairing works`.
@@ -288,7 +341,12 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 1. On the Goggle, open **Menu → ELRS**. The `Bind` row shows `UID: xxx,xxx,xxx,xxx,xxx,xxx` — six numbers.
 2. App Settings sheet → **Device** → **Goggle pairing**.
 3. Set the segmented control to **Manual UID**.
-4. **Type all six numbers, comma-separated, into the single input field.**
+
+   <p align="center">
+     <img src="images/pairing-configure-manual-uid.png" alt="Pairing — Manual UID mode" width="360" />
+   </p>
+
+4. **Type all six numbers, comma-separated, into the single input field.** The `Parsed:` line below echoes the hex form so you can compare against what the goggle showed.
 5. Tap **Apply UID** → `Switching pairing…` → `Verifying…` → `Pairing works`.
 6. **Smoke test:** Settings → **Device** → **OSD layout** — the page auto-pushes a live preview to the Goggle. Anything visible there means it worked.
 
@@ -302,9 +360,21 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 
 1. App Settings sheet → **Device** → **Goggle pairing**.
 2. Set the segmented control to **Bind Phrase**.
-3. Type the same bind phrase that was flashed onto the ELRS Backpack into the text field.
+
+   <p align="center">
+     <img src="images/pairing-configure-bind-phrase.png" alt="Pairing — Bind Phrase mode" width="360" />
+   </p>
+
+3. Type the same bind phrase that was flashed onto the ELRS Backpack into the text field. The `UID:` line below echoes the derived UID (the MD5-derived hex form) so you can sanity-check it before applying.
 4. Tap **Apply UID**.
 5. Wait for the status banner to step through `Switching pairing…` → `Verifying…` → `Pairing works` 🎉
+
+   <p align="center">
+     <img src="images/pairing-success-banner.png" alt="Green 'Pairing works' success banner — common to all four bind paths" width="360" />
+     <br />
+     <em>Success looks like this — common to all four bind paths</em>
+   </p>
+
 6. **Smoke test:** Settings → **Device** → **OSD layout** — opening the screen auto-pushes a live preview to the Goggle. If you see it, the bind worked 🎉
 
 ---
@@ -313,9 +383,13 @@ The first 6 bytes of the MD5 hash of the bind phrase become the UID. **The same 
 
 Once the bind reports success, the simplest smoke test is just opening **Settings → Device → OSD layout**.
 
-The screen auto-pushes a live preview (4 rows of dummy text reflecting your current layout) to the Goggle on entry. If you see the preview, the entire path (iPhone → M5StickS3 → Goggle) is working 🎉
+<p align="center">
+  <img src="images/osd-preview.png" alt="OSD layout preview — the same 4 rows are auto-pushed to the goggle on entry" width="360" />
+</p>
 
-If nothing appears, re-walk [Chapter 6's flowchart](#decision-flowchart-which-path-is-yours) from the top.
+The screen auto-pushes a live preview (4 rows of dummy text reflecting your current layout) to the Goggle on entry. **If you see the same 4 rows on the Goggle's OSD that you see in the iPhone's preview area above, the entire path (iPhone → M5StickS3 → Goggle) is working 🎉**
+
+If nothing appears on the Goggle, re-walk [Chapter 6's flowchart](#decision-flowchart-which-path-is-yours) from the top.
 
 > 💡 The **Send Test OSD** button on the same screen pushes the **current iPhone time** once — useful when you want a fresh, visibly-changing reference point (each tap updates the timestamp). It doesn't auto-clear, so tap **Clear OSD** next to it when you're done.
 
@@ -342,6 +416,10 @@ When the M5StickS3 is receiving CRSF Battery telemetry from the pilot's transmit
 
 ### Live VBAT strip (main screen)
 
+<p align="center">
+  <img src="images/timer-running.png" alt="Main timer with the green VBAT strip above the progress bar" width="360" />
+</p>
+
 A strip appears above the session progress bar showing:
 
 - **Status dot**: green = live data arriving, amber = signal gone stale (TX powered off, out of range, or telemetry disabled on the TX), hidden = no data yet
@@ -352,6 +430,10 @@ A strip appears above the session progress bar showing:
 The strip disappears entirely when no telemetry has arrived since the device last connected — it never shows a placeholder.
 
 ### Post-race (history detail screen)
+
+<p align="center">
+  <img src="images/history-detail.png" alt="History detail with VBAT voltage trend chart" width="360" />
+</p>
 
 After the race, opening the detail from the history list shows a **VBAT** section with:
 
@@ -380,14 +462,48 @@ With the bind working, you can run a race.
 
 1. Tap the gear icon at the top right → open the Settings sheet.
 2. Adjust **Race time** (default 90 s) and **Target lap** in the **Format** section at the top.
+
+   <p align="center">
+     <img src="images/settings-format.png" alt="Format section — Race time / Target lap / Target pace" width="360" />
+   </p>
+
 3. Close the Settings sheet.
 
 ### Running
 
-1. Tap the **Start** button on the main screen. The timer starts.
-2. Tap the **Lap** button each time the pilot crosses the finish line.
+<p align="center">
+  <img src="images/timer-ready.png" alt="Pre-race READY state — empty laps, large START button" width="360" />
+  <br />
+  <em>Pre-race READY state — tap START to begin</em>
+</p>
+
+1. Tap the **START** button on the main screen. The timer starts.
+2. Tap the **LAP** button each time the pilot crosses the finish line.
+
+   <p align="center">
+     <img src="images/timer-running.png" alt="Mid-race — LAP button, lap table populating, VBAT strip" width="360" />
+     <br />
+     <em>Mid-race — 4 laps recorded, current lap in flight, VBAT strip live</em>
+   </p>
+
 3. When the race time is up (default 90 s), the button label switches to **`FINAL`**. **You must tap `FINAL` to record the last lap and end the race** — it does not end automatically.
 4. To bail out partway, tap **STOP**.
+
+### After the race ends
+
+<p align="center">
+  <img src="images/timer-done.png" alt="Post-race DONE state — RESET / DONE / SHARE buttons" width="360" />
+  <br />
+  <em>Post-race DONE state — results visible, share enabled</em>
+</p>
+
+When the race ends (FINAL lap recorded or STOP after at least one lap):
+
+- The button label switches to **DONE** (disabled) and **RESET** + **SHARE** appear on either side.
+- The race is automatically saved to history.
+- The masthead state pill reads **DONE** and the best lap is highlighted in the per-lap table.
+- Tap **SHARE** to render a result card image and open the iOS share sheet (see [§9 After the race](#9-after-the-race)).
+- Tap **RESET** to clear the screen for the next race.
 
 ### What's on the Goggle's OSD
 
@@ -395,36 +511,26 @@ During the race, the Goggle shows up to a 4-line overlay along the bottom (**Set
 
 **Pre-race (READY):**
 
-```
-                      READY                       
-                     RACE 90                      
-                  5LAPS @ 18.00                   
-                                                  
-```
+<pre style="text-align: center;"><code>READY
+RACE 90
+5LAPS @ 18.00</code></pre>
 
 **During the race (per lap):**
 
-```
-                   TIME LEFT 67                   
-                   LAP 3 23.456                   
-                AVG 22.123 PACE 5L                
-               D-1.234 BANK +0.5/L                
-```
+<pre style="text-align: center;"><code>TIME LEFT 67
+LAP 3 23.456
+AVG 22.123 PACE 5L
+D-1.234 BANK +0.5/L</code></pre>
 
 **Right on pace** (diff within ±0.005 s) — the last line switches to `ON TARGET`:
 
-```
-                 D+0.00 ON TARGET                 
-```
+<pre style="text-align: center;"><code>D+0.00 ON TARGET</code></pre>
 
 **Post-race (DONE):**
 
-```
-                       DONE                       
-                   3LAPS 247.36                   
-               AVG 82.45 BEST 81.78               
-                                                  
-```
+<pre style="text-align: center;"><code>DONE
+3LAPS 247.36
+AVG 82.45 BEST 81.78</code></pre>
 
 What each field means:
 
@@ -445,7 +551,7 @@ What each field means:
 
 ### Sharing
 
-When you tap the **share button** on the timer screen, HDZap renders a result card image and opens the iOS share sheet. From there you can save the image, post it on social media, send it via Messages, etc.
+When you tap the **SHARE** button on the timer screen (visible after a race ends — see the [§8 post-race screenshot](#after-the-race-ends)), HDZap renders a result card image and opens the iOS share sheet. From there you can save the image, post it on social media, send it via Messages, etc.
 
 The card includes:
 
@@ -457,9 +563,23 @@ The card includes:
 
 ### History
 
+<p align="center">
+  <img src="images/history-list.png" alt="History sheet listing past races, newest first" width="360" />
+  <br />
+  <em>History sheet — newest race on top, each row shows laps · total · trend · best</em>
+</p>
+
 1. Tap the **clock icon** at the top right of the main screen → the history sheet opens.
 2. Past races are listed newest first. Each row shows **laps, total time, a lap-trend sparkline, and best lap**.
-3. Tap a row to open the detail screen (same layout as the result card).
+3. Tap a row to open the detail screen.
+
+<p align="center">
+  <img src="images/history-detail.png" alt="History detail — per-lap table, trend chart, VBAT chart" width="360" />
+  <br />
+  <em>History detail — per-lap breakdown, trend sparkline, VBAT chart (when recorded)</em>
+</p>
+
+The detail screen shows the same layout as the result card, plus the VBAT chart at the bottom when flight-battery telemetry was captured for that race. Tap the **battery icon** in the top toolbar to export the raw VBAT samples as CSV.
 
 ### Deleting
 
@@ -468,9 +588,97 @@ The card includes:
 
 ---
 
-## 10. Settings reference
+## 10. Premium voices (subscription)
+
+The free Lap announcer uses your iPhone's built-in voices. **HDZap Premium** swaps that out for cloud-rendered, broadcast-grade AI voices (AWS Polly + Microsoft Azure, 30+ choices across English and Japanese).
+
+<p align="center">
+  <img src="images/13-paywall.png" alt="HDZap Premium paywall" width="320" />
+</p>
+
+> 💡 **You can audition every Premium voice for free, no subscription needed.** Subscribing is only required to actually use a Premium voice during a race.
+
+### What Premium gives you
+
+- **30+ voices** in EN + JA, grouped by provider (Polly / Azure)
+- **Natural number reading** — `12.34` reads as "twelve point three four", not digit-by-digit
+- **Broadcast-quality audio** — cleanly intelligible over the iPhone speaker or Bluetooth headphones
+- **Per-provider prosody** — rate slider for both providers; pitch slider on Azure voices
+- **Automatic fallback** — when offline or signal is weak, the announcer drops back to the System voice so the race never goes silent
+
+### Audition the catalog (no subscription needed)
+
+1. Open Settings (⚙) → **App → Lap announcer**.
+
+   <p align="center">
+     <img src="images/settings-app.png" alt="Settings → App section — Lap announcer row" width="360" />
+   </p>
+
+2. Tap **Listen to Premium voices** (Free preview).
+
+   <p align="center">
+     <img src="images/audio-voice-system.png" alt="Voice card showing the 'Listen to Premium voices' entry row" width="360" />
+     <br />
+     <em>The <strong>Listen to Premium voices</strong> row sits near the top of the Voice card (non-subscriber view only)</em>
+   </p>
+3. The picker lists every voice grouped under **AWS Polly** and **Azure**. Tap the **▶** button on any row to hear a sample call-out.
+
+   <p align="center">
+     <img src="images/12-premium-voice-picker-locked.png" alt="Premium voice picker — non-subscriber view" width="320" />
+   </p>
+
+   - Tapping a voice **name** opens the Paywall — selection is a paid action.
+   - Tapping the **▶** button only plays a sample — it doesn't commit anything.
+
+### Subscribing
+
+1. From the picker, tap any voice name OR tap **Subscribe ›** in the pink banner at the top of the list.
+2. The Paywall sheet opens (image above).
+3. Pick **Monthly** or **Yearly** and confirm via Face ID / Touch ID. Apple handles the payment — HDZap never sees your card.
+4. After a successful purchase the Paywall auto-dismisses. The picker now lets you commit a voice on tap, and the **Engine** picker on the Lap announcer screen gains a working **Premium (cloud)** option.
+
+### Using a Premium voice during a race
+
+Once subscribed:
+
+1. **Settings → App → Lap announcer**.
+2. Set **Engine** to **Premium (cloud)**.
+3. Tap **Premium voice** to pick from the catalog (the row shows your current choice).
+
+   <p align="center">
+     <img src="images/audio-voice-premium.png" alt="Voice section with Premium engine selected" width="360" />
+   </p>
+
+4. Adjust the **Rate** slider (and **Pitch** on Azure voices) to taste.
+5. Tap **Test voice** to hear a sample with your current settings.
+
+The first time the Settings sheet is dismissed after switching to Premium, the announcer **pre-warms** all the fixed phrases ("Lap 1", "best lap", countdown numbers) into a local cache, so subsequent calls play instantly without a network round-trip. Race-time variable phrases (lap times) stream live.
+
+### Restoring on a new device
+
+Already subscribed and on a new iPhone? Open the Paywall and tap **Restore Purchases** at the bottom. Apple re-delivers your active subscription to the app.
+
+### Subscription details
+
+- **Auto-renewing**, billed monthly or yearly via your Apple ID
+- Manage / cancel any time from **iOS Settings → Apple ID → Subscriptions**
+- Pricing is set per region; the Paywall shows the price for your current Apple ID locale
+- Apple's standard subscription refund policy applies
+
+### When things go wrong
+
+- **Premium engine selected but lap calls sound like the System voice:** check the Paywall via Settings → App → Lap announcer → tap **Listen to Premium voices** → check the bottom of the Lap announcer screen for a red error message. Common causes: offline, restored on a different Apple ID, subscription expired.
+- **First lap call is laggy, later ones are instant:** that's the normal cold-cache path. The fixed-phrase pre-warm runs on Settings dismissal — pop the Settings sheet open and closed once before the race to force it.
+
+---
+
+## 11. Settings reference
 
 ### Format
+
+<p align="center">
+  <img src="images/settings-format.png" alt="Format section" width="360" />
+</p>
 
 - **Race time**: 60–180 s (5 s steps)
 - **Target lap**: e.g. 5L
@@ -478,63 +686,172 @@ The card includes:
 
 ### Device → Use bridge
 
+<p align="center">
+  <img src="images/settings-device.png" alt="Device section, bridge ON" width="360" />
+  <br />
+  <em>Bridge ON, connected — drilldowns visible</em>
+</p>
+
 - **Use bridge**: master switch for the M5StickS3 bridge integration. **Off by default on a fresh install** — flip it on if you have a flashed M5StickS3, and the **M5StickS3**, **Goggle pairing**, and **OSD layout** drilldowns appear below this toggle (the first flip-on also triggers the iOS Bluetooth permission prompt). Turning it off hides the three drilldowns and replaces them with a hint that a bridge is needed to mirror lap times on the goggle.
 - Existing users who already have a goggle pairing keep this on automatically after upgrading — the toggle preserves their setup rather than asking them to opt back in.
 
+<p align="center">
+  <img src="images/settings-device-standalone.png" alt="Device section, bridge OFF (standalone mode)" width="360" />
+  <br />
+  <em>Bridge OFF — drilldowns hidden, footer hint shown</em>
+</p>
+
 ### Device → M5StickS3 (Connection)
 
-Only visible when **Use bridge** is on.
+Only visible when **Use bridge** is on. Drills into the connection screen below.
 
-- **Status dot + device name** at the top of the list.
-- **Connected**: device name, identifier prefix, battery percentage / charging icon, **Disconnect** button.
-- **Bluetooth name** (only visible while connected): tap to open the rename screen for the M5StickS3. UTF-8 up to 20 bytes; the unit reboots once after Save and the iPhone reconnects automatically. See [Chapter 5 → Renaming the M5StickS3](#renaming-the-m5sticks3-optional).
-- **Other devices**: discovered M5StickS3 units, each with a **Connect** button.
+<p align="center">
+  <img src="images/connection-connected.png" alt="Connection — Connected card" width="360" />
+</p>
+
+- **Connected** card: name, status dot, **Disconnect** button, battery %, flight pack telemetry indicator, and a Version row showing the App + Firmware version side by side.
+- **Bluetooth name** (only visible while connected, below the card): tap to open the rename screen for the M5StickS3. UTF-8 up to 20 bytes; the unit reboots once after Save and the iPhone reconnects automatically. See [Chapter 5 → Renaming the M5StickS3](#renaming-the-m5sticks3-optional).
+
+<p align="center">
+  <img src="images/connection-other-devices.png" alt="Connection — Other devices card" width="360" />
+</p>
+
+- **Other devices**: discovered M5StickS3 units, each with a **Connect** button. Empty until you tap **Scan**.
+
+<p align="center">
+  <img src="images/connection-scan.png" alt="Connection — Scan button" width="360" />
+</p>
+
 - **Scan**: rescan for nearby M5StickS3 devices.
 
 ### Device → Goggle pairing
 
 The mode picker switches the form between bind phrase, manual UID, and new pairing. **TX UID Capture** lives on the same screen, below the mode form. See [Chapter 6](#6-binding-to-the-digital-fpv-goggle) for the full workflow.
 
-- **Current UID**: live display of what's currently active on the M5StickS3.
+<p align="center">
+  <img src="images/pairing-current-uid.png" alt="Pairing — Current UID card" width="360" />
+</p>
+
+- **Current UID**: live display of what's currently active on the M5StickS3 (decimal + hex side by side).
+
+<p align="center">
+  <img src="images/pairing-configure-bind-phrase.png" alt="Pairing — Configure card (Bind Phrase mode)" width="360" />
+</p>
+
+- **Configure** (mode picker + form): pick **Bind Phrase**, **Manual UID**, or **New Pairing**. The text fields and buttons below adapt to the picked mode — see [§6.1](#61-new-pairing) / [§6.3](#63-manual-uid-advanced) / [§6.4](#64-use-a-known-bind-phrase) for screenshots of each mode.
 - **Apply UID** / **Pair with new goggle**: trigger the chosen flow; the apply alert and verification banner step you through `Switching pairing…` → `Verifying…` → `Pairing works` / auto-rollback.
-- **Restore previous goggle**: roll back to the prior UID after a failed apply.
+- **Restore previous goggle** (appears only after an apply): roll back to the prior UID.
+
+<p align="center">
+  <img src="images/pairing-tx-uid-capture.png" alt="Pairing — TX UID Capture card" width="360" />
+</p>
+
+- **Start TX UID Capture**: kick off the passive sniff used in path 6.2. Press Bind on the radio (EdgeTX) once this is armed.
 
 ### Device → OSD layout
 
 Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push to the goggle in real time so the pilot can see the new arrangement without running a race.
 
-- **Top row** slider: where the visible OSD block sits on the 18-row goggle grid (1 = very top, default = bottom-anchored).
+<p align="center">
+  <img src="images/osd-preview.png" alt="OSD layout — Preview card" width="360" />
+</p>
+
+- **Preview**: the literal 4-row block that lands on the goggle, with the current alignment + visible-row settings applied. Updates live as you change the controls below.
+
+<p align="center">
+  <img src="images/osd-position.png" alt="OSD layout — Top row slider" width="360" />
+</p>
+
+- **Top row** slider: where the visible OSD block sits on the 18-row goggle grid (1 = very top, default = bottom-anchored). The slider's range shrinks automatically as you hide rows so the block can never fall off the bottom.
+
+<p align="center">
+  <img src="images/osd-alignment.png" alt="OSD layout — Alignment picker" width="360" />
+</p>
+
 - **Alignment**: left / center / right — applies to all visible rows.
-- **Show rows** toggles: independently hide **Time**, **Lap**, **Pace**, **Diff**. Hidden rows close up so the visible block stays compact.
-- **Send Test OSD**: pushes the iPhone's current date + time to the goggle once. Each tap updates the timestamp so you can confirm packets are landing.
+
+<p align="center">
+  <img src="images/osd-show-rows.png" alt="OSD layout — Show rows toggles" width="360" />
+</p>
+
+- **Show rows** toggles: independently hide **Time**, **Lap**, **Pace**, **Diff**. Hidden rows close up so the visible block stays compact; drag the right-edge handle to reorder.
+- **Send Test OSD** (below the SHOW ROWS card): pushes the iPhone's current date + time to the goggle once. Each tap updates the timestamp so you can confirm packets are landing.
 - **Clear OSD**: wipes the goggle overlay buffer.
 - **Reset layout**: returns the editor to the defaults (bottom-anchored, centered, all rows visible).
 
 ### App → Lap announcer (Audio)
 
+<p align="center">
+  <img src="images/audio-announcement.png" alt="Lap announcer — Announcement card" width="360" />
+</p>
+
+Announcement section — applies to both engines:
+
 - **Announce lap times**: on / off. Also triggers a "Last lap!" voice cue at the moment the session timer hits zero (or "ファイナルラップです" when the language is set to Japanese).
-- **Language**: Japanese, English, etc.
 - **Say "best lap" on new best**: prefix the announcement with "best lap" when a lap sets a new fastest
 - **Count down final seconds**: off by default. When on, the announcer counts down the closing seconds of the session window using the selected voice ("ten, nine, ..." in English, "じゅう、きゅう..." in Japanese).
 - **Start at**: 5–15 s — when the countdown begins. Default 10. Only shown when **Count down final seconds** is on.
+
+<p align="center">
+  <img src="images/audio-announcement-countdown.png" alt="Count down final seconds toggled ON, with the Start at stepper revealed" width="360" />
+  <br />
+  <em>Countdown ON — the <strong>Start at</strong> stepper appears below the toggle</em>
+</p>
+
+<p align="center">
+  <img src="images/audio-voice-system.png" alt="Voice section — System engine" width="360" />
+  <br />
+  <em>System engine — uses the iPhone's built-in voices</em>
+</p>
+
+Voice section, common to both engines:
+
+- **Language**: Japanese, English, etc. Changing this resets the picked voice for both engines.
+- **Engine**: **System** (uses the iPhone's built-in voices, free) or **Premium (cloud)** (HDZap Premium subscription — see [Chapter 10](#10-premium-voices-subscription)). The row reads **Premium — Subscribe ›** for non-subscribers; tapping it routes to the audition picker rather than flipping the engine.
+
+System engine controls:
+
 - **Voice**: system default + any installed voices
 - **Rate**: speech speed
 - **Pitch**: voice pitch
+
+<p align="center">
+  <img src="images/audio-voice-premium.png" alt="Voice section — Premium engine" width="360" />
+  <br />
+  <em>Premium engine — cloud-rendered AI voices</em>
+</p>
+
+Premium engine controls (only with an active subscription):
+
+- **Premium voice**: drill into the catalog grouped by provider. See [Chapter 10](#10-premium-voices-subscription) for the audition flow.
+- **Rate**: applied via SSML on both Polly and Azure
+- **Pitch**: applied via SSML on Azure voices only (Polly Neural rejects pitch)
+
+Shared controls (visible on either engine):
+
 - **Test voice**: try the current settings out loud
-- **Reset**: restore the announcer defaults
+- **Reset**: restore the announcer defaults (per-engine voice + rate + pitch)
 
 ### App → Appearance
 
-- **Hue slider**: changes the UI accent color across 0°–360°.
+<p align="center">
+  <img src="images/settings-app.png" alt="App section — Lap announcer + Appearance rows" width="360" />
+</p>
+
+- **Hue slider** (inside the Appearance drilldown): changes the UI accent color across 0°–360°.
 
 ### About
+
+<p align="center">
+  <img src="images/settings-about.png" alt="About section — App + Firmware versions" width="360" />
+</p>
 
 - **App version**: the HDZap app's version. Always shown.
 - **Firmware**: the M5StickS3's current firmware version. Shown after a successful connection. If it disagrees with the app version, this row turns **red** with a warning — re-flash the M5StickS3 from the Web Flasher to bring it back in line. The same info also shows in **Settings → Device → M5StickS3** under **Version**.
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### M5StickS3
 
@@ -563,7 +880,7 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 ---
 
-## 12. Appendix
+## 13. Appendix
 
 ### Glossary
 

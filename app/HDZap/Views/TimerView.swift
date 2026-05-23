@@ -418,6 +418,54 @@ struct TimerView: View {
         } else if args.contains("-screenshotHistory") {
             history.seedForScreenshot(Self.makeScreenshotHistory())
             showHistory = true
+        } else if let route = ScreenshotMode.route {
+            applyScreenshotRoute(route)
+        }
+    }
+
+    /// Per-route seed + auto-navigate for routes that target the timer
+    /// or history surfaces directly. Settings-targeted routes fall
+    /// through to `showSettings = true`; `SettingsView` itself walks
+    /// the rest of the route into the right sub-screen.
+    private func applyScreenshotRoute(_ route: ScreenshotRoute) {
+        switch route {
+        case .timerReady:
+            // Default fresh state already shows READY — nothing to seed.
+            break
+        case .timerRunning:
+            // Laps already seeded by `LapTimer.init()` so the first body
+            // eval sees the running state with no transition animation.
+            // Only the cross-model bits (flight-battery telemetry, metrics
+            // snapshot) need to land here.
+            bluetooth.seedFlightBatteryForScreenshot(
+                voltageDv: 222, currentDa: 0,
+                consumedMah: 222, remainingPercent: 40
+            )
+            refreshMetricsSnapshot()
+        case .timerDone:
+            // Laps already seeded by `LapTimer.init()` in the finished
+            // state. Only the flight-battery sample (post-race remaining)
+            // and the metrics snapshot need to land here.
+            bluetooth.seedFlightBatteryForScreenshot(
+                voltageDv: 154, currentDa: 0,
+                consumedMah: 1380, remainingPercent: 22
+            )
+            refreshMetricsSnapshot()
+        case .historyList:
+            history.seedForScreenshot(Self.makeScreenshotHistory())
+            showHistory = true
+        case .historyDetail:
+            // Same backing history seed as `historyList`, but HistoryView
+            // pushes a separate `VoltageChartPreview.sampleRecord()` so
+            // the detail view renders a populated VBAT chart — the seeded
+            // history rows don't carry CRSF samples and would render a
+            // chartless detail. See HistoryView's `ssDetailRecord`.
+            history.seedForScreenshot(Self.makeScreenshotHistory())
+            showHistory = true
+        default:
+            // Settings-targeted route — open the Settings sheet and let
+            // SettingsView walk the rest.
+            showSettings = true
         }
     }
 
@@ -1335,6 +1383,15 @@ struct TimerView: View {
 
     private func saveRaceIfNeeded() {
         guard savedRaceID == nil else { return }
+        #if DEBUG
+        // Skip persistence during screenshot capture — a `.timerDone` route
+        // synthesises a finished race purely for the screenshot and must
+        // not bleed into the next launch's history (it would re-appear on
+        // a subsequent `.historyList` capture and overwrite the
+        // 5-race seed). `seedForScreenshot` is the only authorised history
+        // writer in screenshot mode.
+        if ScreenshotMode.isActive { return }
+        #endif
         guard let startedAt = lapTimer.sessionStartedAt else {
             // sessionEnded == true with no startedAt is an invariant
             // violation — log so the next debugging session has a
