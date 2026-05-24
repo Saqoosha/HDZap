@@ -8,6 +8,8 @@ non-gray rows into one card per section. Crop boundaries include the
 section header (UPPERCASE text, just above the white card) so each
 output PNG is self-contained.
 """
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from PIL import Image
@@ -195,6 +197,31 @@ def apply_edge_fade(img: Image.Image,
     return backdrop
 
 
+def optimize_png(path: Path) -> None:
+    """Shrink a PNG in place via pngquant (lossy, quality 80-100) followed
+    by oxipng (lossless). Quietly skips either tool if it isn't installed
+    so the script still works on a fresh dev machine; install both with
+    `brew install pngquant oxipng` for the full ~65% size reduction.
+    Both tools are visually transparent at these settings on the iOS
+    screenshots in this repo — verified on representative samples
+    (timer / settings cards / picker) before integration.
+    """
+    if shutil.which("pngquant"):
+        # --skip-if-larger guards against the rare case where pngquant
+        # can't beat the original (typically tiny images already at the
+        # 256-color limit).
+        subprocess.run(
+            ["pngquant", "--quality=80-100", "--skip-if-larger",
+             "--force", "--output", str(path), str(path)],
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    if shutil.which("oxipng"):
+        subprocess.run(
+            ["oxipng", "-o", "4", "--strip", "safe", "-q", str(path)],
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+
 def crop_file(src: Path, out_dir: Path, prefix: str,
               section_names: list[str],
               top_skip: int = 380, bottom_skip: int = 30):
@@ -217,6 +244,7 @@ def crop_file(src: Path, out_dir: Path, prefix: str,
         cropped = downscale(cropped)
         out = out_dir / f"{prefix}-{name}.png"
         cropped.save(out, optimize=True)
+        optimize_png(out)
         print(f"    -> {out.name} ({cropped.size[0]}x{cropped.size[1]})")
 
 
