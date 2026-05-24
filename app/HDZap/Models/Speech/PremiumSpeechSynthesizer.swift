@@ -13,44 +13,35 @@ enum PremiumTTSDevDefaults {
     static let bearerKey = "_premiumWorkerBearer"
     static let voiceIdKey = "_premiumWorkerVoiceId"
     static let defaultWorkerURL = "https://hdzap-premium.saqoosha.workers.dev/tts"
-    static let defaultVoiceId = "06950fa3-534d-46b3-93bb-f852770ea0b5"  // Takeshi - Hero (JA)
+    static let defaultVoiceId = "Takumi"  // Polly · Takumi (male, Neural, JA)
 }
 
-/// Which upstream TTS service should the Worker call for a given voice. Each provider returns
-/// a different audio format on the wire — the synth uses this to pick the decode path.
+/// Which upstream TTS service should the Worker call for a given voice. The Worker returns
+/// raw s16le mono PCM regardless of provider; only the sample rate differs (see `sampleRateFor`).
 enum PremiumVoiceProvider: String, Codable {
-    /// Cartesia Sonic 3.5 — SSE event stream of base64-encoded raw PCM s16le @ 24kHz.
-    case cartesia
-    /// AWS Polly Neural via SigV4 (Cognito Identity Pool) — chunked mp3 over HTTPS.
+    /// AWS Polly Neural via SigV4 (Cognito Identity Pool) — raw PCM at 16 kHz over HTTPS.
     case polly
-    /// Azure AI Speech Neural via subscription key — chunked mp3 over HTTPS.
+    /// Azure AI Speech Neural via subscription key — raw PCM at 24 kHz over HTTPS.
     case azure
 
-    /// `<prosody rate>` (or equivalent) support per provider as of 2026-05.
-    ///   - Cartesia Sonic 3.5: prosody controls explicitly disabled in the preview release
-    ///   - Polly Neural: rate yes via `<prosody rate>` percentage
-    ///   - Azure Neural: rate yes via SSML
-    var supportsRate: Bool {
-        switch self {
-        case .cartesia: return false
-        case .polly, .azure: return true
-        }
-    }
+    /// `<prosody rate>` (or equivalent) support per provider as of 2026-05. Both Polly Neural
+    /// (`<prosody rate>` percentage) and Azure Neural (SSML) honour rate.
+    var supportsRate: Bool { true }
 
     /// `<prosody pitch>` support. Polly Neural REJECTS pitch with "Unsupported Neural
     /// feature" — only Standard voices accept it, and our catalog ships Neural only.
-    /// Cartesia Sonic 3.5 also disabled it in preview. So only Azure is fully covered.
+    /// So only Azure is fully covered.
     var supportsPitch: Bool {
         switch self {
-        case .cartesia, .polly: return false
+        case .polly: return false
         case .azure: return true
         }
     }
 }
 
 /// One row in the voice picker. `provider` decides Worker routing and audio format on the
-/// client; the same `id` namespace per provider is opaque to us (Cartesia UUIDs, Polly Pascal
-/// names, Azure full locale-qualified names).
+/// client; the same `id` namespace per provider is opaque to us (Polly Pascal names, Azure
+/// full locale-qualified names).
 struct PremiumVoiceOption: Identifiable, Hashable {
     let id: String
     let label: String
@@ -58,35 +49,12 @@ struct PremiumVoiceOption: Identifiable, Hashable {
     let provider: PremiumVoiceProvider
 }
 
-/// Premium TTS voice catalog (Cartesia 22 JA + 3 EN, Polly 3 JA + 11 EN Neural, Azure 7 JA
-/// + 9 EN Neural). Polly + Azure each ship far more voices than this — we keep the menu
-/// scoped to race-announcer / friendly-narrator personas (US/UK/AU accents covered across
-/// providers) so the picker stays scannable mid-race.
+/// Premium TTS voice catalog (Polly 3 JA + 11 EN Neural, Azure 7 JA + 9 EN Neural). Polly +
+/// Azure each ship far more voices than this — we keep the menu scoped to race-announcer /
+/// friendly-narrator personas (US/UK/AU accents covered across providers) so the picker
+/// stays scannable mid-race.
 enum PremiumVoiceCatalog {
     static let voices: [PremiumVoiceOption] = [
-        // ── Cartesia JA (all 22) ───────────────────────────────────────────────────
-        .init(id: "498e7f37-7fa3-4e2c-b8e2-8b6e9276f956", label: "Cartesia · Aiko - Calming",                 lang: "ja", provider: .cartesia),
-        .init(id: "446f922f-c43a-4aad-9a8b-ad2af568e882", label: "Cartesia · Akira - Professional",           lang: "ja", provider: .cartesia),
-        .init(id: "63d6f469-8c2c-489d-b53f-d36f0bbdcd4b", label: "Cartesia · Ayako",                          lang: "ja", provider: .cartesia),
-        .init(id: "31c55968-a9f4-4115-8831-3a16952179c8", label: "Cartesia · Ayumi - Sales Guide",            lang: "ja", provider: .cartesia),
-        .init(id: "a759ecc5-ac21-487e-88c7-288bdfe76999", label: "Cartesia · Daichi - Baritone",              lang: "ja", provider: .cartesia),
-        .init(id: "e8a863c6-22c7-4671-86ca-91cacffc038d", label: "Cartesia · Daisuke - Businessman",          lang: "ja", provider: .cartesia),
-        .init(id: "c7eafe22-8b71-40cd-850b-c5a3bbd8f8d2", label: "Cartesia · Emi - Soft-Spoken",              lang: "ja", provider: .cartesia),
-        .init(id: "97e7d7a9-dfaa-4758-a936-f5f844ac34cc", label: "Cartesia · Fuji - Positive",                lang: "ja", provider: .cartesia),
-        .init(id: "861213b7-f057-45c8-9527-0f4c144f1a03", label: "Cartesia · Haruka - Gracious",              lang: "ja", provider: .cartesia),
-        .init(id: "d0ff6870-dd30-420d-8568-d756d806ea62", label: "Cartesia · Hinata - Graceful",              lang: "ja", provider: .cartesia),
-        .init(id: "1d210168-d764-462c-8ab6-288a6d5a9579", label: "Cartesia · Hiroshi - Director",             lang: "ja", provider: .cartesia),
-        .init(id: "44863732-e415-4084-8ba1-deabe34ce3d2", label: "Cartesia · Kaori - Friendly Narrator",      lang: "ja", provider: .cartesia),
-        .init(id: "9436e723-612d-4114-aeb0-fa00d4d639bf", label: "Cartesia · Katsuya - Promo Host",           lang: "ja", provider: .cartesia),
-        .init(id: "6b92f628-be90-497c-8f4c-3b035002df71", label: "Cartesia · Kenji - Calm",                   lang: "ja", provider: .cartesia),
-        .init(id: "177df681-25b1-48c2-bb47-03ca5fa27f0a", label: "Cartesia · Ren - Calm Navigator",           lang: "ja", provider: .cartesia),
-        .init(id: "9e7ef2cf-b69c-46ac-9e35-bbfd73ba82af", label: "Cartesia · Ren - High-Energy",              lang: "ja", provider: .cartesia),
-        .init(id: "0cd0cde2-3b93-42b5-bcb9-f214a591aa29", label: "Cartesia · Sayuri - Peppy",                 lang: "ja", provider: .cartesia),
-        .init(id: "b8e1169c-f16a-4064-a6e0-95054169e553", label: "Cartesia · Takashi - Professional",         lang: "ja", provider: .cartesia),
-        .init(id: "06950fa3-534d-46b3-93bb-f852770ea0b5", label: "Cartesia · Takeshi - Hero",                 lang: "ja", provider: .cartesia),
-        .init(id: "49e02441-83ea-4c77-bda8-79fdd7f07e92", label: "Cartesia · Tohru - Career Coach",           lang: "ja", provider: .cartesia),
-        .init(id: "59d4fd2f-f5eb-4410-8105-58db7661144f", label: "Cartesia · Yuki - Calm Woman",              lang: "ja", provider: .cartesia),
-        .init(id: "2b568345-1d48-4047-b25f-7baccf842eb0", label: "Cartesia · Yumiko - Friendly Agent",        lang: "ja", provider: .cartesia),
         // ── Polly JA (3 Neural) ─────────────────────────────────────────────────────
         .init(id: "Takumi", label: "Polly · Takumi (male, Neural)",   lang: "ja", provider: .polly),
         .init(id: "Kazuha", label: "Polly · Kazuha (female, Neural)", lang: "ja", provider: .polly),
@@ -99,10 +67,6 @@ enum PremiumVoiceCatalog {
         .init(id: "ja-JP-MayuNeural",   label: "Azure · Mayu (female)",   lang: "ja", provider: .azure),
         .init(id: "ja-JP-NanamiNeural", label: "Azure · Nanami (female)", lang: "ja", provider: .azure),
         .init(id: "ja-JP-ShioriNeural", label: "Azure · Shiori (female)", lang: "ja", provider: .azure),
-        // ── Cartesia EN (handpicked) ────────────────────────────────────────────────
-        .init(id: "2f22b9bc-b0eb-4cb6-b5ae-0c099a0fdfad", label: "Cartesia · Scott - Sportscaster",      lang: "en", provider: .cartesia),
-        .init(id: "820a3788-2b37-4d21-847a-b65d8a68c99a", label: "Cartesia · Tyler - Friendly Salesman", lang: "en", provider: .cartesia),
-        .init(id: "62305e79-9d39-4643-b003-5e0b096fe4f4", label: "Cartesia · Madison - Best Friend",     lang: "en", provider: .cartesia),
         // ── Polly EN (Neural, handpicked) ───────────────────────────────────────────
         // Newscaster-style (Matthew, Joanna, Stephen, Ruth) reads numbers cleanest for
         // race calls; conversational picks (Joey, Brian, Arthur) round out the menu.
@@ -154,14 +118,13 @@ enum PremiumTTSError: Error, LocalizedError {
     }
 }
 
-/// Streams cloud TTS audio (Cartesia SSE, Polly + Azure raw PCM) into `AVAudioPlayerNode`.
+/// Streams Polly + Azure raw PCM into `AVAudioPlayerNode`.
 ///
 /// Pipeline:
 /// 1. POST text/voice/lang to the Worker `/tts` endpoint. The Bearer is the Apple-signed
 ///    JWS for entitled subscribers (via `jwsProvider`) or the baked-in dev bearer otherwise.
 /// 2. Read the response body as a streaming byte sequence (`URLSession.AsyncBytes`).
-/// 3. Decode each provider's wire format: Cartesia is SSE-framed base64 PCM s16le 24 kHz;
-///    Polly + Azure are raw chunked PCM (Polly 16 kHz, Azure 24 kHz).
+/// 3. Both providers stream raw chunked s16le mono PCM (Polly 16 kHz, Azure 24 kHz).
 /// 4. Wrap each chunk in `AVAudioPCMBuffer` (24 kHz → direct, 16 kHz → AVAudioConverter
 ///    upsample) and schedule on a player node attached to a private `AVAudioEngine`.
 ///
@@ -177,10 +140,11 @@ final class PremiumSpeechSynthesizer: NSObject {
     /// `BuildSecrets.workerBearer` (the preview path the picker uses pre-subscription).
     var jwsProvider: () -> String? = { nil }
 
-    /// Cartesia returns `pcm_s16le` at 24kHz mono. We convert to Float32 on the fly because
-    /// AVAudioEngine's mixer is happiest with floats — going through Int16 hit silent failures
-    /// on iOS 18 where `int16ChannelData` returned nil and the buffer scheduled as silence.
-    /// Conversion is trivial (`Float(s16) / 32768`) and runs once per chunk on the main actor.
+    /// Engine source format: 24 kHz Float32 mono. Azure streams at the native 24 kHz
+    /// (manual `Int16 → Float32` in `buildBuffer24kHz`); Polly's 16 kHz path routes
+    /// through `AVAudioConverter` to upsample. Float32 is the engine mixer's preferred
+    /// type — Int16 hit silent failures on iOS 18 where `int16ChannelData` returned nil
+    /// and the buffer scheduled as silence.
     private static let sourceFormat: AVAudioFormat = {
         guard let f = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                     sampleRate: 24000,
@@ -195,6 +159,29 @@ final class PremiumSpeechSynthesizer: NSObject {
     private let playerNode = AVAudioPlayerNode()
     private var engineAttached = false
     private var sessionConfigured = false
+
+    /// Pool of additional `AVAudioPlayerNode`s used by `speakOverlap` for countdown
+    /// numbers. All four nodes are attached to `engine.mainMixerNode` at init time
+    /// alongside the primary `playerNode`, so the mixer sums any concurrently-playing
+    /// utterances at the hardware level — "10" can still be ringing out when "9"
+    /// starts, and the listener hears both. Sized at 4 because Azure at 1.45 × rate
+    /// runs each countdown number to ~1.4-1.7 seconds; with a 1-second tick the
+    /// pool only needs to cover the maximum number of *simultaneously* playing
+    /// utterances at any moment (~2), and 4 gives headroom for short utterances
+    /// that briefly stack 3-4 deep.
+    ///
+    /// Selection is **strict round-robin** — `overlapRoundRobinIndex` increments
+    /// each call. `AVAudioPlayerNode.isPlaying` stays `true` after a scheduled
+    /// buffer drains (until the node is explicitly stopped), so it cannot be used
+    /// to detect free vs busy. Round-robin sidesteps that by simply rotating
+    /// through the pool: with 4 nodes × ~1.4 s utterance / 1 s tick, by the time
+    /// we cycle back to the same node its previous buffer has long finished and
+    /// the new buffer plays immediately. If the cycle catches up to a still-busy
+    /// node (extremely rare), the new buffer is **queued** behind the current one
+    /// — audible as a small delay rather than dropped silence.
+    private static let overlapPoolSize = 4
+    private var overlapNodes: [AVAudioPlayerNode] = []
+    private var overlapRoundRobinIndex = 0
 
     /// `Task` we kick off in `speak(...)`. Cancelling it both aborts the URLSession stream
     /// (via `Task.checkCancellation`) AND tells the player to stop scheduling more buffers.
@@ -227,9 +214,7 @@ final class PremiumSpeechSynthesizer: NSObject {
     /// real-world TTFA next to the network-only number Python measured.
     private(set) var lastFirstAudioMs: Double?
     /// Observable counters so the dev panel can show "what's the synth actually doing right now"
-    /// without depending on os_log capture. Updated on the main actor by the SSE parser.
-    private(set) var debugSseLines = 0
-    private(set) var debugSseEvents = 0
+    /// without depending on os_log capture.
     private(set) var debugChunks = 0
     private(set) var debugBytesScheduled = 0
     private(set) var debugEngineRunning = false
@@ -245,7 +230,7 @@ final class PremiumSpeechSynthesizer: NSObject {
         if debugFlow.count > 12 { debugFlow.removeLast() }
     }
 
-    /// True once `parseSSE` (or the mp3 download loop) has consumed the entire response body.
+    /// True once `playPCMFromStream` has consumed the entire response body.
     /// Used together with `pendingBuffers` so we only flip `isPlaying` false when BOTH the
     /// network is done AND every scheduled audio buffer has actually drained through the
     /// speaker — the previous logic flipped `isPlaying` at end-of-network, but for short
@@ -257,11 +242,18 @@ final class PremiumSpeechSynthesizer: NSObject {
         super.init()
         engine.attach(playerNode)
         engine.connect(playerNode, to: engine.mainMixerNode, format: Self.sourceFormat)
+        // Pool of overlap nodes for `speakOverlap` — all parallel into the mixer.
+        for _ in 0..<Self.overlapPoolSize {
+            let node = AVAudioPlayerNode()
+            engine.attach(node)
+            engine.connect(node, to: engine.mainMixerNode, format: Self.sourceFormat)
+            overlapNodes.append(node)
+        }
         engineAttached = true
         // `prepare()` allocates the rendering resources up front. Without it the first
         // scheduleBuffer can race with engine.start() and drop the buffer on the floor.
         engine.prepare()
-        log.notice("engine init: outputFormat=\(self.engine.outputNode.outputFormat(forBus: 0).description, privacy: .public)  mixerFormat=\(self.engine.mainMixerNode.outputFormat(forBus: 0).description, privacy: .public)")
+        log.notice("engine init: outputFormat=\(self.engine.outputNode.outputFormat(forBus: 0).description, privacy: .public)  mixerFormat=\(self.engine.mainMixerNode.outputFormat(forBus: 0).description, privacy: .public)  overlapPool=\(Self.overlapPoolSize, privacy: .public)")
     }
 
     /// Stops any in-flight request and playback. Idempotent. Bumps `currentGeneration` so
@@ -276,7 +268,50 @@ final class PremiumSpeechSynthesizer: NSObject {
         currentTask?.cancel()
         currentTask = nil
         if playerNode.isPlaying { playerNode.stop() }
+        // `reset()` is the only way to drop scheduled buffers that haven't started
+        // playing back yet — `stop()` alone leaves them in the node's internal queue,
+        // and they will replay on the next `play()` even though we consider the
+        // utterance cancelled.
+        playerNode.reset()
+        // Belt-and-braces: explicitly stop+reset every overlap node BEFORE the
+        // `engine.reset()` below. `engine.reset()` flushes their internal buffers
+        // too (they share the engine graph), but `AVAudioPlayerNode.isPlaying`
+        // is observed to lag the engine reset, so a subsequent `speakOverlap`
+        // could see `isPlaying == true` on a node whose render state was already
+        // wiped. Doing it explicitly here keeps the node's external state and
+        // internal state in lockstep before the engine-wide reset.
+        stopOverlapPlayback()
         if engine.isRunning { engine.stop() }
+        // `engine.reset()` flushes the AudioUnit-side render state — `mainMixerNode`
+        // and the output unit's internal buffers — so the tail of a previous
+        // utterance can't bleed into the next playback once `engine.start()` runs
+        // again. Symptom that motivated this: paywall / picker sample preview
+        // finished, operator tapped Start, and the new "スタート" playback opened
+        // with a phantom "ト" from the previous utterance's tail — not from the
+        // sample's last syllable (the JA sample text "ラップ3、12.34、ベストラップ"
+        // ends in "プ", not "ト"), so the bleed was the prior race's own "スタート"
+        // tail or a prewarm-buffered chunk that survived `stop()`.
+        //
+        // **`engine.reset()` does NOT reset the `AVAudioPlayerNode`s' scheduled
+        // buffer queues or their `isPlaying` flags** — those are per-node state
+        // that requires `node.stop()` + `node.reset()`. The primary `playerNode`
+        // is handled at the top of `cancel()`; the overlap pool is handled by
+        // `stopOverlapPlayback()` above. Without that explicit teardown, an
+        // overlap node would survive `engine.reset()` reporting `isPlaying ==
+        // true` while its internal render state was already wiped — the next
+        // `speakOverlap` would skip the `play()` call and schedule into a node
+        // that never renders.
+        //
+        // Called unconditionally — safe on a stopped engine, free insurance for
+        // the first-run path.
+        engine.reset()
+        // Drop the polyphase resampler so a Polly → Polly preview-then-race sequence
+        // can't carry filter-tail state from the previous utterance — the same class
+        // of bleed `engine.reset()` solves for the AudioUnit side, but for the
+        // sample-rate converter the synth holds independently of the engine graph.
+        // `buildBufferResampled` lazy-inits a fresh converter on next use.
+        resampleConverter = nil
+        resampleConverterRate = 0
         pendingBuffers = 0
         streamReceiveComplete = false
         accumulatedPCM.removeAll(keepingCapacity: true)
@@ -295,13 +330,28 @@ final class PremiumSpeechSynthesizer: NSObject {
         let cb = pendingOnEnd
         pendingOnEnd = nil
         isPlaying = false
+        // No overlap restoration needed — overlap nodes were hard-stopped on LAP
+        // start (not muted), so they're already in a fresh state ready for the
+        // next `speakOverlap`. `isPlaying = false` above also lets new overlap
+        // calls pass the LAP-active guard inside `speakOverlap`.
         cb?()
+    }
+
+    /// Hard-stop every overlap node and clear their scheduled-buffer queues. Used
+    /// when a LAP / Start / FINAL announce arrives and the operator's priority
+    /// shifts to the main utterance — countdown numbers currently ringing out are
+    /// cut off mid-syllable so the LAP message is heard cleanly. Paired with the
+    /// `isPlaying` guard inside `speakOverlap`, which refuses to schedule new
+    /// overlay buffers while the primary utterance is active.
+    private func stopOverlapPlayback() {
+        for node in overlapNodes {
+            if node.isPlaying { node.stop() }
+            node.reset()
+        }
     }
 
     /// Resets all debug counters so the next Speak shows a clean timeline.
     func resetDebug() {
-        debugSseLines = 0
-        debugSseEvents = 0
         debugChunks = 0
         debugBytesScheduled = 0
         debugEngineRunning = engine.isRunning
@@ -313,14 +363,14 @@ final class PremiumSpeechSynthesizer: NSObject {
     }
 
     /// Cache key for the in-flight speak() request. Set at the top of `speak()` so the
-    /// SSE and raw-PCM write paths can save under the same key without re-deriving it.
+    /// stream write path can save under the same key without re-deriving it.
     /// Cleared on completion / failure so a subsequent miss writes to the right entry.
     private var currentCacheKey: String?
     /// Paired with `currentCacheKey` — the provider whose audio bytes we'll be saving, so
     /// `TTSCache.save()` can label the file correctly.
     private var currentCacheProvider: PremiumVoiceProvider?
 
-    /// Sample rate of the PCM stream for the in-flight speak(). Cartesia + Azure send
+    /// Sample rate of the PCM stream for the in-flight speak(). Azure sends
     /// 24 kHz so `schedulePCM` takes the fast manual-conversion path. Polly Neural's PCM
     /// output caps at 16 kHz, which routes through `resampleConverter` to upsample to the
     /// engine's 24 kHz before scheduling.
@@ -333,11 +383,10 @@ final class PremiumSpeechSynthesizer: NSObject {
     private var resampleConverter: AVAudioConverter?
     private var resampleConverterRate: Double = 0
 
-    /// Decoded raw PCM accumulated across the Cartesia SSE stream for this speak() call.
-    /// We write the concatenated bytes to `TTSCache` once the stream completes — way more
-    /// disk-efficient than caching the SSE wrapper (base64 + JSON framing adds ~30%).
-    /// Cleared at the start of every speak() so a partial stream from a prior failed call
-    /// can't bleed into the next entry.
+    /// Decoded raw PCM accumulated across the streamed response for this speak() call.
+    /// We write the concatenated bytes to `TTSCache` once the stream completes. Cleared at
+    /// the start of every speak() so a partial stream from a prior failed call can't bleed
+    /// into the next entry.
     private var accumulatedPCM = Data()
 
     /// Fire-and-forget version of `speak(text:lang:voice:)` for `Button` action callbacks.
@@ -364,6 +413,14 @@ final class PremiumSpeechSynthesizer: NSObject {
         // before `speak()` would set it) still produces a clean end notification through
         // `notifyEnd` instead of leaking `LapAnnouncer.inflightUtteranceCount`.
         isPlaying = true
+        // Hard-stop the overlap pool while the primary utterance is speaking. LAP /
+        // Start / FINAL announces represent the operator's current priority — any
+        // countdown numbers already ringing out (from `speakOverlap`) must be cut
+        // off so the LAP message is heard cleanly. `speakOverlap` also reads
+        // `isPlaying` and refuses to schedule new overlay buffers while the primary
+        // utterance is active, so once we get here all current AND future overlay
+        // counts are suppressed until `notifyEnd` flips `isPlaying` back to false.
+        stopOverlapPlayback()
         // Capture the generation this Task represents — bumped to a fresh value by the
         // `cancel()` above. If a NEW `speakAsync` arrives while this Task is running, its
         // own `cancel()` will bump again, fire our `pendingOnEnd` cleanly, and start a
@@ -455,12 +512,293 @@ final class PremiumSpeechSynthesizer: NSObject {
         note("speak completed")
     }
 
+    /// Pre-populate the local TTS cache for `(text, lang, voice)` without scheduling any
+    /// audio. Idempotent: if the entry already exists on disk this returns immediately.
+    /// Used by `LapAnnouncer.prewarmFixedPhrases` to populate countdown numbers + the
+    /// fixed phrases ("Start", "Last lap!" / equivalents) before race start so the
+    /// 1-second countdown tick can't be defeated by cold-TTS latency (~600–1000 ms per
+    /// number on Azure/Polly).
+    ///
+    /// Best-effort: all error paths (no bearer, bad URL, HTTP 4xx/5xx, parse failure)
+    /// swallow silently — failure to prefetch must not block the UI or surface as a
+    /// user-visible error. The real `speak()` call still runs against the same Worker
+    /// later and will surface failures the normal way.
+    ///
+    /// Doesn't touch `AVAudioEngine`, `playerNode`, `currentTask`, `accumulatedPCM` or
+    /// any `currentCache*` state — only the on-disk `TTSCache` is mutated. This makes
+    /// it safe to call in parallel (`TaskGroup`) while a real `speakAsync` is playing.
+    func prefetch(text: String, lang: String, voice: PremiumVoiceOption) async {
+        let cacheKey = buildCacheKey(text: text, lang: lang, voice: voice)
+        if TTSCache.shared.url(forKey: cacheKey, provider: voice.provider) != nil {
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let urlString = defaults.string(forKey: PremiumTTSDevDefaults.workerURLKey)
+            ?? PremiumTTSDevDefaults.defaultWorkerURL
+        let jws = jwsProvider() ?? ""
+        let panelBearer = (defaults.string(forKey: PremiumTTSDevDefaults.bearerKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let bearer: String
+        if !jws.isEmpty {
+            bearer = jws
+        } else if !panelBearer.isEmpty {
+            bearer = panelBearer
+        } else {
+            bearer = BuildSecrets.workerBearer
+        }
+        guard !bearer.isEmpty, let url = URL(string: urlString) else { return }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var bodyDict: [String: Any] = [
+            "provider": voice.provider.rawValue,
+            "text": text,
+            "voice": voice.id,
+            "lang": lang,
+        ]
+        if voice.provider.supportsRate {
+            let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumRateKey) as? Double
+            bodyDict["rate"] = raw ?? LapAnnouncerDefaults.defaultPremiumRate
+        }
+        if voice.provider.supportsPitch {
+            let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumPitchKey) as? Double
+            bodyDict["pitch"] = raw ?? LapAnnouncerDefaults.defaultPremiumPitch
+        }
+        guard let body = try? JSONSerialization.data(withJSONObject: bodyDict) else { return }
+        req.httpBody = body
+
+        do {
+            // `data(for:)` (not `bytes(for:)`) — prefetch isn't time-critical and we don't
+            // want byte-by-byte MainActor iteration over a 50-100 KB PCM body. One shot,
+            // whole body, parse once, write once.
+            //
+            // Retry once on HTTP 429: Polly and Azure both have per-second TPS caps
+            // that a burst of prewarm requests can occasionally clip even with the
+            // concurrency cap of 3 in `prewarmFixedPhrases`. A single delayed retry
+            // after ~1 s clears the limit in practice. Two retries felt excessive —
+            // the operator can re-trigger prewarm by closing + re-opening Settings
+            // if the cache still has gaps.
+            var data: Data
+            var response: URLResponse
+            (data, response) = try await URLSession.shared.data(for: req)
+            if let http = response as? HTTPURLResponse, http.statusCode == 429 {
+                log.debug("prefetch 429 — retrying after 1 s for key=\(cacheKey.prefix(12), privacy: .public)")
+                // Propagate cancellation through the sleep: if `currentPrewarmTask`
+                // is cancelled while we're waiting (e.g. user tapped Start), the
+                // sleep throws CancellationError, which bubbles to the outer
+                // `do { ... } catch { log.debug(...) }` and exits cleanly without
+                // issuing the retry request. `try?` here would swallow the
+                // cancellation and burn an extra network call on the very
+                // provider we just stepped aside for.
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+                (data, response) = try await URLSession.shared.data(for: req)
+            }
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                log.debug("prefetch http fail: \(String(describing: response), privacy: .public)")
+                return
+            }
+            // Polly + Azure both stream raw s16le PCM — the response body IS the audio.
+            let pcm = data
+            // Pathological 1-byte response would produce `evenCount = 0` after the
+            // `& ~1` mask below — a zero-byte cached file then throws "empty PCM
+            // chunk" on every cache hit and silently breaks that phrase forever.
+            // One s16le frame = 2 bytes; anything below is structurally invalid.
+            guard pcm.count >= 2 else { return }
+            let evenCount = pcm.count & ~1
+            let evenPayload = evenCount == pcm.count ? pcm : pcm.prefix(evenCount)
+            let sampleRate = Self.sampleRateFor(voice.provider)
+            let trimmed = Self.trimSilence(Data(evenPayload), sampleRate: sampleRate)
+            // `trimSilence` can return its input unchanged if the payload is all-silent,
+            // but the original empty-guard above prevents that input from being empty.
+            // Defensive second-guard: a future trim algorithm that could return empty
+            // (e.g. additional inner filtering) wouldn't poison the cache.
+            guard trimmed.count >= 2 else { return }
+            TTSCache.shared.save(key: cacheKey, provider: voice.provider, data: trimmed)
+            log.debug("prefetch saved: key=\(cacheKey.prefix(12), privacy: .public) bytes=\(trimmed.count, privacy: .public) (pre-trim=\(evenPayload.count, privacy: .public))")
+        } catch {
+            log.debug("prefetch error: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Cache-hit playback that bypasses the primary `playerNode` queue so the new
+    /// utterance can sound concurrently with whatever is already speaking. Used by
+    /// `LapAnnouncer.announceCountdown` for the per-second numbers — at higher rates
+    /// (Azure 1.45 ×, etc.) each utterance may run ~1.4 s, making consecutive
+    /// 1-second ticks overlap. The pool of `overlapNodes` is wired into
+    /// `mainMixerNode` alongside the primary `playerNode`, so the mixer sums all
+    /// active nodes at the hardware level — the listener hears "10" tailing out
+    /// behind "9" instead of "9" being dropped by an `inflightUtteranceCount`
+    /// guard.
+    ///
+    /// Cache-hit only on purpose: `prewarmFixedPhrases` reliably warms every
+    /// countdown phrase before the race, and a cache miss here would either fall
+    /// through to the cancel-on-new primary path (defeating the overlap) or pay a
+    /// 600-1000 ms cold-fetch Worker round-trip (the very latency overlap is
+    /// trying to avoid). When the cache miss happens — rare in practice — the call
+    /// returns false and the caller can decide to drop the announce or fall back.
+    ///
+    /// Does NOT participate in `pendingOnEnd` / `notifyEnd` / `isPlaying` —
+    /// overlap utterances are fire-and-forget. The primary path's volume-mute on
+    /// LAP ensures countdown numbers stop sounding while LAP speaks; new overlap
+    /// calls during LAP inherit the muted node volume and stay silent until
+    /// `notifyEnd` restores it.
+    @discardableResult
+    func speakOverlap(text: String, lang: String, voice: PremiumVoiceOption) -> Bool {
+        // LAP / Start / FINAL announces hard-stop the overlap pool on speakAsync
+        // entry; while one of those is in flight (`isPlaying == true`), refuse to
+        // schedule new overlay buffers so a stray countdown tick can't sneak in
+        // behind the LAP message. The countdown number is dropped (returns true
+        // — caller treats as "handled, did nothing"); the next countdown after
+        // `notifyEnd` flips `isPlaying` false will resume normally.
+        if isPlaying {
+            log.notice("speakOverlap suppressed (primary speaking): text=\"\(text, privacy: .public)\"")
+            return true
+        }
+        let cacheKey = buildCacheKey(text: text, lang: lang, voice: voice)
+        guard let cacheFileURL = TTSCache.shared.url(forKey: cacheKey, provider: voice.provider) else {
+            log.notice("speakOverlap miss: text=\"\(text, privacy: .public)\" voice=\(voice.id, privacy: .public)")
+            return false
+        }
+        do {
+            try configureSession()
+            let pcm = try Data(contentsOf: cacheFileURL)
+            let sampleRate = Self.sampleRateFor(voice.provider)
+            let buffer = try buildOverlapBuffer(pcm: pcm, sampleRate: sampleRate)
+            // Strict round-robin — rotate through the pool by index. `isPlaying`
+            // cannot be used to detect free vs busy because `AVAudioPlayerNode`
+            // stays in the `isPlaying` state until explicitly stopped, even after
+            // a scheduled buffer drains. With 4 nodes × ~1.4 s utterance / 1 s
+            // tick the previous occupancy of any node is comfortably done before
+            // the cycle wraps; in the rare worst case the new buffer queues
+            // behind the current on the same node (small audible delay) instead
+            // of being dropped.
+            let nodeIndex = overlapRoundRobinIndex % overlapNodes.count
+            overlapRoundRobinIndex &+= 1
+            let node = overlapNodes[nodeIndex]
+            // The engine may not be running on the first overlap of a session
+            // (cold launch with no LAP yet). Start it lazily — same pattern as
+            // `schedulePCM`. Safe to call when already running.
+            if !engine.isRunning {
+                try engine.start()
+                log.notice("engine started (from speakOverlap)")
+            }
+            // Canonical order: `play()` before `scheduleBuffer`. Matches the
+            // primary `schedulePCM` pattern. After `stopOverlapPlayback` (called
+            // on LAP entry) the node is in a stopped state with an empty queue;
+            // calling `play()` re-engages it for the new buffer.
+            if !node.isPlaying {
+                node.play()
+            }
+            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack, completionHandler: nil)
+            log.notice("speakOverlap scheduled: text=\"\(text, privacy: .public)\" voice=\(voice.id, privacy: .public) frames=\(buffer.frameLength, privacy: .public) nodeIndex=\(nodeIndex, privacy: .public)")
+            return true
+        } catch {
+            // Surface the error to the observable `lastError` so the Settings
+            // banner (and any dev panel) can show it. `log.error` alone is
+            // invisible at race time. The most likely concrete failure here is
+            // `engine.start()` throwing because the audio session lost
+            // priority — leaving the operator with a silent race needs to be
+            // attributable.
+            lastError = error.localizedDescription
+            log.error("speakOverlap error: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// One-shot PCM → AVAudioPCMBuffer conversion for the overlap pool. Does NOT
+    /// share the `resampleConverter` state used by the primary playerNode's
+    /// chunk-streaming path — that converter keeps a polyphase filter tail across
+    /// chunks of a single utterance, which would corrupt both paths if reused.
+    /// Overlap utterances are always one buffer, so a fresh converter per call is
+    /// correct (and cheap — converter init is <1 ms).
+    private func buildOverlapBuffer(pcm: Data, sampleRate: Double) throws -> AVAudioPCMBuffer {
+        if sampleRate == Self.sourceFormat.sampleRate {
+            return try buildBuffer24kHz(pcm)
+        }
+        let inputFrameCount = AVAudioFrameCount(pcm.count / 2)
+        guard inputFrameCount > 0 else {
+            throw PremiumTTSError.engineFailure("empty PCM payload")
+        }
+        guard let inputFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: sampleRate,
+            channels: 1,
+            interleaved: true
+        ) else {
+            throw PremiumTTSError.engineFailure("overlap input format init failed at \(sampleRate) Hz")
+        }
+        guard let converter = AVAudioConverter(from: inputFormat, to: Self.sourceFormat) else {
+            throw PremiumTTSError.engineFailure("overlap converter init failed")
+        }
+        guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: inputFrameCount) else {
+            throw PremiumTTSError.engineFailure("overlap input PCMBuffer alloc failed")
+        }
+        inputBuffer.frameLength = inputFrameCount
+        guard let dst = inputBuffer.int16ChannelData?[0] else {
+            throw PremiumTTSError.engineFailure("overlap int16ChannelData unavailable")
+        }
+        pcm.withUnsafeBytes { rawBuf in
+            guard let src = rawBuf.bindMemory(to: Int16.self).baseAddress else { return }
+            for i in 0..<Int(inputFrameCount) {
+                dst[i] = src[i]
+            }
+        }
+        let ratio = Self.sourceFormat.sampleRate / sampleRate
+        // `+1024` headroom (not `+64`) ensures the polyphase upsampler's FIR group delay
+        // tail fits when `.endOfStream` flushes the converter. For 16 kHz → 24 kHz Polly,
+        // typical linear-phase FIR group delay is ~200-400 input samples = ~300-600 output
+        // samples at 24 kHz; +64 (~2.7 ms) leaves no margin and risks silently re-clipping
+        // the tail that `.endOfStream` is supposed to recover. +1024 (~43 ms) costs an extra
+        // ~2 KB per utterance — trivial — and covers the FIR tail with a 2× safety factor.
+        let outputCapacity = AVAudioFrameCount(Double(inputFrameCount) * ratio) + 1024
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: Self.sourceFormat, frameCapacity: outputCapacity) else {
+            throw PremiumTTSError.engineFailure("overlap output PCMBuffer alloc failed")
+        }
+        var consumed = false
+        var convertError: NSError?
+        // `.endOfStream` (not `.noDataNow`) is critical for one-shot resampling:
+        // `.noDataNow` makes `convert()` return early with `inputRanDry`, leaving the
+        // polyphase upsampler's FIR-filter tail buffered inside the converter. For a
+        // Polly 16 kHz → engine 24 kHz pass that tail is ~200-400 samples = ~10-20 ms
+        // of audio that never reaches `outputBuffer` → the trailing phoneme of every
+        // countdown number audibly cuts off mid-word. `.endOfStream` flushes the tail.
+        // Azure overlap utterances dodge this because their 24 kHz native rate
+        // short-circuits to `buildBuffer24kHz` and skips the converter entirely.
+        let status = converter.convert(to: outputBuffer, error: &convertError) { _, outStatus in
+            if consumed {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            consumed = true
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+        if let err = convertError, status == .error {
+            throw PremiumTTSError.engineFailure("overlap convert failed: \(err.localizedDescription)")
+        }
+        // Defensive: convert() can return a non-error status (.endOfStream / .inputRanDry)
+        // while still leaving `outputBuffer.frameLength == 0` — e.g. when the converter
+        // decides the input was below its minimum window. Scheduling a zero-frame buffer
+        // on AVAudioPlayerNode is a silent no-op (no error path), which would surface as
+        // a missing countdown number with no log line. Throw so `speakOverlap`'s catch
+        // sets `lastError` and the operator gets a visible signal.
+        guard outputBuffer.frameLength > 0 else {
+            throw PremiumTTSError.engineFailure(
+                "overlap resampler produced zero frames (inputFrames=\(inputFrameCount), sampleRate=\(sampleRate))"
+            )
+        }
+        return outputBuffer
+    }
+
     /// Build the cache key for an in-flight speak(). Mirrors the Worker's `buildCacheKey` so
     /// the local + R2 layers refer to the same logical entity. When the provider doesn't
-    /// honour a control (Cartesia: neither rate nor pitch, Polly: pitch), we substitute the
-    /// default so two callers — one with a custom rate that's irrelevant to this provider,
-    /// one without — collapse to the same key. Matches the Worker's behaviour of clamping
-    /// the body's rate/pitch with defaults before hashing.
+    /// honour a control (Polly: pitch), we substitute the default so two callers — one
+    /// with a custom pitch that's irrelevant to this provider, one without — collapse to
+    /// the same key. Matches the Worker's behaviour of clamping the body's rate/pitch
+    /// with defaults before hashing.
     private func buildCacheKey(text: String, lang: String, voice: PremiumVoiceOption) -> String {
         let defaults = UserDefaults.standard
         let rate = voice.provider.supportsRate
@@ -471,14 +809,12 @@ final class PremiumSpeechSynthesizer: NSObject {
             ? (defaults.object(forKey: LapAnnouncerDefaults.premiumPitchKey) as? Double
                 ?? LapAnnouncerDefaults.defaultPremiumPitch)
             : LapAnnouncerDefaults.defaultPremiumPitch
-        let model = voice.provider == .cartesia ? "sonic-3.5" : ""
         return TTSCache.shared.key(
             provider: voice.provider,
             voice: voice.id,
             lang: lang,
             rate: rate,
             pitch: pitch,
-            model: model,
             text: text
         )
     }
@@ -490,7 +826,7 @@ final class PremiumSpeechSynthesizer: NSObject {
     private func playFromCacheFile(url: URL, voice: PremiumVoiceOption, startedAt t0: Date) throws {
         // Cache files for all providers now store raw s16le PCM at the provider's native
         // sample rate. Setting `currentSampleRate` before `schedulePCM` makes the resampler
-        // path activate for Polly's 16 kHz cache hits while Cartesia/Azure go through the
+        // path activate for Polly's 16 kHz cache hits while Azure goes through the
         // 24 kHz fast path. One big buffer per utterance is fine — AVAudioPCMBuffer caps
         // are well above the few hundred KB an utterance produces.
         currentSampleRate = Self.sampleRateFor(voice.provider)
@@ -516,7 +852,7 @@ final class PremiumSpeechSynthesizer: NSObject {
         }
     }
 
-    // MARK: - Network + SSE
+    // MARK: - Network
 
     private func sendAndStream(url: URL, bearer: String, text: String, lang: String, voice: PremiumVoiceOption) async throws {
         log.notice("speak start: url=\(url.absoluteString, privacy: .public) provider=\(voice.provider.rawValue, privacy: .public) voice=\(voice.id, privacy: .public) lang=\(lang, privacy: .public) chars=\(text.count, privacy: .public)")
@@ -530,12 +866,9 @@ final class PremiumSpeechSynthesizer: NSObject {
             "voice": voice.id,
             "lang": lang,
         ]
-        // Cartesia is the only provider that takes a model parameter today; the Worker rejects
-        // the field for the other two so we only send it for Cartesia.
-        if voice.provider == .cartesia { bodyDict["model"] = "sonic-3.5" }
         // Rate / pitch only meaningful for providers that actually honour them. Skipping the
         // fields entirely (vs sending defaults) makes the Worker side easier to reason about
-        // — Cartesia never sees them, Polly never sees pitch, Azure sees both.
+        // — Polly never sees pitch (Neural voices reject it), Azure honours both.
         let defaults = UserDefaults.standard
         if voice.provider.supportsRate {
             let raw = defaults.object(forKey: LapAnnouncerDefaults.premiumRateKey) as? Double
@@ -570,36 +903,26 @@ final class PremiumSpeechSynthesizer: NSObject {
             throw PremiumTTSError.http(http.statusCode, bodyPrefix)
         }
 
-        // All three providers stream raw s16le PCM now — Cartesia via base64-in-SSE,
-        // Polly/Azure via plain chunked octet stream. Sample rate varies (Polly 16 kHz,
-        // others 24 kHz) so we stash it on the synth before draining the stream and
-        // `schedulePCM` routes through AVAudioConverter when it's not the native 24 kHz.
+        // Both providers stream raw s16le mono PCM as plain chunked octets. Sample rate
+        // varies (Polly 16 kHz, Azure 24 kHz) so we stash it on the synth before draining
+        // the stream and `schedulePCM` routes through AVAudioConverter when it's not the
+        // engine's native 24 kHz.
         currentSampleRate = Self.sampleRateFor(voice.provider)
 
-        switch voice.provider {
-        case .cartesia:
-            // Cartesia wraps each PCM chunk in an SSE `data:` event with a base64 payload.
-            try await parseSSE(bytes: bytes, startedAt: t0)
-            // Tell the buffer-completion callback the network side is done so it can fire
-            // `notifyEnd()` after the last scheduled buffer plays out.
-            streamReceiveComplete = true
-            if pendingBuffers == 0 { notifyEnd() }
-        case .polly, .azure:
-            // Raw s16le bytes on the wire — schedule each chunk as it arrives. First-audio
-            // latency is the time-to-first-chunk, not the total HTTP transfer.
-            try await playPCMFromStream(bytes: bytes, startedAt: t0)
-            streamReceiveComplete = true
-            if pendingBuffers == 0 { notifyEnd() }
-        }
+        // Raw s16le bytes on the wire — schedule each chunk as it arrives. First-audio
+        // latency is the time-to-first-chunk, not the total HTTP transfer.
+        try await playPCMFromStream(bytes: bytes, startedAt: t0)
+        streamReceiveComplete = true
+        if pendingBuffers == 0 { notifyEnd() }
     }
 
     /// Sample rate the Worker emits PCM at for each provider. Mirrors `sampleRateFor()` in
-    /// the Worker — keep both in sync. Polly Neural's PCM mode caps at 16 kHz; Cartesia
-    /// and Azure stream at the engine's native 24 kHz.
+    /// the Worker — keep both in sync. Polly Neural's PCM mode caps at 16 kHz; Azure
+    /// streams at the engine's native 24 kHz.
     private static func sampleRateFor(_ provider: PremiumVoiceProvider) -> Double {
         switch provider {
         case .polly: return 16000
-        case .cartesia, .azure: return 24000
+        case .azure: return 24000
         }
     }
 
@@ -646,111 +969,69 @@ final class PremiumSpeechSynthesizer: NSObject {
             // self-consistent — `pcm.count / 2` in `buildBuffer*` would drop that tail
             // byte too on every replay, so the saved blob is already what plays back.
             let evenCount = accumulatedPCM.count & ~1
-            let payload = evenCount == accumulatedPCM.count
+            let evenPayload = evenCount == accumulatedPCM.count
                 ? accumulatedPCM
                 : accumulatedPCM.prefix(evenCount)
-            TTSCache.shared.save(key: key, provider: provider, data: payload)
+            // Trim provider-added silence before persisting so the cached replay is the
+            // tightest possible — full rationale in `trimSilence`.
+            let trimmed = Self.trimSilence(Data(evenPayload), sampleRate: currentSampleRate)
+            TTSCache.shared.save(key: key, provider: provider, data: trimmed)
         }
     }
 
-    /// Parse Cartesia's SSE stream. Each event Cartesia emits is `event: chunk\ndata: {…}\n\n`,
-    /// where the `data:` line holds a complete JSON object on its own (no multi-line
-    /// continuations). We *don't* buffer until the blank-line separator because
-    /// `URLSession.AsyncBytes.lines` on iOS silently skips empty lines — relying on it once
-    /// concatenated every event's JSON into one malformed blob and produced zero audio.
-    /// Decoding each `data:` line standalone is correct for Cartesia's format and robust to
-    /// the missing-empty-line quirk.
-    private func parseSSE(bytes: URLSession.AsyncBytes, startedAt t0: Date) async throws {
-        var lineCount = 0
-        var eventCount = 0
-        var chunkCount = 0
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
-            lineCount += 1
-            await MainActor.run { self.debugSseLines = lineCount }
+    // MARK: - Silence trim
 
-            let payload: String
-            if line.hasPrefix("data: ") {
-                payload = String(line.dropFirst(6))
-            } else if line.hasPrefix("data:") {
-                payload = String(line.dropFirst(5))
-            } else {
-                continue  // `event:`, `:`-comment, or stray blank — not a payload
-            }
+    /// Crop leading near-silence from a raw s16le mono PCM payload. Polly Neural and
+    /// Azure pad utterances with 50-200 ms of low-amplitude noise at the start; for a
+    /// 1-second countdown ("ten" / "nine" / ...) that padding pushes total playback past
+    /// the 1-second tick and the next number gets dropped by
+    /// `LapAnnouncer.announceCountdown`'s `inflightUtteranceCount == 0` guard. Trimming
+    /// the head before write lets the cached file replay starting at the first audible
+    /// sample, saving ~100-150 ms per countdown utterance.
+    ///
+    /// **Trailing silence is deliberately NOT trimmed**. Earlier attempts (v3 at −36 dB
+    /// / 15 ms padding, v4 at −50 dB / 60 ms padding) both chopped the natural decay of
+    /// voiced consonants — Japanese trailing /n/ /ɯː/ /i/ and English /n/ /m/ fade
+    /// through a long quiet tail that's still audible to a listener. Cutting before the
+    /// decay completes produces a perceptual "stop short" feel even when the spectrogram
+    /// confirms the audio truly ended. Leaving the trailing 50-200 ms of provider-added
+    /// silence in costs nothing at race time (still well inside the 1-second tick after
+    /// head trim + Azure 1.7x rate) and avoids the truncation perception entirely.
+    ///
+    /// Threshold: Int16 |sample| < `silenceThreshold` (≈ −50 dB) counts as silence.
+    /// Padding: 60 ms before the first audible sample so the head doesn't start mid-onset.
+    /// Returns the original `pcm` unchanged if the whole payload is below threshold (a
+    /// zero-byte cache file would silently break every replay).
+    private static let silenceThreshold: Int16 = 100
+    private static func trimSilence(_ pcm: Data, sampleRate: Double) -> Data {
+        let frameCount = pcm.count / 2
+        guard frameCount > 0 else { return pcm }
+        // ~60 ms leading padding: 960 frames @ 16 kHz, 1440 frames @ 24 kHz.
+        let padFrames = Int((sampleRate * 0.060).rounded())
 
-            eventCount += 1
-            if try handleEventJSON(payload, startedAt: t0) {
-                chunkCount += 1
-                await MainActor.run {
-                    self.debugSseEvents = eventCount
-                    self.debugChunks = chunkCount
+        return pcm.withUnsafeBytes { rawBuf -> Data in
+            guard let base = rawBuf.bindMemory(to: Int16.self).baseAddress else { return pcm }
+            var firstAudible = -1
+            for i in 0..<frameCount {
+                if abs(Int32(base[i])) >= Int32(Self.silenceThreshold) {
+                    firstAudible = i
+                    break
                 }
             }
+            // Entirely below threshold — return the untrimmed payload so a too-quiet
+            // phrase still plays something instead of a zero-byte file.
+            guard firstAudible >= 0 else { return pcm }
+            let start = max(0, firstAudible - padFrames)
+            let byteStart = start * 2
+            return pcm.subdata(in: byteStart..<pcm.count)
         }
-        log.notice("SSE done: lines=\(lineCount, privacy: .public) events=\(eventCount, privacy: .public) audioChunks=\(chunkCount, privacy: .public)")
-        await MainActor.run {
-            self.debugSseLines = lineCount
-            self.debugSseEvents = eventCount
-            self.debugChunks = chunkCount
-        }
-        // The Worker either streams real `data:` events or returns an error before headers
-        // — but if Cartesia changes its event schema we'd see lines flowing without any
-        // recognised chunks, parse cleanly to completion, and silently fall back to System
-        // voice with no signal at all. Treat "lines but zero chunks" as a stream failure so
-        // the caller's catch path runs and the dev panel surfaces what went wrong.
-        if chunkCount == 0 && lineCount > 0 {
-            throw PremiumTTSError.streamFailure("zero audio chunks decoded from \(lineCount) SSE lines — provider schema may have changed")
-        }
-        // Persist the concatenated PCM once the whole stream has drained cleanly. A
-        // cancelled / errored stream throws before reaching here, so we never write a
-        // partial utterance — which would play as a clipped audio file on every cache hit.
-        if chunkCount > 0, let key = currentCacheKey, let provider = currentCacheProvider {
-            let evenCount = accumulatedPCM.count & ~1
-            let payload = evenCount == accumulatedPCM.count
-                ? accumulatedPCM
-                : accumulatedPCM.prefix(evenCount)
-            TTSCache.shared.save(key: key, provider: provider, data: payload)
-        }
-    }
-
-    /// Returns true if this event produced an audio chunk (for stats).
-    @discardableResult
-    private func handleEventJSON(_ json: String, startedAt t0: Date) throws -> Bool {
-        guard let data = json.data(using: .utf8) else {
-            log.error("event utf8 decode failed")
-            return false
-        }
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            log.error("event JSON parse failed: \(json.prefix(80), privacy: .public)")
-            return false
-        }
-        let type = obj["type"] as? String
-
-        if type == "chunk", let b64 = obj["data"] as? String, let pcm = Data(base64Encoded: b64) {
-            // Accumulate the raw PCM so we can save the whole utterance to TTSCache at
-            // the end of the stream. We append in-order before scheduling playback, which
-            // means a cancelled-mid-stream call still gets dropped (the cache write only
-            // happens on parseSSE's clean exit).
-            accumulatedPCM.append(pcm)
-            try schedulePCM(pcm, startedAt: t0)
-            return true
-        } else if type == "done" || (obj["done"] as? Bool == true) {
-            log.debug("SSE done received")
-        } else if type == "error" {
-            let msg = (obj["error"] as? String) ?? "unknown"
-            throw PremiumTTSError.streamFailure("server error: \(msg)")
-        } else {
-            log.debug("event ignored: type=\(type ?? "<nil>", privacy: .public)")
-        }
-        return false
     }
 
     // MARK: - PCM → AVAudioPCMBuffer → AVAudioPlayerNode
 
     /// 24 kHz s16le mono → 24 kHz Float32 mono. Manual conversion path because it avoids
-    /// the AVAudioConverter overhead and matches what we used since the Cartesia-only
-    /// days. The Float32 target matches the engine's source format, so the buffer can
-    /// be scheduled with zero further conversion.
+    /// the AVAudioConverter overhead. The Float32 target matches the engine's source
+    /// format, so the buffer can be scheduled with zero further conversion.
     private func buildBuffer24kHz(_ pcm: Data) throws -> AVAudioPCMBuffer {
         let frameCount = AVAudioFrameCount(pcm.count / 2)
         guard frameCount > 0 else {

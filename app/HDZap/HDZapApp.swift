@@ -31,6 +31,21 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.premiumPitchKey: LapAnnouncerDefaults.defaultPremiumPitch,
             WatchHapticsDefaults.enabledKey: WatchHapticsDefaults.defaultEnabled,
         ])
+        // Clear stale premium voice IDs that no longer exist in the catalog (e.g. the
+        // 25 Cartesia voices removed when that provider was dropped). Without this, an
+        // upgraded subscriber whose stored ID is a removed UUID would silently fall
+        // back to System voice with no UI surface — `premiumLapVoiceId.isEmpty` is the
+        // signal AudioSettingsView uses to render the "Choose voice" banner. Idempotent:
+        // after the first clear the value is empty and the guard short-circuits.
+        let savedPremiumVoiceId = UserDefaults.standard
+            .string(forKey: LapAnnouncerDefaults.premiumVoiceIdentifierKey) ?? ""
+        if !savedPremiumVoiceId.isEmpty,
+           !PremiumVoiceCatalog.voices.contains(where: { $0.id == savedPremiumVoiceId }) {
+            UserDefaults.standard.set(
+                LapAnnouncerDefaults.defaultPremiumVoiceIdentifier,
+                forKey: LapAnnouncerDefaults.premiumVoiceIdentifierKey
+            )
+        }
         #if DEBUG
         // Screenshot-mode override: force the session-limit + target-lap
         // defaults so the seeded LapTimer / history records always render
@@ -74,6 +89,13 @@ struct HDZapApp: App {
                     lapAnnouncer.premiumSynth.jwsProvider = { [weak subscription] in
                         subscription?.currentJWS
                     }
+                    // Populate the Premium TTS local cache for fixed phrases (countdown
+                    // numbers + start / last-lap cues) before any race begins, so the
+                    // 1-second countdown tick can hit local disk (~10 ms) instead of
+                    // round-tripping to the Worker (~600–1000 ms on Azure/Polly) and
+                    // getting eaten by the `inflightUtteranceCount` guard. No-op if the
+                    // operator is on the System engine.
+                    lapAnnouncer.prewarmFixedPhrases()
                 }
         }
     }

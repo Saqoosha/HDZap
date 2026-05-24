@@ -99,12 +99,37 @@ class BluetoothManager: NSObject {
     /// sub-second window between `didConnect` and `didDiscoverCharacteristics`,
     /// during which `write()` would fail with "characteristic not ready".
     var isReady: Bool {
-        isConnected
+        #if DEBUG
+        if screenshotForceReady { return true }
+        #endif
+        return isConnected
             && characteristics[osdControlUUID] != nil
             && characteristics[osdTextUUID] != nil
     }
 
+    #if DEBUG
+    /// When true, `isReady` and `supportsDeviceRename` short-circuit to true
+    /// regardless of the (fake) characteristics dict. Drives screenshot-mode
+    /// rendering of the rename row + DeviceRenameView, which would otherwise
+    /// hide entirely because the fake-connect seed doesn't populate
+    /// `characteristics`. Set by `seedConnectedForScreenshot()`.
+    private var screenshotForceReady = false
+    #endif
+
     private(set) var discoveredDevices: [CBPeripheral] = []
+    #if DEBUG
+    /// Stand-in for `discoveredDevices` when capturing the connection
+    /// screen for the manual. `CBPeripheral` has no public initializer,
+    /// so faking a row through the normal scan path is impossible —
+    /// instead, view code (`ConnectionSettingsView.discoveredSection`)
+    /// checks this in DEBUG and renders rows from these tuples when
+    /// non-empty. Production code paths ignore this array entirely.
+    struct ScreenshotDiscoveredDevice: Identifiable {
+        let id: UUID
+        let name: String
+    }
+    var screenshotDiscoveredDevices: [ScreenshotDiscoveredDevice] = []
+    #endif
     /// Local name captured from advertisement / scan response, keyed by
     /// peripheral identifier. Solves the "Unknown" first-pairing flicker:
     /// while iOS has no cached GAP 0x2A00 device name for this peripheral,
@@ -430,6 +455,21 @@ class BluetoothManager: NSObject {
                 remainingPercent: 40
             )
         }
+        // Settings screenshot routes need a populated "connected M5Stick" so
+        // the drilldown rows show battery % / device name / firmware version
+        // instead of "Not connected". Seed in init so the first SettingsView
+        // render already sees the green state. Routes that want the
+        // standalone state explicitly reset prior persisted bridge-on state so
+        // the simulator's stale UserDefaults can't leak through (and the
+        // bridge-error banner can't appear on a route documenting standalone
+        // race operation).
+        if ScreenshotMode.wantsConnectedBridge {
+            seedConnectedForScreenshot()
+        } else if ScreenshotMode.wantsBridgeOnUnconnected {
+            seedBridgeEnabledOnlyForScreenshot()
+        } else if ScreenshotMode.wantsStandaloneBridge {
+            resetBridgeForScreenshot()
+        }
         #endif
     }
 
@@ -751,7 +791,12 @@ class BluetoothManager: NSObject {
     /// True once the OSD layout characteristic has been discovered.
     /// Lets the layout-settings view show a hint when paired against
     /// older firmware that doesn't carry the new char.
-    var supportsOSDLayout: Bool { characteristics[osdLayoutUUID] != nil }
+    var supportsOSDLayout: Bool {
+        #if DEBUG
+        if screenshotForceReady { return true }
+        #endif
+        return characteristics[osdLayoutUUID] != nil
+    }
 
     /// Rename the M5StickS3's advertised BLE name. Firmware persists to
     /// NVS and reboots — the connection drops for ~3 s and bonded iOS
@@ -775,7 +820,12 @@ class BluetoothManager: NSObject {
     /// Lets the rename UI hide itself when paired with older firmware
     /// that doesn't carry the new char, instead of surfacing a generic
     /// "characteristic not ready" error on tap.
-    var supportsDeviceRename: Bool { characteristics[deviceNameUUID] != nil }
+    var supportsDeviceRename: Bool {
+        #if DEBUG
+        if screenshotForceReady { return true }
+        #endif
+        return characteristics[deviceNameUUID] != nil
+    }
 
     @discardableResult
     func startTXSniff() -> Bool {
@@ -873,6 +923,16 @@ class BluetoothManager: NSObject {
         // contract honest, instead of pushing the check into every call
         // site upstream.
         guard isBridgeEnabled else { return false }
+        #if DEBUG
+        // Manual-screenshot mode forces `isReady` / `supportsOSDLayout`
+        // true to render the connected-state UI, but there's no real
+        // `connectedPeripheral` to write to. Silently no-op so the next
+        // `OSDLayoutSettingsView.onAppear`-triggered `sendOSDLayout` /
+        // `sendOSDRows` call doesn't populate `lastError = "Not
+        // connected. Tap Scan and reconnect."` and leak the banner into
+        // a subsequent screenshot.
+        if screenshotForceReady { return false }
+        #endif
         guard let peripheral = connectedPeripheral else {
             lastError = "Not connected. Tap Scan and reconnect."
             return false
@@ -903,6 +963,116 @@ class BluetoothManager: NSObject {
     }
 
     #if DEBUG
+    /// Flip the bridge toggle on without seeding `isConnected` so the
+    /// Settings root renders the three drilldowns (M5StickS3 / Goggle
+    /// pairing / OSD layout) AND the M5StickS3 row's subtitle reads
+    /// "Not connected" instead of the connected-device summary. Mirrors
+    /// the moment a fresh user has flipped the toggle for the first
+    /// time but hasn't yet tapped Scan.
+    func seedBridgeEnabledOnlyForScreenshot() {
+        UserDefaults.standard.set(true, forKey: Self.bridgeEnabledKey)
+        isBridgeEnabled = true
+        // Explicitly clear any state a previous capture seeded so the
+        // simulator's persisted defaults can't leak through.
+        isConnected = false
+        connectedDeviceName = nil
+        currentDeviceName = nil
+        batteryPercent = nil
+        isCharging = false
+        firmwareVersion = nil
+        firmwareIncompatible = false
+        screenshotForceReady = false
+        screenshotDiscoveredDevices = []
+        // Keep `lastKnownUID` cleared so the Goggle pairing row reads
+        // "—" — a previously-paired UID would imply a previous live
+        // connection, which contradicts the "bridge just turned on"
+        // narrative this route is meant to illustrate.
+        currentUID = nil
+        lastKnownUID = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
+    }
+
+    /// Wipe the screenshot-mode bridge seed so a subsequent route that wants
+    /// the standalone (`isBridgeEnabled == false`) state isn't left with the
+    /// previous capture's persisted "bridge on". The simulator's UserDefaults
+    /// survive across launches, so this needs to undo
+    /// `seedConnectedForScreenshot` explicitly rather than relying on a
+    /// fresh-install default.
+    func resetBridgeForScreenshot() {
+        UserDefaults.standard.set(false, forKey: Self.bridgeEnabledKey)
+        isBridgeEnabled = false
+        isConnected = false
+        connectedDeviceName = nil
+        currentDeviceName = nil
+        batteryPercent = nil
+        isCharging = false
+        firmwareVersion = nil
+        firmwareIncompatible = false
+        // Match `seedBridgeEnabledOnlyForScreenshot()` and clear the
+        // screenshot-only override flags too. Without these two lines a
+        // `settingsRoot` → `timerReady` capture sequence would leave
+        // `screenshotForceReady == true` so `isReady` reads `true` against
+        // a standalone-mode bridge (`isBridgeEnabled == false`) — a
+        // contradictory state that would unlock OSD-write affordances on
+        // surfaces that gate on `isReady`.
+        screenshotForceReady = false
+        screenshotDiscoveredDevices = []
+        currentUID = nil
+        lastKnownUID = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastKnownUIDKey)
+    }
+
+    /// Fake a "connected M5StickS3" state for Settings screenshot capture.
+    /// Without this the simulator (which never sees a real BLE peripheral)
+    /// renders the Settings root with `isConnected == false`, hiding the
+    /// battery / firmware / Bluetooth-name rows the manual screenshots need
+    /// to document. Bypasses the normal CBCentralManager lifecycle by
+    /// flipping the `@Observable` properties directly; this seed does NOT
+    /// create a central. Whether iOS shows the Bluetooth permission prompt
+    /// depends only on whether `init()` already created the central — on a
+    /// first-ever launch with no persisted `m5StickBridgeEnabled` key the
+    /// prompt is suppressed, but on subsequent runs the persisted-true key
+    /// causes `init()` to create the central before this seed runs (and the
+    /// system prompt may appear). Safe in either case because the seed
+    /// only mutates `private(set)` Observable state — no real BLE writes
+    /// fire from this path.
+    func seedConnectedForScreenshot() {
+        UserDefaults.standard.set(true, forKey: Self.bridgeEnabledKey)
+        isBridgeEnabled = true
+        isConnected = true
+        connectedDeviceName = "HDZapBridge"
+        currentDeviceName = "HDZapBridge"
+        batteryPercent = 78
+        isCharging = false
+        firmwareVersion = "v1.1.0"
+        firmwareIncompatible = false
+        // Force `isReady` and `supportsDeviceRename` true without populating
+        // the real characteristics dict — needed so the rename row + the
+        // DeviceRenameView's "Save" gate render the connected-state branch.
+        screenshotForceReady = true
+        // Seed a UID so the pairing summary row in Settings root shows a
+        // populated value instead of "—". The bytes mirror the
+        // `manualUIDText = "168,109,180,18,79,124"` constant pre-typed for
+        // the `.pairingManualUID` route in `PairingSettingsView`, so the
+        // same UID renders consistently across every screenshot in the
+        // manual (Settings root, Connection screen, Pairing screen).
+        // Bit-0 of byte 0 is already cleared per the unicast-MAC invariant.
+        let uid: [UInt8] = [0xA8, 0x6D, 0xB4, 0x12, 0x4F, 0x7C]
+        currentUID = uid
+        lastKnownUID = uid
+        // A second fake device so the "Other devices" card has a populated
+        // row in the captured screenshot (the empty state — "No devices
+        // found." — doesn't communicate what scan results actually look
+        // like). Stable UUID so the identifier-prefix suffix stays
+        // consistent across re-captures.
+        screenshotDiscoveredDevices = [
+            ScreenshotDiscoveredDevice(
+                id: UUID(uuidString: "A1B2C3D4-5678-4ABC-9DEF-000000000002")!,
+                name: "HDZap-Pilot2"
+            )
+        ]
+    }
+
     /// Inject a flight-battery reading for App Store screenshot capture.
     /// The strip is hidden until `lastFlightBatteryReceivedAt` is non-nil,
     /// so without this hook the simulator (which never sees a real CRSF

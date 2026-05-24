@@ -8,6 +8,11 @@ import CoreBluetooth
 struct ConnectionSettingsView: View {
     @Environment(BluetoothManager.self) private var bluetooth
 
+    #if DEBUG
+    @State private var ssGoRename = false
+    @State private var ssRouteApplied = false
+    #endif
+
     var body: some View {
         List {
             connectedSection
@@ -17,6 +22,18 @@ struct ConnectionSettingsView: View {
         }
         .navigationTitle("M5StickS3")
         .navigationBarTitleDisplayMode(.inline)
+        #if DEBUG
+        .navigationDestination(isPresented: $ssGoRename) {
+            DeviceRenameView()
+        }
+        .onAppear {
+            guard !ssRouteApplied else { return }
+            if ScreenshotMode.route == .rename {
+                ssRouteApplied = true
+                ssGoRename = true
+            }
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -116,30 +133,65 @@ struct ConnectionSettingsView: View {
         let others = bluetooth.discoveredDevices
             .filter { $0.identifier != bluetooth.connectedIdentifier }
         return Section("Other devices") {
-            if others.isEmpty {
-                Text(bluetooth.isConnected
-                     ? String(localized: "No other devices found.")
-                     : String(localized: "No devices found. Tap Scan to search."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(others, id: \.identifier) { peripheral in
+            #if DEBUG
+            // Screenshot capture: render fake rows when the screenshot seed
+            // populated them. `CBPeripheral` has no public initializer, so
+            // we can't push entries onto `discoveredDevices` directly. The
+            // production scan path leaves `screenshotDiscoveredDevices`
+            // empty so this branch only renders when an explicit seed put
+            // values in it.
+            if !bluetooth.screenshotDiscoveredDevices.isEmpty {
+                ForEach(bluetooth.screenshotDiscoveredDevices) { device in
                     HStack {
                         Circle()
                             .stroke(.secondary, lineWidth: 1)
                             .frame(width: 10, height: 10)
                         VStack(alignment: .leading) {
-                            Text(bluetooth.displayName(for: peripheral) ?? "Unknown").font(.body)
-                            Text(peripheral.identifier.uuidString.prefix(8) + "...")
+                            Text(device.name).font(.body)
+                            Text(device.id.uuidString.prefix(8) + "...")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Connect") {
-                            bluetooth.connect(peripheral)
-                        }
-                        .buttonStyle(.bordered)
+                        Button("Connect") {}
+                            .buttonStyle(.bordered)
+                            .disabled(true)
                     }
+                }
+            } else {
+                realDiscoveredContent(others)
+            }
+            #else
+            realDiscoveredContent(others)
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private func realDiscoveredContent(_ others: [CBPeripheral]) -> some View {
+        if others.isEmpty {
+            Text(bluetooth.isConnected
+                 ? String(localized: "No other devices found.")
+                 : String(localized: "No devices found. Tap Scan to search."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(others, id: \.identifier) { peripheral in
+                HStack {
+                    Circle()
+                        .stroke(.secondary, lineWidth: 1)
+                        .frame(width: 10, height: 10)
+                    VStack(alignment: .leading) {
+                        Text(bluetooth.displayName(for: peripheral) ?? "Unknown").font(.body)
+                        Text(peripheral.identifier.uuidString.prefix(8) + "...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Connect") {
+                        bluetooth.connect(peripheral)
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
         }

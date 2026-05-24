@@ -70,7 +70,17 @@ struct DeviceRenameView: View {
         }
         .onAppear {
             draft = bluetooth.currentDeviceName ?? bluetooth.connectedDeviceName ?? ""
+            #if DEBUG
+            // Screenshot capture: skip auto-focus so the soft keyboard
+            // (and iOS QuickPath onboarding overlay on a fresh simulator)
+            // doesn't cover the lower half of the screen. The footer
+            // hint + byte counter need to stay visible in the captured PNG.
+            if !ScreenshotMode.isActive {
+                nameFieldFocused = true
+            }
+            #else
             nameFieldFocused = true
+            #endif
         }
     }
 
