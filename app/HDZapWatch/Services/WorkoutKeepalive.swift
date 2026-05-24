@@ -80,6 +80,24 @@ final class WorkoutKeepalive: NSObject {
             b.beginCollection(withStart: now) { [weak self] ok, err in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    // Identity gate: a stop()→start() that landed between
+                    // dispatch and completion will have nilled out
+                    // `session`/`builder` and possibly seeded new ones.
+                    // Without this check, the *old* session's completion
+                    // would overwrite the *new* session's `lastError` /
+                    // `isActive` / refs — silently breaking the active
+                    // race. `s.end()` on the outgoing session is still
+                    // safe and desired in the failure paths, since the
+                    // outgoing session is the one whose collection failed.
+                    guard self.session === s, self.builder === b else {
+                        if err != nil || !ok {
+                            log.warning("stale beginCollection completion (outgoing session) — ending outgoing only, current state untouched")
+                            s.end()
+                        } else {
+                            log.debug("stale beginCollection success (outgoing session) — current state untouched")
+                        }
+                        return
+                    }
                     if let err {
                         log.error("beginCollection failed: \(err.localizedDescription)")
                         self.lastError = err.localizedDescription
@@ -163,6 +181,16 @@ extension WorkoutKeepalive: HKWorkoutSessionDelegate {
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
         log.error("workout failed: \(error.localizedDescription)")
         Task { @MainActor in
+            // Identity gate: an outgoing session can fail asynchronously
+            // after stop() (or a stop()→start() pair) has already moved
+            // on. Without this check, the dying session's failure would
+            // wipe the new session's state — re-arming the wrist for
+            // nothing while the operator's actual race silently stops
+            // getting haptics.
+            guard self.session === workoutSession else {
+                log.warning("didFailWithError from stale session — ignoring (current session unaffected)")
+                return
+            }
             self.lastError = error.localizedDescription
             self.isActive = false
             self.session = nil
