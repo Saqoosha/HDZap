@@ -8,6 +8,7 @@ firmware/.gcc-flags.json
 # Xcode
 app/HDZeroLapTimer.xcodeproj/
 app/build/
+app/build-rel/
 app/DerivedData/
 app/*.xcworkspace
 app/xcuserdata/
