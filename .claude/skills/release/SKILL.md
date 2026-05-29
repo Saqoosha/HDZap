@@ -78,12 +78,8 @@ The script:
       --notes "<release notes>"
     ```
 
-    **Title format**: `X.Y.Z` for full releases (e.g., "1.0.1"), `X.Y.Z build N` for build-only (e.g., "1.0.0 build 4").
-    **Body format** (both variants):
-    - `## What's in X.Y.Z` (full) or `## Changes since <previous>` (build-only) — bullet list of user-facing changes only; skip docs/infra/CI/internal changes
-    - `## Compatibility` (full releases only; omit for build-only)
-    - `## Links` — TestFlight beta invite + Web Flasher + Manual (EN) + Manual (JA)
-    - Do NOT include a "🤖 Generated with…" footer line.
+    **Title format**: `X.Y.Z` for full releases (e.g., "1.1.0"), `X.Y.Z build N` for build-only (e.g., "1.0.0 build 4").
+    **Body format**: follow the canonical template in the **Release notes format** section below — match the existing releases exactly so the archive reads uniformly.
 
 11. **Fill TestFlight "What to Test"** for both en-US and ja locales via the App Store Connect API — see the TestFlight "What to Test" section below.
 12. **Fast-forward** local `develop` to `main` so the next cycle starts in sync.
@@ -228,10 +224,7 @@ Use this variant when the operator wants the develop tip to reach existing TestF
     ```
 
     **Title format**: `X.Y.Z build N` (e.g., "1.0.0 build 4").
-    **Body format**:
-    - `## Changes since <previous>` — bullet list of user-facing changes only; skip docs/infra/CI/internal changes
-    - `## Links` — TestFlight beta invite + Web Flasher + Manual (EN) + Manual (JA)
-    - Do NOT include a "🤖 Generated with…" footer line.
+    **Body format**: follow the canonical template in the **Release notes format** section below, with the build-only differences noted there (`## Changes since v<previous>` heading; omit `## Compatibility`).
 
 11. **Fill TestFlight "What to Test"** for both en-US and ja locales — see the TestFlight "What to Test" section above.
 
@@ -245,6 +238,42 @@ Use this variant when the operator wants the develop tip to reach existing TestF
 | Quick re-upload to fix a TestFlight processing failure on the same build | Full (next patch) | `v<X.Y.(Z+1)>` |
 
 When in doubt, default to a full release — the build-only path is for the specific case where retaining the existing beta-review approval is operationally important.
+
+## Release notes format
+
+Every GitHub Release body follows this template so the release archive reads uniformly. Match the existing releases (e.g. `v1.0.1`, `v1.1.0`) exactly.
+
+```markdown
+## What's in X.Y.Z
+
+**iPhone app (App Store)**
+- One user-facing change per bullet.
+- …
+
+Firmware unchanged this cycle.
+
+## Compatibility
+
+- HDZero Goggle / Goggle 2 with ELRS Backpack firmware v1.5.5 or newer
+- iPhone running iOS 18 or later
+- M5StickS3
+
+## Links
+- [App Store](https://apps.apple.com/app/id6766197336)
+- [TestFlight beta](https://testflight.apple.com/join/PEXrhxXh)
+- [Web Flasher](https://saqoosha.github.io/HDZap/flash/)
+- [Manual (English)](https://saqoosha.github.io/HDZap/)
+- [Manual (日本語)](https://saqoosha.github.io/HDZap/ja/)
+```
+
+Rules:
+
+- **Heading**: `## What's in X.Y.Z` for a full release; `## Changes since v<previous>` for a build-only release.
+- **Platform subsections**: group bullets under a bold header — `**iPhone app (App Store)**`, or `**iPhone app (TestFlight)**` if the version is not yet live on the App Store. Add a `**Firmware**` subsection (with bullets) when `firmware/` changed; otherwise state `Firmware unchanged this cycle.` on its own line.
+- **Bullets**: user-facing changes only — skip docs / infra / CI / internal commits.
+- **`## Compatibility`**: full releases only (omit for build-only). The standard three bullets (Goggle / iOS / M5StickS3), plus one extra bullet per *new* constraint this version introduces (e.g. for 1.1.0: "HDZap Premium voices require a network connection — audio is generated server-side").
+- **`## Links`**: always markdown links (`[text](url)`), never bare URLs. Include the App Store link once the version is live on the App Store; keep the TestFlight beta, Web Flasher, and both manual links.
+- **No footer**: never include a "🤖 Generated with…" line.
 
 ## Notes
 
