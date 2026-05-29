@@ -49,9 +49,20 @@ final class RaceHistoryStore {
         // detached load could land after that and overwrite them with
         // whatever's already on disk in the simulator's container.
         // Skip the load entirely so the seed wins unconditionally.
-        // `seedForScreenshot` bypasses `commit()`, so the developer's
-        // real `race-history.json` is never written either.
-        if ProcessInfo.processInfo.arguments.contains("-screenshotHistory") {
+        //
+        // Two writer paths are involved in screenshot mode, both gated
+        // on `ScreenshotMode.isActive`:
+        //   1. `seedForScreenshot` bypasses `commit()` directly — no
+        //      disk write fires from the seed itself.
+        //   2. `TimerView.saveRaceIfNeeded()` (the auto-save that fires
+        //      on `sessionEnded`) short-circuits when
+        //      `ScreenshotMode.isActive` is true, so a `.timerDone`
+        //      route's synthesized finished race doesn't persist and
+        //      reappear on the next `historyList` launch.
+        // The check below covers every screenshot launch arg:
+        // legacy `-screenshotHistory` + `-screenshotTimer`, plus the
+        // newer `-screenshotRoute <name>`.
+        if ScreenshotMode.isActive {
             return
         }
         #endif

@@ -7,8 +7,8 @@ options:
   developmentLanguage: en
 settings:
   base:
-    MARKETING_VERSION: "1.0.1"
-    CURRENT_PROJECT_VERSION: "11"
+    MARKETING_VERSION: "1.1.0"
+    CURRENT_PROJECT_VERSION: "20"
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: VCFY2GFR89
     CODE_SIGN_STYLE: Automatic
@@ -35,3 +35,16 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIRequiresFullScreen: YES
         UILaunchScreen: {}
+schemes:
+  HDZap:
+    build:
+      targets:
+        HDZap: all
+    # No `storeKitConfiguration` here on purpose: local-StoreKit transactions are
+    # signed with a Xcode-only key that fails Apple Root CA G3 verification on the
+    # `hdzap-premium` Worker, so the JWS auth path can't be exercised end-to-end.
+    # Default to Sandbox in every local Debug run — same flow TestFlight testers see,
+    # one Sandbox Apple Account setup buys all subsequent runs. Keep the `.storekit`
+    # file in `HDZap/Resources/StoreKit/` so we can flip back via Xcode → Edit Scheme
+    # → Run → Options → StoreKit Configuration on the rare day local fake
+    # transactions are useful (paywall layout iteration without sandbox round-trip).

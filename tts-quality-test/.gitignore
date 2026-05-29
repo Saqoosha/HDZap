@@ -1,0 +1,9 @@
+.env
+outputs/
+__pycache__/
+*.pyc
+.venv/
+.python-version
+results.json
+streaming_latency*.json
+number_format_test.html

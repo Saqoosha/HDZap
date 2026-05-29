@@ -28,18 +28,28 @@ class LapTimer {
 
     init() {
         #if DEBUG
-        // App Store screenshot seed runs at init() so the first render
-        // already sees `isRunning == true` and the seeded laps. Flipping
-        // state post-render via `.onAppear` exposes the primary button's
-        // pulse-scale animation (driven by
-        // `.onChange(of: lapTimer.isRunning)` + an explicit easeInOut
-        // .animation modifier at the button site) and risks an unstable
-        // label / pulse frame at capture time. See
+        // Screenshot seed runs at init() so the first render already sees
+        // `isRunning == true` and the seeded laps. Flipping state post-
+        // render via `.onAppear` exposes the primary button's pulse-scale
+        // animation (driven by `.onChange(of: lapTimer.isRunning)` + an
+        // explicit easeInOut .animation modifier at the button site) and
+        // risks an unstable label / pulse frame at capture time. Both the
+        // legacy `-screenshotTimer` arg and the newer `-screenshotRoute
+        // timerRunning` / `timerDone` paths land here. See
         // docs/screenshot-capture.md.
-        if ProcessInfo.processInfo.arguments.contains("-screenshotTimer") {
+        if ProcessInfo.processInfo.arguments.contains("-screenshotTimer")
+            || ScreenshotMode.route == .timerRunning {
             seedForScreenshot(
                 lapTimes: [15.55, 15.68, 14.67, 14.87],
                 currentLapElapsed: 4.045
+            )
+        } else if ScreenshotMode.route == .timerDone {
+            // Race-ended state: 6 completed laps with the FINAL pushing the
+            // total slightly past the 90 s session window — mirrors the
+            // "FINAL took us over" outcome the manual describes.
+            seedFinishedForScreenshot(
+                lapTimes: [15.55, 15.68, 14.67, 14.87, 14.42, 15.31],
+                sessionLimit: TimeInterval(RaceMetrics.defaultSessionLimit)
             )
         }
         #endif
@@ -129,6 +139,34 @@ class LapTimer {
         accumulatedTime = total
         sessionStartedAt = Date(timeIntervalSinceNow: -total)
         isRunning = true
+    }
+
+    /// Pre-populate state for the post-race "DONE" screenshot route.
+    /// Same shape as `seedForScreenshot` but leaves `isRunning = false`
+    /// and pushes `elapsedTime` at least to `sessionLimit` (clamped via
+    /// `max(cumulative, sessionLimit)`) so `TimerView`'s `sessionEnded`
+    /// computed property flips true on first render — driving the
+    /// results-summary layout: RESET button on the left, DONE button
+    /// (disabled) in the middle, SHARE button on the right.
+    func seedFinishedForScreenshot(lapTimes: [TimeInterval], sessionLimit: TimeInterval) {
+        var cumulative: TimeInterval = 0
+        var seeded: [Lap] = []
+        for (i, t) in lapTimes.enumerated() {
+            cumulative += t
+            seeded.append(Lap(id: i + 1, time: t))
+        }
+        laps = seeded
+        cumulativeLapTime = cumulative
+        // Push elapsed at least to sessionLimit so the `timeUp` guard in
+        // TimerView trips. If the seeded laps happen to sum below the
+        // session limit (e.g. an early FINAL), pin elapsed to the limit
+        // exactly; otherwise let it ride at the lap total so the displayed
+        // clock matches the lap sum.
+        let total = max(cumulative, sessionLimit)
+        elapsedTime = total
+        accumulatedTime = total
+        sessionStartedAt = Date(timeIntervalSinceNow: -total)
+        isRunning = false
     }
     #endif
 }

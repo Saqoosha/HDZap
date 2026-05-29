@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>HDZap TTS Quality Comparison</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --fg: #1a1a1a;
+      --muted: #6e6e6e;
+      --border: #e4e4e7;
+      --hl: #f5f5f7;
+      --best: #fef3c7;
+      --error: #fee2e2;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0a0a0a;
+        --fg: #f4f4f5;
+        --muted: #a1a1aa;
+        --border: #27272a;
+        --hl: #18181b;
+        --best: #422006;
+        --error: #450a0a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    .sub { color: var(--muted); margin-bottom: 16px; font-size: 13px; }
+    .controls {
+      display: flex; gap: 12px; flex-wrap: wrap;
+      margin-bottom: 24px;
+      padding: 12px; border: 1px solid var(--border); border-radius: 8px;
+    }
+    .controls label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    .controls select, .controls input { font: inherit; padding: 4px 8px; }
+    .phrase-block {
+      margin-bottom: 32px;
+      padding: 16px; border: 1px solid var(--border); border-radius: 8px;
+    }
+    .phrase-header {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+    }
+    .phrase-text { font-size: 18px; font-weight: 600; }
+    .phrase-meta { color: var(--muted); font-size: 12px; }
+    .grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+    .cell {
+      padding: 10px; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--hl); font-size: 13px;
+    }
+    .cell.error { background: var(--error); }
+    .cell .provider { font-weight: 600; font-size: 13px; }
+    .cell .voice { color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+    .cell .latency { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .cell audio { width: 100%; margin-top: 6px; }
+    .cell .err { color: #b91c1c; font-size: 11px; word-break: break-word; }
+    .rate {
+      display: flex; gap: 4px; margin-top: 6px;
+    }
+    .rate button {
+      flex: 1; padding: 2px 4px; font-size: 11px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+      cursor: pointer;
+    }
+    .rate button.selected { background: #facc15; color: #000; border-color: #facc15; }
+    summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+    table.summary { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+    table.summary th, table.summary td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <h1>HDZap TTS Quality Comparison</h1>
+  <div class="sub">Open <code>results.json</code> below, listen, and rate each cell 1–5.
+    Ratings are stored in <code>localStorage</code> per (provider, voice, phrase) — survives reloads.
+  </div>
+
+  <div class="controls">
+    <label>Load results: <input id="results-url" type="text" value="results.json" size="30"></label>
+    <button id="reload">↻ Reload</button>
+    <label>Language:
+      <select id="lang-filter">
+        <option value="">All</option>
+        <option value="ja">Japanese</option>
+        <option value="en">English</option>
+      </select>
+    </label>
+    <label>Category:
+      <select id="cat-filter">
+        <option value="">All</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="hide-errors"> Hide errors</label>
+    <button id="export-ratings">⤓ Export ratings</button>
+  </div>
+
+  <div id="container"></div>
+
+  <script>
+    const RATING_KEY = "hdzap-tts-ratings-v1";
+    let allRows = [];
+
+    async function load(url) {
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        allRows = data.rows || [];
+        populateCategories();
+        render();
+      } catch (e) {
+        document.getElementById("container").innerHTML =
+          `<div style="padding:16px;border:1px solid #b91c1c;border-radius:8px;color:#b91c1c;">
+             Failed to load ${url}: ${e.message}
+           </div>`;
+      }
+    }
+
+    function populateCategories() {
+      const cats = [...new Set(allRows.map(r => r.category))];
+      const sel = document.getElementById("cat-filter");
+      sel.innerHTML = '<option value="">All</option>' +
+        cats.map(c => `<option value="${c}">${c}</option>`).join("");
+    }
+
+    function getRating(key) {
+      const all = JSON.parse(localStorage.getItem(RATING_KEY) || "{}");
+      return all[key];
+    }
+    function setRating(key, val) {
+      const all = JSON.parse(localStorage.getItem(RATING_KEY) || "{}");
+      all[key] = val;
+      localStorage.setItem(RATING_KEY, JSON.stringify(all));
+    }
+    function ratingKey(r) {
+      return `${r.provider}|${r.voice_id}|${r.phrase_id}`;
+    }
+
+    function render() {
+      const lang = document.getElementById("lang-filter").value;
+      const cat = document.getElementById("cat-filter").value;
+      const hideErr = document.getElementById("hide-errors").checked;
+
+      let rows = allRows;
+      if (lang) rows = rows.filter(r => r.lang === lang);
+      if (cat) rows = rows.filter(r => r.category === cat);
+      if (hideErr) rows = rows.filter(r => !r.error);
+
+      // Group by phrase
+      const groups = new Map();
+      for (const r of rows) {
+        const k = `${r.phrase_id}__${r.phrase_text}`;
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(r);
+      }
+
+      const container = document.getElementById("container");
+      container.innerHTML = "";
+
+      for (const [k, cells] of groups) {
+        const sample = cells[0];
+        const block = document.createElement("div");
+        block.className = "phrase-block";
+        block.innerHTML = `
+          <div class="phrase-header">
+            <div>
+              <div class="phrase-text">${escape(sample.phrase_text)}</div>
+              <div class="phrase-meta">${sample.lang} · ${sample.category} · ${sample.phrase_id}</div>
+            </div>
+            <div class="phrase-meta">${cells.length} candidates</div>
+          </div>
+          <div class="grid"></div>
+        `;
+        const grid = block.querySelector(".grid");
+        for (const r of cells) {
+          const key = ratingKey(r);
+          const current = getRating(key);
+          const cell = document.createElement("div");
+          cell.className = "cell" + (r.error ? " error" : "");
+          cell.innerHTML = `
+            <div class="provider">${r.provider}</div>
+            <div class="voice">${r.voice_label} (${r.voice_id})</div>
+            <div class="latency">${r.latency_ms} ms${r.audio_bytes ? ` · ${(r.audio_bytes/1024).toFixed(1)} KB` : ""}</div>
+            ${r.error
+              ? `<div class="err">${escape(r.error)}</div>`
+              : `<audio controls preload="none" src="${r.audio_path}"></audio>
+                 <div class="rate"></div>`}
+          `;
+          if (!r.error) {
+            const rate = cell.querySelector(".rate");
+            for (let n = 1; n <= 5; n++) {
+              const btn = document.createElement("button");
+              btn.textContent = n;
+              if (current === n) btn.classList.add("selected");
+              btn.onclick = () => {
+                setRating(key, n);
+                render();
+              };
+              rate.appendChild(btn);
+            }
+          }
+          grid.appendChild(cell);
+        }
+        container.appendChild(block);
+      }
+    }
+
+    function escape(s) {
+      return String(s).replace(/[&<>"]/g, c =>
+        ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]
+      );
+    }
+
+    document.getElementById("reload").onclick = () =>
+      load(document.getElementById("results-url").value);
+    document.getElementById("lang-filter").onchange = render;
+    document.getElementById("cat-filter").onchange = render;
+    document.getElementById("hide-errors").onchange = render;
+
+    document.getElementById("export-ratings").onclick = () => {
+      const data = JSON.parse(localStorage.getItem(RATING_KEY) || "{}");
+      const csv = ["provider,voice_id,phrase_id,rating"];
+      for (const [k, v] of Object.entries(data)) {
+        const [provider, voice_id, phrase_id] = k.split("|");
+        csv.push(`${provider},${voice_id},${phrase_id},${v}`);
+      }
+      const blob = new Blob([csv.join("\n")], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "hdzap-tts-ratings.csv";
+      a.click();
+    };
+
+    load("results.json");
+  </script>
+</body>
+</html>

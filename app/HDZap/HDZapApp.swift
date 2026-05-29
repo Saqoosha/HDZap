@@ -7,6 +7,9 @@ struct HDZapApp: App {
     @State private var lapAnnouncer = LapAnnouncer()
     @State private var raceHistory = RaceHistoryStore()
     @State private var osdLayout = OSDLayoutSettings()
+    /// One subscription manager shared across the whole app. The init triggers
+    /// `Transaction.updates` listener registration via `start()` in onAppear — see body.
+    @State private var subscription = SubscriptionManager()
 
     init() {
         UserDefaults.standard.register(defaults: [
@@ -21,7 +24,26 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.voiceIdentifierKey: LapAnnouncerDefaults.defaultVoiceIdentifier,
             LapAnnouncerDefaults.countdownEnabledKey: LapAnnouncerDefaults.defaultCountdownEnabled,
             LapAnnouncerDefaults.countdownStartSecondsKey: LapAnnouncerDefaults.defaultCountdownStartSeconds,
+            LapAnnouncerDefaults.engineKey: LapAnnouncerDefaults.defaultEngine,
+            LapAnnouncerDefaults.premiumVoiceIdentifierKey: LapAnnouncerDefaults.defaultPremiumVoiceIdentifier,
+            LapAnnouncerDefaults.premiumRateKey: LapAnnouncerDefaults.defaultPremiumRate,
+            LapAnnouncerDefaults.premiumPitchKey: LapAnnouncerDefaults.defaultPremiumPitch,
         ])
+        // Clear stale premium voice IDs that no longer exist in the catalog (e.g. the
+        // 25 Cartesia voices removed when that provider was dropped). Without this, an
+        // upgraded subscriber whose stored ID is a removed UUID would silently fall
+        // back to System voice with no UI surface — `premiumLapVoiceId.isEmpty` is the
+        // signal AudioSettingsView uses to render the "Choose voice" banner. Idempotent:
+        // after the first clear the value is empty and the guard short-circuits.
+        let savedPremiumVoiceId = UserDefaults.standard
+            .string(forKey: LapAnnouncerDefaults.premiumVoiceIdentifierKey) ?? ""
+        if !savedPremiumVoiceId.isEmpty,
+           !PremiumVoiceCatalog.voices.contains(where: { $0.id == savedPremiumVoiceId }) {
+            UserDefaults.standard.set(
+                LapAnnouncerDefaults.defaultPremiumVoiceIdentifier,
+                forKey: LapAnnouncerDefaults.premiumVoiceIdentifierKey
+            )
+        }
         #if DEBUG
         // Screenshot-mode override: force the session-limit + target-lap
         // defaults so the seeded LapTimer / history records always render
@@ -49,6 +71,29 @@ struct HDZapApp: App {
                 .environment(lapAnnouncer)
                 .environment(raceHistory)
                 .environment(osdLayout)
+                .environment(subscription)
+                .task {
+                    // Start the StoreKit2 listener once the SwiftUI scene is on screen — earlier
+                    // (e.g. in the App init) would risk firing before the audio session /
+                    // BLE permissions are ready, which can spew "transaction observer not
+                    // attached in time" warnings on first launch.
+                    subscription.start()
+                    // Wire the Premium synth to the entitlement JWS. The closure captures
+                    // `subscription` weakly via the @Observable manager (it's a final
+                    // class), so the synth gets a fresh JWS each call without holding a
+                    // strong reference cycle. Wiring lives here because both objects are
+                    // available together for the first time.
+                    lapAnnouncer.premiumSynth.jwsProvider = { [weak subscription] in
+                        subscription?.currentJWS
+                    }
+                    // Populate the Premium TTS local cache for fixed phrases (countdown
+                    // numbers + start / last-lap cues) before any race begins, so the
+                    // 1-second countdown tick can hit local disk (~10 ms) instead of
+                    // round-tripping to the Worker (~600–1000 ms on Azure/Polly) and
+                    // getting eaten by the `inflightUtteranceCount` guard. No-op if the
+                    // operator is on the System engine.
+                    lapAnnouncer.prewarmFixedPhrases()
+                }
         }
     }
 }

@@ -1,0 +1,15 @@
+[project]
+name = "tts-quality-test"
+version = "0.1.0"
+description = "Side-by-side TTS quality comparison for HDZap lap announcer phrases"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "boto3>=1.35",
+    "google-genai>=0.3",
+    "google-cloud-texttospeech>=2.16",
+]
+
+[tool.uv]
+package = false

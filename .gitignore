@@ -8,6 +8,7 @@ firmware/.gcc-flags.json
 # Xcode
 app/HDZeroLapTimer.xcodeproj/
 app/build/
+app/build-rel/
 app/DerivedData/
 app/*.xcworkspace
 app/xcuserdata/
@@ -27,6 +28,10 @@ build/
 # Misc
 *.log
 
+# Secrets — rendered from .tpl via `op inject`, never commit the rendered file.
+# See app/HDZap/Models/Speech/BuildSecrets.swift.tpl for setup.
+app/HDZap/Models/Speech/BuildSecrets.swift
+
 # Web flasher firmware bins (CI-generated, deployed via GitHub Pages)
 docs/flash/firmware/*.bin
 
@@ -38,3 +43,7 @@ _site/
 !.claude/commands/
 !.claude/skills/
 .superpowers/
+
+
+# Private ASC API scripts + research (App Store Connect operations, not committed)
+_private/
