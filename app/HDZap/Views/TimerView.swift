@@ -14,6 +14,7 @@ struct TimerView: View {
     @Environment(LapAnnouncer.self) private var announcer
     @Environment(RaceHistoryStore.self) private var history
     @Environment(OSDLayoutSettings.self) private var osdLayout
+    @Environment(WatchHeartRateManager.self) private var watchHeartRate
     @AppStorage(RaceMetrics.targetLapCountStorageKey) private var targetLapCount
         = RaceMetrics.defaultTargetLapCount
     @AppStorage(RaceMetrics.raceSessionLimitStorageKey) private var raceSessionLimit: Int
@@ -46,6 +47,8 @@ struct TimerView: View {
     @State private var savedRaceID: UUID?
     /// CRSF flight-pack battery samples for the in-memory session.
     @State private var raceFlightBatterySamples: [RaceFlightBatterySample] = []
+    /// Apple Watch heart-rate samples for the in-memory session.
+    @State private var raceHeartRateSamples: [RaceHeartRateSample] = []
     /// Captured once at the moment a lap is recorded. Kept stable so the
     /// displayed projection/diff doesn't tick every frame as the in-flight
     /// lap consumes the remaining window. Cleared on START and RESET.
@@ -362,6 +365,15 @@ struct TimerView: View {
         // was rendering the all-visible buffer, so TIME LEFT could
         // land on the wrong grid row until the next full push.
         .onChange(of: lapTimer.isRunning) { _, running in
+            // Relay race state to the watch on every transition, before
+            // the BLE-readiness gate — the workout auto start/stop has
+            // no goggle dependency. Best-effort: silently no-ops when
+            // the watch app isn't reachable.
+            watchHeartRate.sendRaceState(running: running)
+            // Same race-start baseline idea as the flight battery below:
+            // a bpm cached from before START seeds the series at tRace=0
+            // instead of waiting ~1 s for the next watch message.
+            if running { ingestHeartRate() }
             guard running, bluetooth.isReady else { return }
             pushOSDBuffer(osdLayout.snapshot, semanticRaws: [
                 RaceMetrics.timeLeftRaw(remainingSec: remaining), "", "", "",
@@ -375,6 +387,9 @@ struct TimerView: View {
         }
         .onChange(of: bluetooth.flightBatteryNotifyRevision) { _, _ in
             ingestFlightBatteryTelemetry()
+        }
+        .onChange(of: watchHeartRate.heartRateNotifyRevision) { _, _ in
+            ingestHeartRate()
         }
         // Haptic on LAP tap. Fires only on count growth so RESET (count → 0)
         // stays silent. `lastLapWasFinal` is set in `primaryAction()` before
@@ -1170,6 +1185,7 @@ struct TimerView: View {
             lastLapAnnounced = lapTimer.elapsedTime >= sessionLimit - leadSec
             lapTimer.start()
             raceFlightBatterySamples.removeAll()
+            raceHeartRateSamples.removeAll()
             // Hold the audio session active for the whole race so each
             // announcement (start cue, countdown numbers, per-lap call,
             // final summary) is a bare `synthesizer.speak()` — without
@@ -1292,6 +1308,7 @@ struct TimerView: View {
             readyShown = false
             savedRaceID = nil
             raceFlightBatterySamples.removeAll()
+            raceHeartRateSamples.removeAll()
             nextCountdownN = nil
             lastLapAnnounced = false
         }
@@ -1381,6 +1398,28 @@ struct TimerView: View {
         raceFlightBatterySamples.append(sample)
     }
 
+    private func ingestHeartRate() {
+        guard lapTimer.isRunning, !sessionEnded, let started = lapTimer.sessionStartedAt else { return }
+        guard let bpm = watchHeartRate.lastHeartRateBpm else { return }
+        // Same anchoring + clamp rationale as the flight battery above:
+        // `lastHeartRateReceivedAt` moves in lockstep with the bpm, and a
+        // sample cached from BEFORE the race (watch workout already
+        // running during pre-race setup) lands the baseline at tRace = 0
+        // instead of a negative value that would fail RaceRecord's
+        // validator and silently drop the whole record on save.
+        let receivedAt = watchHeartRate.lastHeartRateReceivedAt ?? Date()
+        let tRace = max(receivedAt, started).timeIntervalSince(started)
+        // Dedupe on arrival time, not on bpm: a steady heart rate is
+        // real 1 Hz series data worth keeping, but the race-start
+        // baseline call and the revision observer can both see the same
+        // staged sample.
+        if let previous = raceHeartRateSamples.last,
+           previous.receivedAt == receivedAt { return }
+        raceHeartRateSamples.append(
+            RaceHeartRateSample(tRace: tRace, receivedAt: receivedAt, bpm: bpm)
+        )
+    }
+
     private func saveRaceIfNeeded() {
         guard savedRaceID == nil else { return }
         #if DEBUG
@@ -1400,13 +1439,15 @@ struct TimerView: View {
             return
         }
         let flightSamplesSorted = raceFlightBatterySamples.sortedChronologically()
+        let heartSamplesSorted = raceHeartRateSamples.sortedChronologically()
         guard let record = RaceRecord.snapshot(
             laps: lapTimer.laps,
             startedAt: startedAt,
             sessionLimit: sessionLimit,
             targetLapCount: clampedTargetLapCount,
             accentHue: accentHue,
-            flightBatterySamples: flightSamplesSorted
+            flightBatterySamples: flightSamplesSorted,
+            heartRateSamples: heartSamplesSorted
         ) else {
             // Empty / invalid sessions (timeUp without ever lapping) are
             // legitimately skipped, but log so the same skip doesn't

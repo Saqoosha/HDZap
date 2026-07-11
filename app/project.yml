@@ -23,6 +23,9 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
     sources:
       - HDZap
+    dependencies:
+      # watchOS companion — xcodegen embeds it via "Embed Watch Content".
+      - target: HDZapWatch
     info:
       path: HDZap/Info.plist
       properties:
@@ -35,6 +38,37 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIRequiresFullScreen: YES
         UILaunchScreen: {}
+  # Companion app that streams live heart rate from an HKWorkoutSession to
+  # the phone over WatchConnectivity (see WatchHeartRateManager on iOS).
+  # Bundle id MUST stay `<iOS bundle id>.watchkitapp` and
+  # WKCompanionAppBundleIdentifier MUST match the iOS bundle id, or the
+  # watch app won't install alongside HDZap.
+  HDZapWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "11.0"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.saqoo.HDZap.watchkitapp
+        TARGETED_DEVICE_FAMILY: "4"
+    sources:
+      - HDZapWatch
+    entitlements:
+      path: HDZapWatch/HDZapWatch.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+    info:
+      path: HDZapWatch/Info.plist
+      properties:
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: sh.saqoo.HDZap
+        WKBackgroundModes:
+          - workout-processing
+        NSHealthShareUsageDescription: "Read your heart rate during flight sessions so each race can be saved with it."
+        NSHealthUpdateUsageDescription: "Save each flight session as a workout."
+        CFBundleDisplayName: HDZap
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
 schemes:
   HDZap:
     build:

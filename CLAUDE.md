@@ -9,7 +9,7 @@ FPV drone racing use case: operator taps LAP on phone, lap time appears on pilot
 
 ```
 firmware/                 ESP32 PlatformIO project (Arduino framework)
-app/                      iOS SwiftUI app (iOS 18+, xcodegen)
+app/                      iOS SwiftUI app (iOS 18+, xcodegen) + HDZapWatch watchOS companion (heart-rate streamer)
 docs/                     Architecture, research, TestFlight setup (only docs/manual/ + docs/flash/ ship to Pages)
 docs/manual/              End-user manual (en + ja); served on GitHub Pages
 docs/flash/               Browser firmware flasher (esptool-js, M5StickS3); served on GitHub Pages
@@ -75,6 +75,7 @@ cd app && xcodegen generate               # regenerate .xcodeproj after changes
 - iOS: @MainActor + @Observable (not ObservableObject), @Environment for DI
 - BLE callbacks stage paired state under `g_ble_mux` (UID staging, lap frame); idempotent single-flag commands use bare `volatile`. See `ble_service.h` shared-state docstring. Heavy work (NVS, ESP-NOW reinit) runs in main loop, not in callbacks.
 - `CBCentralManager` delegate queue MUST be main (`queue: nil`). `BluetoothManager` is `@MainActor`; `recordError` runtime-asserts main-actor isolation.
+- Apple Watch heart rate: `HDZapWatch` (watchOS target in `app/project.yml`, bundle id `sh.saqoo.HDZap.watchkitapp` — must stay `<iOS bundle id>.watchkitapp` with matching `WKCompanionAppBundleIdentifier`) runs an `HKWorkoutSession` + `HKLiveWorkoutBuilder` and streams bpm at ~1 Hz over WatchConnectivity (`["hr": Double, "ts": TimeInterval]`). iOS `WatchHeartRateManager` mirrors `BluetoothManager`'s telemetry surface (`lastHeartRateBpm` / `lastHeartRateReceivedAt` / `heartRateNotifyRevision`); `TimerView` ingests into `RaceHeartRateSample`s persisted on `RaceRecord.heartRateSamples` (decodeIfPresent-backfilled, validated, CSV-exportable — same shape as `flightBatterySamples`). Race START/STOP is relayed to the watch as `["race": "start"|"stop"]` so the workout follows the phone once the watch app is open; both directions of `sendMessage` require `isReachable` (counterpart app frontmost / workout-active). No firmware/OSD involvement.
 - NVS namespace: "hdzero"; keys: `"uid"` (6 bytes) + `"init"` (sentinel for torn-save detection). Save order is remove sentinel → write uid → write sentinel; loadUid warns but still returns a present uid when the sentinel is absent (fail-soft — dropping a valid UID on every torn save would be worse than a log line).
 - Unicast MAC invariant: `uid[0] & 0x01 == 0` at every assignment site
 - `M5.BtnA/B.wasPressed()` is non-consuming (pure read of a latched edge), so multiple consumers can observe the same press in one tick — current pattern: `markActivity()` (LCD wake) reads the edge, and the same `wasPressed()` derives a `silenceReq` flag passed into `batteryMonitor.tick(now, silenceReq)` (alarm silence; `tick()` no-ops the silence when tier==None or already silenced). Don't add a "consume" wrapper — the multi-observer model is the design.
