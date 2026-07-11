@@ -20,6 +20,8 @@ struct RaceDetailView: View {
     @State private var lastShareURL: URL?
     @State private var batteryShareItem: ShareItem?
     @State private var lastBatteryShareURL: URL?
+    @State private var heartRateShareItem: ShareItem?
+    @State private var lastHeartRateShareURL: URL?
     @State private var shareError: String?
     @State private var pendingDelete = false
 
@@ -72,6 +74,12 @@ struct RaceDetailView: View {
                         }
                         .accessibilityLabel("Share flight battery CSV")
                     }
+                    if !record.heartRateSamples.isEmpty {
+                        Button(action: { shareHeartRateCsvAction(record) }) {
+                            Image(systemName: "heart.fill")
+                        }
+                        .accessibilityLabel("Share heart rate CSV")
+                    }
                     Button(action: shareAction) {
                         Image(systemName: "square.and.arrow.up")
                     }
@@ -98,11 +106,15 @@ struct RaceDetailView: View {
         .onDisappear {
             cleanupShareTempFile()
             cleanupBatteryCsvTempFile()
+            cleanupHeartRateCsvTempFile()
         }
         .sheet(item: $shareItem, onDismiss: cleanupShareTempFile) { item in
             ShareSheet(url: item.url)
         }
         .sheet(item: $batteryShareItem, onDismiss: cleanupBatteryCsvTempFile) { item in
+            ShareSheet(url: item.url)
+        }
+        .sheet(item: $heartRateShareItem, onDismiss: cleanupHeartRateCsvTempFile) { item in
             ShareSheet(url: item.url)
         }
         .alert(
@@ -230,6 +242,37 @@ struct RaceDetailView: View {
             batteryShareItem = ShareItem(url: url)
         } catch {
             shareError = "Couldn't write battery CSV (\(error.localizedDescription))."
+        }
+    }
+
+    private func cleanupHeartRateCsvTempFile() {
+        if let url = lastHeartRateShareURL {
+            ShareImageError.cleanupTempFile(at: url, log: Self.log)
+            lastHeartRateShareURL = nil
+        }
+    }
+
+    /// Writes `record.heartRateCSVText()` to a temp `.csv` and opens the share sheet.
+    private func shareHeartRateCsvAction(_ record: RaceRecord) {
+        cleanupHeartRateCsvTempFile()
+        let csv = record.heartRateCSVText()
+        guard !csv.isEmpty else { return }
+        let base = RaceFormat.detailTitle.string(from: record.startedAt)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let name = "HDZap-heartrate-\(base).csv"
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let url = dir.appendingPathComponent(name)
+        guard let data = csv.data(using: .utf8) else {
+            shareError = "Couldn't encode heart rate CSV as UTF-8."
+            return
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+            lastHeartRateShareURL = url
+            heartRateShareItem = ShareItem(url: url)
+        } catch {
+            shareError = "Couldn't write heart rate CSV (\(error.localizedDescription))."
         }
     }
 

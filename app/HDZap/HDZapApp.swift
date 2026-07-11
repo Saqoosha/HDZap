@@ -7,6 +7,7 @@ struct HDZapApp: App {
     @State private var lapAnnouncer = LapAnnouncer()
     @State private var raceHistory = RaceHistoryStore()
     @State private var osdLayout = OSDLayoutSettings()
+    @State private var watchHeartRate = WatchHeartRateManager()
     /// One subscription manager shared across the whole app. The init triggers
     /// `Transaction.updates` listener registration via `start()` in onAppear — see body.
     @State private var subscription = SubscriptionManager()
@@ -71,6 +72,7 @@ struct HDZapApp: App {
                 .environment(lapAnnouncer)
                 .environment(raceHistory)
                 .environment(osdLayout)
+                .environment(watchHeartRate)
                 .environment(subscription)
                 .task {
                     // Start the StoreKit2 listener once the SwiftUI scene is on screen — earlier

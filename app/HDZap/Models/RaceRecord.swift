@@ -29,6 +29,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
     let laps: [LapEntry]
     /// CRSF flight-pack battery telemetry captured during the race (may be empty).
     let flightBatterySamples: [RaceFlightBatterySample]
+    /// Apple Watch heart-rate samples captured during the race (may be empty).
+    let heartRateSamples: [RaceHeartRateSample]
 
     /// Memberwise init is `private` so every code path has to go through
     /// the validating factory or `init(from:)`. Anything else would let a
@@ -40,7 +42,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                  targetLapCount: Int,
                  accentHue: Double,
                  laps: [LapEntry],
-                 flightBatterySamples: [RaceFlightBatterySample]) {
+                 flightBatterySamples: [RaceFlightBatterySample],
+                 heartRateSamples: [RaceHeartRateSample]) {
         self.id = id
         self.startedAt = startedAt
         self.endedAt = endedAt
@@ -49,6 +52,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
         self.accentHue = accentHue
         self.laps = laps
         self.flightBatterySamples = flightBatterySamples
+        self.heartRateSamples = heartRateSamples
     }
 
     init(from decoder: Decoder) throws {
@@ -62,6 +66,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
         let laps = try c.decode([LapEntry].self, forKey: .laps)
         let flightBatterySamples = try c.decodeIfPresent([RaceFlightBatterySample].self,
                                                           forKey: .flightBatterySamples) ?? []
+        let heartRateSamples = try c.decodeIfPresent([RaceHeartRateSample].self,
+                                                     forKey: .heartRateSamples) ?? []
         try Self.validate(startedAt: startedAt,
                           endedAt: endedAt,
                           sessionLimit: sessionLimit,
@@ -69,6 +75,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                           accentHue: accentHue,
                           laps: laps,
                           flightBatterySamples: flightBatterySamples,
+                          heartRateSamples: heartRateSamples,
                           coding: c)
         self.init(id: id,
                   startedAt: startedAt,
@@ -77,7 +84,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                   targetLapCount: targetLapCount,
                   accentHue: Self.normalizedHue(accentHue),
                   laps: laps,
-                  flightBatterySamples: flightBatterySamples)
+                  flightBatterySamples: flightBatterySamples,
+                  heartRateSamples: heartRateSamples)
     }
 
     var lapCount: Int { laps.count }
@@ -119,7 +127,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                          sessionLimit: TimeInterval,
                          targetLapCount: Int,
                          accentHue: Double,
-                         flightBatterySamples: [RaceFlightBatterySample] = []) -> RaceRecord? {
+                         flightBatterySamples: [RaceFlightBatterySample] = [],
+                         heartRateSamples: [RaceHeartRateSample] = []) -> RaceRecord? {
         let entries = laps.map { LapEntry(id: $0.id, time: $0.time) }
         guard (try? validate(startedAt: startedAt,
                              endedAt: endedAt,
@@ -128,6 +137,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                              accentHue: accentHue,
                              laps: entries,
                              flightBatterySamples: flightBatterySamples,
+                             heartRateSamples: heartRateSamples,
                              coding: nil)) != nil else {
             return nil
         }
@@ -139,7 +149,8 @@ struct RaceRecord: Identifiable, Codable, Equatable {
             targetLapCount: targetLapCount,
             accentHue: normalizedHue(accentHue),
             laps: entries,
-            flightBatterySamples: flightBatterySamples
+            flightBatterySamples: flightBatterySamples,
+            heartRateSamples: heartRateSamples
         )
     }
 
@@ -156,6 +167,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
                                  accentHue: Double,
                                  laps: [LapEntry],
                                  flightBatterySamples: [RaceFlightBatterySample],
+                                 heartRateSamples: [RaceHeartRateSample],
                                  coding: KeyedDecodingContainer<CodingKeys>?) throws {
         if endedAt < startedAt {
             try fail("endedAt < startedAt", key: .endedAt, coding: coding)
@@ -199,6 +211,24 @@ struct RaceRecord: Identifiable, Codable, Equatable {
             }
             prevTRace = s.tRace
         }
+        var prevHeartTRace: TimeInterval?
+        for s in heartRateSamples {
+            if !s.tRace.isFinite {
+                try fail("heart rate tRace not finite", key: .heartRateSamples, coding: coding)
+            }
+            if s.tRace < -0.25 {
+                try fail("heart rate tRace out of range", key: .heartRateSamples, coding: coding)
+            }
+            // Generous physiological bounds — the point is to reject
+            // corrupted JSON, not to second-guess HealthKit.
+            if !(1...300).contains(s.bpm) {
+                try fail("heart rate bpm out of range", key: .heartRateSamples, coding: coding)
+            }
+            if let prev = prevHeartTRace, s.tRace + 1e-9 < prev {
+                try fail("heart rate samples not chronological", key: .heartRateSamples, coding: coding)
+            }
+            prevHeartTRace = s.tRace
+        }
     }
 
     private static func fail(_ reason: String,
@@ -224,6 +254,7 @@ struct RaceRecord: Identifiable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id, startedAt, endedAt, sessionLimit, targetLapCount, accentHue, laps
         case flightBatterySamples
+        case heartRateSamples
     }
 }
 
