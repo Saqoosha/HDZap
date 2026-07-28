@@ -1282,6 +1282,7 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                     _ language: LapAnnouncerLanguage,
                     remaining: Int = 3,
                     is expected: String?,
+                    file: StaticString = #file,
                     line: UInt = #line) {
             let actual = splitPhrase(state: state,
                                      perLapSec: perLapSec,
@@ -1294,6 +1295,7 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                    returned \(actual.map { "\"\($0)\"" } ?? "nil"), \
                    expected \(expected.map { "\"\($0)\"" } ?? "nil")
                    """,
+                   file: file,
                    line: line)
         }
         expect(.need, -0.24, .english, is: "need 0.2 seconds per lap")
@@ -1306,7 +1308,9 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         expect(.onTarget, 0, .english, is: "on pace")
         expect(.need, .infinity, .english, is: nil)
         expect(.need, .nan, .japanese, is: nil)
-        // Target lap count reached — `perLapSec` is the whole diff by then.
+        // The gate is `remaining <= 0` regardless of the number: both the
+        // absurd figure the clamp produces and a plausible-looking one must
+        // stay silent.
         expect(.bank, 15.05, .english, remaining: 0, is: nil)
         expect(.need, -0.2, .japanese, remaining: -2, is: nil)
     }

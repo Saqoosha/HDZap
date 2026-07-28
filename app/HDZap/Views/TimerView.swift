@@ -937,9 +937,14 @@ struct TimerView: View {
             SummaryColumn(label: "Diff",
                           value: metrics?.diffDisplay ?? "—",
                           highlight: metrics?.splitState == .need, isFirst: false, isLast: false)
+            // Highlight tracks a live correction, so it retires with the
+            // value: past the target lap count this column reads "Split —",
+            // and colouring an em dash just draws the eye to nothing.
             SummaryColumn(label: metrics?.splitLabel ?? "Need",
                           value: metrics?.splitValue ?? "—",
-                          highlight: metrics?.splitState == .need, isFirst: false, isLast: true)
+                          highlight: metrics?.splitState == .need
+                              && metrics?.hasRemainingTargetLaps == true,
+                          isFirst: false, isLast: true)
         }
         .padding(.vertical, 10)
         .padding(.trailing, 8)
