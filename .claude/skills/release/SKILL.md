@@ -51,7 +51,7 @@ Default to **patch** when uncertain. The build number is bumped automatically by
 
 ### 3. Run release.sh
 
-The script must be run from the `develop` bookmark with a clean working tree that is in sync with `origin/develop`. It will refuse to start otherwise.
+The script must be run with `@` on an empty change sitting directly on top of the `develop` bookmark (`jj new develop`), a clean working tree, and `develop` in sync with `origin/develop`. It will refuse to start otherwise. `@` must not be develop itself — the script describes `@` into the version-bump commit, which would rewrite the already-pushed develop tip.
 
 ```bash
 MODEL_NAME="<your model name>" ./scripts/release.sh <new_version>
@@ -61,7 +61,7 @@ MODEL_NAME="<your model name>" ./scripts/release.sh <new_version>
 
 The script:
 
-1. **Pre-flight**: verify working copy is at `develop`, tree is clean, `develop` is in sync with `origin/develop`, and the target tag does not yet exist.
+1. **Pre-flight**: verify `@` is an empty change directly on top of `develop` (and not develop itself), tree is clean, `develop` is in sync with `origin/develop`, and the target tag does not yet exist.
 2. **Bump** `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `app/project.yml`.
 3. Run `xcodegen generate` and **archive** the iOS app (`scripts/build.sh`).
 4. Export `.ipa` and **upload to TestFlight** via `altool` (`scripts/upload-testflight.sh`). **This is the irreversible step** — everything before it is roll-back-able; everything after preserves the bump even on failure.
