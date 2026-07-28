@@ -34,8 +34,38 @@ struct RaceMetrics: Equatable {
     let avgLapSec: TimeInterval
     let paceLaps: Int
     let diffSec: TimeInterval
-    let remainingLaps: Int
+    /// Target laps still to run by the arithmetic alone: zero or negative
+    /// once the pilot has completed the target lap count. Kept raw (rather
+    /// than folded into `raceEnded`) so "finished two laps short" stays
+    /// recoverable. The voice path takes this raw; display goes through
+    /// `hasRemainingTargetLaps`.
+    let remainingTargetLaps: Int
+    /// Whether these metrics describe a race that is over — the session
+    /// expired or the operator stopped it. Nobody will fly another lap, so
+    /// the arithmetic remainder above stops meaning "laps you can still
+    /// make it up over" whatever its value.
+    let raceEnded: Bool
     let perLapSec: TimeInterval
+
+    /// Whether a per-remaining-lap figure still means anything — **the one
+    /// place this rule is written down for display**; the other display
+    /// sites point here. The voice path gates on `remainingTargetLaps`
+    /// directly instead: it only ever speaks mid-race, so case 2 below
+    /// can't arise there and it never sees these metrics.
+    ///
+    /// Two ways for it to stop meaning something:
+    ///
+    /// 1. **Target reached.** `perLapSec` divides by
+    ///    `max(1, remainingTargetLaps)`, so the divisor stops shrinking at
+    ///    the target lap count while the numerator keeps growing. Past that
+    ///    point `perLapSec` is the whole accumulated diff: same magnitude as
+    ///    the Diff column, opposite sign (`perLapSec` is negated so Need
+    ///    reads negative), dressed up as a per-lap rate.
+    /// 2. **Race over.** A pilot who timed out three laps short gets a
+    ///    perfectly well-formed correction for laps that will never be
+    ///    flown — the history detail and the shared PNG would print advice
+    ///    about a race that is already in the past.
+    var hasRemainingTargetLaps: Bool { !raceEnded && remainingTargetLaps > 0 }
 
     var splitState: SplitState {
         if abs(diffSec) < 0.005 { return .onTarget }
@@ -43,6 +73,11 @@ struct RaceMetrics: Equatable {
     }
 
     var splitLabel: String {
+        // Neutral heading once there's no per-lap figure to head — "NEED"
+        // over a blank cell reads like a missing value rather than a
+        // retired one. Direction is still on screen: the Diff column keeps
+        // the signed total, highlighted.
+        guard hasRemainingTargetLaps else { return "Split" }
         switch splitState {
         case .need: return "Need"
         case .bank: return "Bank"
@@ -53,6 +88,9 @@ struct RaceMetrics: Equatable {
     var splitValue: String {
         switch splitState {
         case .need, .bank:
+            // See `hasRemainingTargetLaps`. Em dash matches the placeholder
+            // the views already use when there are no metrics at all.
+            guard hasRemainingTargetLaps else { return "—" }
             return "\(Self.signed(perLapSec, decimals: 1))/L"
         case .onTarget:
             return "On"
@@ -198,7 +236,8 @@ struct RaceMetrics: Equatable {
     init?(laps: [Lap],
           targetLapCount rawTargetLapCount: Int,
           sessionLimit: TimeInterval,
-          paceOverride: Int? = nil) {
+          paceOverride: Int? = nil,
+          raceEnded: Bool = false) {
         guard let last = laps.last, !laps.isEmpty else { return nil }
         let target = Self.clampedTargetLapCount(rawTargetLapCount)
         let total = laps.reduce(0) { $0 + $1.time }
@@ -210,9 +249,15 @@ struct RaceMetrics: Equatable {
         lapCount = laps.count
         lastLapSec = last.time
         avgLapSec = total / Double(laps.count)
-        remainingLaps = max(1, target - laps.count)
+        remainingTargetLaps = target - laps.count
+        self.raceEnded = raceEnded
         diffSec = total - (Double(laps.count) * targetLapSec)
-        perLapSec = -diffSec / Double(remainingLaps)
+        // Local, not a stored property: clamping keeps `perLapSec` finite,
+        // but a `remainingLaps` anyone could read is a footgun — it answers
+        // "how many laps left?" with 1 forever past the target. Ask
+        // `hasRemainingTargetLaps` instead.
+        let divisor = max(1, remainingTargetLaps)
+        perLapSec = -diffSec / Double(divisor)
 
         if let paceOverride {
             paceLaps = paceOverride
@@ -244,6 +289,8 @@ struct RaceMetrics: Equatable {
     }
 
     private func compactDiffLine(diff: String, label: String) -> String {
+        // See `hasRemainingTargetLaps` — let the `D…` total speak alone.
+        guard hasRemainingTargetLaps else { return "D\(diff) \(label)" }
         let perLap = Self.signed(perLapSec, decimals: 1)
         let full = "D\(diff) \(label) \(perLap)/L"
         if full.count <= Self.osdRowMaxBytes { return full }
@@ -256,3 +303,89 @@ struct RaceMetrics: Equatable {
         return "D\(compactDiff) \(label) \(coarserPerLap)/L"
     }
 }
+
+#if DEBUG
+/// Pins the per-lap-share behaviour on both sides of the target lap count —
+/// the rule itself lives on `RaceMetrics.hasRemainingTargetLaps`.
+///
+/// No unit-test target exists in this project, so this runs once at launch
+/// from `HDZapApp.init()` alongside `_oklchSanityCheck()`. Deliberately not
+/// in `RaceMetrics.init` — that runs on every lap of every race.
+func _raceMetricsRemainingLapsSanityCheck() {
+    // 7 laps in 90 s → 6 flying intervals → targetLapSec 15.0.
+    func metrics(lapCount: Int, lapTime: TimeInterval) -> RaceMetrics? {
+        RaceMetrics(laps: (1...lapCount).map { Lap(id: $0, time: lapTime) },
+                    targetLapCount: 7,
+                    sessionLimit: 90)
+    }
+
+    // Mid-race: 3 laps at 17 s = 6 s behind, spread over the 4 laps left.
+    guard let mid = metrics(lapCount: 3, lapTime: 17) else {
+        assertionFailure("mid-race RaceMetrics failed to build")
+        return
+    }
+    assert(mid.remainingTargetLaps == 4 && mid.hasRemainingTargetLaps,
+           "expected 4 remaining target laps, got \(mid.remainingTargetLaps)")
+    assert(mid.splitState == .need, "3×17 s against a 15 s target should read Need")
+    assert(mid.splitValue == "-1.5/L", "expected -1.5/L, got \(mid.splitValue)")
+    assert(mid.splitLabel == "Need", "expected the Need heading, got \(mid.splitLabel)")
+
+    // Final target lap: one lap left, so the clamp is a no-op and the rate
+    // must still be shown. The case that catches a guard mis-widened to > 1.
+    guard let last = metrics(lapCount: 6, lapTime: 17) else {
+        assertionFailure("final-target-lap RaceMetrics failed to build")
+        return
+    }
+    assert(last.remainingTargetLaps == 1 && last.hasRemainingTargetLaps,
+           "expected 1 remaining target lap, got \(last.remainingTargetLaps)")
+    assert(last.splitValue == "-12.0/L", "expected -12.0/L, got \(last.splitValue)")
+
+    // Target reached: 7 laps at 13 s. `diffSec` is -14 s, so `perLapSec` is
+    // its whole magnitude with the sign flipped (+14) — a per-lap rate in
+    // name only.
+    guard let done = metrics(lapCount: 7, lapTime: 13) else {
+        assertionFailure("target-reached RaceMetrics failed to build")
+        return
+    }
+    assert(!done.hasRemainingTargetLaps,
+           "expected no remaining target laps, got \(done.remainingTargetLaps)")
+    assert(done.splitState == .bank, "7×13 s against a 15 s target should read Bank")
+    assert(done.splitValue == "—", "expected an em dash, got \(done.splitValue)")
+    assert(done.splitLabel == "Split",
+           "heading should go neutral once the rate retires, got \(done.splitLabel)")
+    // Pin the DIFF row itself rather than "contains no /L" — an absent
+    // substring also passes on an empty or malformed row, and the PACE row
+    // (`7L`) is one format change away from matching a loose search.
+    assert(done.osdMetricRaws()[2] == "D-14.00 BANK",
+           "expected the DIFF row to drop the rate, got \(done.osdMetricRaws()[2])")
+    assert(done.diffDisplay == "-14.00", "expected -14.00, got \(done.diffDisplay)")
+
+    // Past the target: still flying after the target lap count, which is the
+    // normal end of a fast pilot's race rather than an edge case.
+    guard let past = metrics(lapCount: 9, lapTime: 13) else {
+        assertionFailure("past-target RaceMetrics failed to build")
+        return
+    }
+    assert(past.remainingTargetLaps == -2 && !past.hasRemainingTargetLaps,
+           "expected -2 remaining target laps, got \(past.remainingTargetLaps)")
+    assert(past.splitValue == "—", "expected an em dash, got \(past.splitValue)")
+
+    // Race over short of the target: the arithmetic still says 4 laps to go,
+    // but nobody will fly them, so the rate retires anyway. This is what the
+    // history detail and the shared PNG render.
+    guard let dnf = RaceMetrics(laps: (1...3).map { Lap(id: $0, time: 17) },
+                                targetLapCount: 7,
+                                sessionLimit: 90,
+                                paceOverride: 3,
+                                raceEnded: true) else {
+        assertionFailure("ended-short RaceMetrics failed to build")
+        return
+    }
+    assert(dnf.remainingTargetLaps == 4, "the raw remainder should survive, got \(dnf.remainingTargetLaps)")
+    assert(!dnf.hasRemainingTargetLaps, "a finished race has no laps left to spread a correction over")
+    assert(dnf.splitValue == "—", "expected an em dash, got \(dnf.splitValue)")
+    assert(dnf.splitLabel == "Split", "expected a neutral heading, got \(dnf.splitLabel)")
+    assert(dnf.osdMetricRaws()[2] == "D+6.00 NEED",
+           "expected the DIFF row to drop the rate, got \(dnf.osdMetricRaws()[2])")
+}
+#endif

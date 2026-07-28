@@ -59,18 +59,29 @@ cd "$ROOT_DIR"
 
 echo "=== Pre-flight checks ==="
 
-# Working copy (@) must be at develop, working tree clean, in sync with origin.
+# The working copy (@) must be an empty change sitting directly on top of
+# develop — that is the commit step 4 describes and step 5 pushes as the
+# version bump. It must NOT be develop itself: `jj describe` would then
+# rewrite the already-pushed develop tip, folding the bump into a published
+# commit and diverging the bookmark from origin/develop.
 DEVELOP_REV=$(jj log -r develop --no-graph --no-pager -T 'commit_id' 2>/dev/null | head -c 40 || true)
+PARENT_REV=$(jj log -r '@-' --no-graph --no-pager -T 'commit_id' 2>/dev/null | head -c 40 || true)
 WC_REV=$(jj log -r '@' --no-graph --no-pager -T 'commit_id' 2>/dev/null | head -c 40 || true)
-if [[ -z "$DEVELOP_REV" || -z "$WC_REV" ]]; then
-  echo "Error: failed to read jj revisions for develop / @" >&2
+if [[ -z "$DEVELOP_REV" || -z "$PARENT_REV" || -z "$WC_REV" ]]; then
+  echo "Error: failed to read jj revisions for develop / @ / @-" >&2
   exit 1
 fi
-if [[ "$DEVELOP_REV" != "$WC_REV" ]]; then
-  echo "Error: working copy (@) is not at the develop bookmark." >&2
+if [[ "$DEVELOP_REV" == "$WC_REV" ]]; then
+  echo "Error: working copy (@) IS the develop bookmark commit." >&2
+  echo "       Releasing from here would rewrite the pushed develop tip." >&2
+  echo "       Run: jj new develop" >&2
+  exit 1
+fi
+if [[ "$DEVELOP_REV" != "$PARENT_REV" ]]; then
+  echo "Error: working copy (@) is not a direct child of the develop bookmark." >&2
   echo "       develop = ${DEVELOP_REV}" >&2
-  echo "       @       = ${WC_REV}" >&2
-  echo "       Run: jj edit develop" >&2
+  echo "       @-      = ${PARENT_REV}" >&2
+  echo "       Run: jj new develop" >&2
   exit 1
 fi
 

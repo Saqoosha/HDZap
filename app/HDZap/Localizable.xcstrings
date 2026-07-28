@@ -397,6 +397,17 @@
         }
       }
     },
+    "Announce need / bank" : {
+      "comment" : "Toggle: append the per-remaining-lap Need or Bank pace delta to each lap announcement, or an \"on pace\" call when there is no delta left to correct.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目標ペースとの差を読み上げる"
+          }
+        }
+      }
+    },
     "Announcement" : {
       "extractionState" : "manual",
       "localizations" : {
