@@ -1840,7 +1840,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Need / Bank を読み上げる"
+            "value" : "目標ペースとの差を読み上げる"
           }
         }
       }

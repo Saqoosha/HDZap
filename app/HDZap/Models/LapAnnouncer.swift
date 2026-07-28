@@ -1202,13 +1202,23 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private static func splitPhrase(state: RaceMetrics.SplitState,
                                     perLapSec: TimeInterval,
                                     language: LapAnnouncerLanguage) -> String? {
-        guard perLapSec.isFinite, state != .onTarget else { return nil }
+        guard perLapSec.isFinite else { return nil }
+        // `splitState` thresholds the *total* diff, but the spoken number is
+        // the per-remaining-lap share — so a diff big enough to read as Need
+        // can still round to "0.0" per lap. Announcing "0.0 seconds per lap"
+        // is noise; call it on pace instead.
+        if state == .onTarget || abs(perLapSec) < 0.05 {
+            return language == .english ? "on pace" : "ペースちょうど"
+        }
         let value = RaceMetrics.seconds(abs(perLapSec), decimals: 1)
         switch (language, state) {
         case (.english, .need): return "need \(value) seconds per lap"
         case (.english, .bank): return "bank \(value) seconds per lap"
-        case (.japanese, .need): return "\(value)秒不足"
-        case (.japanese, .bank): return "\(value)秒余裕"
+        // The 読点 matters: run together, the synthesizer reads 秒不足 as the
+        // compound "びょうぶそく". A space alone doesn't break it — verified on
+        // device — but a comma forces the clause boundary: "びょう、ふそく".
+        case (.japanese, .need): return "\(value)秒、不足"
+        case (.japanese, .bank): return "\(value)秒、余裕"
         case (_, .onTarget): return nil
         }
     }
@@ -1220,12 +1230,17 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         assert(splitPhrase(state: .bank, perLapSec: 0.26, language: .english)
                == "bank 0.3 seconds per lap")
         assert(splitPhrase(state: .need, perLapSec: -0.04, language: .english)
-               == "need 0.0 seconds per lap")
+               == "on pace")
         assert(splitPhrase(state: .need, perLapSec: -0.2, language: .japanese)
-               == "0.2秒不足")
+               == "0.2秒、不足")
         assert(splitPhrase(state: .bank, perLapSec: 0.2, language: .japanese)
-               == "0.2秒余裕")
-        assert(splitPhrase(state: .onTarget, perLapSec: 0, language: .japanese) == nil)
+               == "0.2秒、余裕")
+        assert(splitPhrase(state: .need, perLapSec: -0.04, language: .japanese)
+               == "ペースちょうど")
+        assert(splitPhrase(state: .onTarget, perLapSec: 0, language: .japanese)
+               == "ペースちょうど")
+        assert(splitPhrase(state: .onTarget, perLapSec: 0, language: .english)
+               == "on pace")
         assert(splitPhrase(state: .need, perLapSec: .infinity, language: .english) == nil)
     }
     #endif
