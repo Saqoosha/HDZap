@@ -1427,7 +1427,11 @@ struct TimerView: View {
     @discardableResult
     private func recordLap(announce: Bool = true) -> Lap? {
         guard let lap = lapTimer.lap() else { return nil }
-        refreshMetricsSnapshot()
+        // Hold the returned snapshot rather than reading `metricsSnapshot`
+        // back below: the announcement needs the metrics that include `lap`,
+        // and taking them from the return value doesn't depend on `@State`
+        // write-then-read semantics inside one event handler.
+        let metrics = refreshMetricsSnapshot()
         sendMetricRows()
         // Refresh TIME LEFT alongside the lap — keeps the top row in
         // sync without waiting up to a second for the next tick.
@@ -1446,7 +1450,7 @@ struct TimerView: View {
             // unearned victory call.
             let isBest = lapTimer.laps.count > 1
                 && lapTimer.bestLapIndex == lapTimer.laps.count - 1
-            announcer.announceLap(lap, isBest: isBest)
+            announcer.announceLap(lap, isBest: isBest, metrics: metrics)
         }
         return lap
     }
