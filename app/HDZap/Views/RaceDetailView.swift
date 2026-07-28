@@ -167,7 +167,11 @@ struct RaceDetailView: View {
         let metrics = RaceMetrics(laps: laps,
                                   targetLapCount: record.targetLapCount,
                                   sessionLimit: record.sessionLimit,
-                                  paceOverride: laps.count)
+                                  paceOverride: laps.count,
+                                  // Every record here is a race that already
+                                  // happened, so a "shave 1.5 s per lap"
+                                  // correction has nobody left to act on it.
+                                  raceEnded: true)
         return (laps, metrics)
     }
 

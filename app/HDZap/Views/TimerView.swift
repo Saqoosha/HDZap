@@ -276,6 +276,12 @@ struct TimerView: View {
         // state.
         .onChange(of: sessionEnded) { _, ended in
             if ended {
+                // Re-snapshot first: `raceEnded` is an input to the metrics,
+                // and the snapshot taken while the race was still live is
+                // the one the summary band is showing. Without this the
+                // Need / Bank column keeps offering a per-lap correction
+                // for a race that just finished.
+                refreshMetricsSnapshot()
                 saveRaceIfNeeded()
                 sendResultOSD()
             }
@@ -1624,7 +1630,8 @@ struct TimerView: View {
         let metrics = RaceMetrics(laps: lapTimer.laps,
                                   targetLapCount: clampedTargetLapCount,
                                   sessionLimit: sessionLimit,
-                                  paceOverride: paceOverride)
+                                  paceOverride: paceOverride,
+                                  raceEnded: sessionEnded)
         metricsSnapshot = metrics
         return metrics
     }

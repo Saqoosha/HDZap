@@ -34,21 +34,35 @@ struct RaceMetrics: Equatable {
     let avgLapSec: TimeInterval
     let paceLaps: Int
     let diffSec: TimeInterval
-    /// Target laps still to run: zero or negative once the pilot has
-    /// completed the target lap count. The voice path takes this raw;
-    /// display goes through `hasRemainingTargetLaps`.
+    /// Target laps still to run by the arithmetic alone: zero or negative
+    /// once the pilot has completed the target lap count. Kept raw (rather
+    /// than folded into `raceEnded`) so "finished two laps short" stays
+    /// recoverable. The voice path takes this raw; display goes through
+    /// `hasRemainingTargetLaps`.
     let remainingTargetLaps: Int
+    /// Whether these metrics describe a race that is over — the session
+    /// expired or the operator stopped it. Nobody will fly another lap, so
+    /// the arithmetic remainder above stops meaning "laps you can still
+    /// make it up over" whatever its value.
+    let raceEnded: Bool
     let perLapSec: TimeInterval
 
     /// Whether a per-remaining-lap figure still means anything — **the one
     /// place this rule is written down**; other sites point here.
     ///
-    /// `perLapSec` divides by `max(1, remainingTargetLaps)`, so the divisor
-    /// stops shrinking at the target lap count while the numerator keeps
-    /// growing. Past that point `perLapSec` is the whole accumulated diff:
-    /// same magnitude as the Diff column, opposite sign (`perLapSec` is
-    /// negated so Need reads negative), dressed up as a per-lap rate.
-    var hasRemainingTargetLaps: Bool { remainingTargetLaps > 0 }
+    /// Two ways for it to stop meaning something:
+    ///
+    /// 1. **Target reached.** `perLapSec` divides by
+    ///    `max(1, remainingTargetLaps)`, so the divisor stops shrinking at
+    ///    the target lap count while the numerator keeps growing. Past that
+    ///    point `perLapSec` is the whole accumulated diff: same magnitude as
+    ///    the Diff column, opposite sign (`perLapSec` is negated so Need
+    ///    reads negative), dressed up as a per-lap rate.
+    /// 2. **Race over.** A pilot who timed out three laps short gets a
+    ///    perfectly well-formed correction for laps that will never be
+    ///    flown — the history detail and the shared PNG would print advice
+    ///    about a race that is already in the past.
+    var hasRemainingTargetLaps: Bool { !raceEnded && remainingTargetLaps > 0 }
 
     var splitState: SplitState {
         if abs(diffSec) < 0.005 { return .onTarget }
@@ -219,7 +233,8 @@ struct RaceMetrics: Equatable {
     init?(laps: [Lap],
           targetLapCount rawTargetLapCount: Int,
           sessionLimit: TimeInterval,
-          paceOverride: Int? = nil) {
+          paceOverride: Int? = nil,
+          raceEnded: Bool = false) {
         guard let last = laps.last, !laps.isEmpty else { return nil }
         let target = Self.clampedTargetLapCount(rawTargetLapCount)
         let total = laps.reduce(0) { $0 + $1.time }
@@ -232,6 +247,7 @@ struct RaceMetrics: Equatable {
         lastLapSec = last.time
         avgLapSec = total / Double(laps.count)
         remainingTargetLaps = target - laps.count
+        self.raceEnded = raceEnded
         diffSec = total - (Double(laps.count) * targetLapSec)
         // Local, not a stored property: clamping keeps `perLapSec` finite,
         // but a `remainingLaps` anyone could read is a footgun — it answers
@@ -350,5 +366,23 @@ func _raceMetricsRemainingLapsSanityCheck() {
     assert(past.remainingTargetLaps == -2 && !past.hasRemainingTargetLaps,
            "expected -2 remaining target laps, got \(past.remainingTargetLaps)")
     assert(past.splitValue == "—", "expected an em dash, got \(past.splitValue)")
+
+    // Race over short of the target: the arithmetic still says 4 laps to go,
+    // but nobody will fly them, so the rate retires anyway. This is what the
+    // history detail and the shared PNG render.
+    guard let dnf = RaceMetrics(laps: (1...3).map { Lap(id: $0, time: 17) },
+                                targetLapCount: 7,
+                                sessionLimit: 90,
+                                paceOverride: 3,
+                                raceEnded: true) else {
+        assertionFailure("ended-short RaceMetrics failed to build")
+        return
+    }
+    assert(dnf.remainingTargetLaps == 4, "the raw remainder should survive, got \(dnf.remainingTargetLaps)")
+    assert(!dnf.hasRemainingTargetLaps, "a finished race has no laps left to spread a correction over")
+    assert(dnf.splitValue == "—", "expected an em dash, got \(dnf.splitValue)")
+    assert(dnf.splitLabel == "Split", "expected a neutral heading, got \(dnf.splitLabel)")
+    assert(dnf.osdMetricRaws()[2] == "D+6.00 NEED",
+           "expected the DIFF row to drop the rate, got \(dnf.osdMetricRaws()[2])")
 }
 #endif
