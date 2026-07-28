@@ -67,7 +67,8 @@ enum LapAnnouncerDefaults {
     /// at the moments that warrant a callout.
     static let defaultAnnounceBest = true
     /// Need / Bank callout default — off. The extra pace context is useful,
-    /// but lengthens every applicable lap announcement, so it is opt-in.
+    /// but it lengthens every lap announcement — including the on-pace ones,
+    /// which say so rather than staying quiet — so it is opt-in.
     static let defaultAnnounceSplit = false
     /// Final-seconds countdown ("10", "9", "8", ...) default — off.
     /// Opt-in like the master toggle: silent until the operator asks
@@ -383,41 +384,58 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         prewarmFixedPhrases()
     }
 
+    /// Read fresh on every call rather than cached: the Settings toggle
+    /// writes straight to `UserDefaults`, and both call sites want the value
+    /// as of the moment they speak.
+    private var announceSplitEnabled: Bool {
+        UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceSplitKey) as? Bool
+            ?? LapAnnouncerDefaults.defaultAnnounceSplit
+    }
+
+    /// - Parameter metrics: snapshot of the race state **including** `lap` —
+    ///   `perLapSec` is meaningless if the snapshot predates the lap being
+    ///   announced, and the mistake is silent (the call just reads one lap
+    ///   stale). Refresh before calling, as `TimerView.recordLap()` does.
     func announceLap(_ lap: Lap, isBest: Bool, metrics: RaceMetrics?) {
         let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool
             ?? LapAnnouncerDefaults.defaultAnnounceBest
-        let announceSplit = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceSplitKey) as? Bool
-            ?? LapAnnouncerDefaults.defaultAnnounceSplit
         let language = currentLanguage()
-        let split = announceSplit
+        let split = announceSplitEnabled
             ? metrics.flatMap {
                 Self.splitPhrase(state: $0.splitState,
                                  perLapSec: $0.perLapSec,
+                                 remainingTargetLaps: $0.targetLapCount - $0.lapCount,
                                  language: language)
             }
             : nil
         speak(phrase(for: lap,
                      isBest: isBest && announceBest,
-                     splitPhrase: split,
+                     splitSuffix: split,
                      language: language))
     }
 
     /// Used by the Settings "Test voice" button so the user can preview the
     /// current voice/rate/pitch combo and confirm the phone isn't muted
     /// before relying on it during a race. Always passes `isBest: true` so
-    /// the preview exercises every phrase piece (lap number, time, best-lap
-    /// suffix) — independent of the `announceBest` toggle.
+    /// the preview exercises the lap number, time, and best-lap suffix —
+    /// independent of the `announceBest` toggle. The Need/Bank phrase is the
+    /// one piece that *does* follow its toggle: it sits right above this
+    /// button, so honouring it makes the preview the way to hear what the
+    /// toggle changes. `.need` at -0.2 s is the shape a pilot hears most —
+    /// behind target, one decimal, negative `perLapSec` per the sign
+    /// convention in `RaceMetrics`.
     func announceTest() {
         let sample = Lap(id: 3, time: 12.34)
         let language = currentLanguage()
-        let announceSplit = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceSplitKey) as? Bool
-            ?? LapAnnouncerDefaults.defaultAnnounceSplit
-        let split = announceSplit
-            ? Self.splitPhrase(state: .need, perLapSec: -0.2, language: language)
+        let split = announceSplitEnabled
+            ? Self.splitPhrase(state: .need,
+                               perLapSec: -0.2,
+                               remainingTargetLaps: 3,
+                               language: language)
             : nil
         speak(phrase(for: sample,
                      isBest: true,
-                     splitPhrase: split,
+                     splitSuffix: split,
                      language: language))
     }
 
@@ -1199,55 +1217,90 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         return (minutes, "\(s).\(String(format: "%02d", frac))")
     }
 
+    /// One decimal — the value is a correction a pilot applies by feel, and a
+    /// second decimal is below what anyone can steer to. `splitZeroThreshold`
+    /// is derived from this, so the two can't drift apart.
+    private static let splitDecimals = 1
+    /// Half a step at `splitDecimals`, i.e. the magnitude below which
+    /// `RaceMetrics.seconds(_:decimals:)` prints "0.0" — the same rule
+    /// `RaceMetrics.signed` uses to zero out its own display value.
+    private static var splitZeroThreshold: Double { 0.5 / pow(10, Double(splitDecimals)) }
+
+    /// - Parameter remainingTargetLaps: `targetLapCount - lapCount`, i.e. how
+    ///   many laps the correction can still be spread over. Zero or negative
+    ///   means the target lap count is already reached: `RaceMetrics` clamps
+    ///   its divisor at 1 there, so `perLapSec` degenerates into the whole
+    ///   accumulated diff and would be announced as an absurd per-lap figure
+    ///   ("bank 15.1 seconds per lap"). The OSD can show that number and be
+    ///   glanced past; a voice can't, so stay silent instead.
     private static func splitPhrase(state: RaceMetrics.SplitState,
                                     perLapSec: TimeInterval,
+                                    remainingTargetLaps: Int,
                                     language: LapAnnouncerLanguage) -> String? {
-        guard perLapSec.isFinite else { return nil }
-        // `splitState` thresholds the *total* diff, but the spoken number is
-        // the per-remaining-lap share — so a diff big enough to read as Need
-        // can still round to "0.0" per lap. Announcing "0.0 seconds per lap"
-        // is noise; call it on pace instead.
-        if state == .onTarget || abs(perLapSec) < 0.05 {
-            return language == .english ? "on pace" : "ペースちょうど"
-        }
-        let value = RaceMetrics.seconds(abs(perLapSec), decimals: 1)
-        switch (language, state) {
-        case (.english, .need): return "need \(value) seconds per lap"
-        case (.english, .bank): return "bank \(value) seconds per lap"
-        // The 読点 matters: run together, the synthesizer reads 秒不足 as the
-        // compound "びょうぶそく". A space alone doesn't break it — verified on
-        // device — but a comma forces the clause boundary: "びょう、ふそく".
-        case (.japanese, .need): return "\(value)秒、不足"
-        case (.japanese, .bank): return "\(value)秒、余裕"
-        case (_, .onTarget): return nil
+        guard remainingTargetLaps > 0 else { return nil }
+        // `splitState` thresholds the *total* diff (±0.005 s) while the spoken
+        // number is the per-remaining-lap share, so a diff big enough to read
+        // as Need can still round to "0.0" per lap. Announcing "0.0 seconds
+        // per lap" is noise; call it on pace instead. Consequence worth
+        // knowing before it arrives as a bug report: in that band the OSD
+        // still shows NEED / BANK while the voice says on pace.
+        let onPace = state == .onTarget || abs(perLapSec) < splitZeroThreshold
+        // Non-finite can't happen while `remainingLaps >= 1` and lap times are
+        // finite, but a silent phrase beats speaking "inf".
+        guard onPace || perLapSec.isFinite else { return nil }
+        let value = RaceMetrics.seconds(abs(perLapSec), decimals: splitDecimals)
+        // Switch on language (not the pair) so a third language is a compile
+        // error here rather than a silent fall-through to one of the two.
+        switch language {
+        case .english:
+            if onPace { return "on pace" }
+            return state == .need
+                ? "need \(value) seconds per lap"
+                : "bank \(value) seconds per lap"
+        case .japanese:
+            if onPace { return "ペースちょうど" }
+            // The 読点 matters: run together, the synthesizer reads 秒不足 as
+            // the compound "びょうぶそく". A space alone doesn't break it —
+            // verified on device with the System ja-JP voice on iOS 26 — but a
+            // comma forces the clause boundary: "びょう、ふそく". 余裕 doesn't
+            // rendaku and reads fine either way; it carries the same 読点 so
+            // the two calls share one prosody.
+            return state == .need
+                ? "\(value)秒、不足"
+                : "\(value)秒、余裕"
         }
     }
 
     #if DEBUG
     private static func assertSplitPhraseFormatting() {
-        assert(splitPhrase(state: .need, perLapSec: -0.24, language: .english)
-               == "need 0.2 seconds per lap")
-        assert(splitPhrase(state: .bank, perLapSec: 0.26, language: .english)
-               == "bank 0.3 seconds per lap")
-        assert(splitPhrase(state: .need, perLapSec: -0.04, language: .english)
-               == "on pace")
-        assert(splitPhrase(state: .need, perLapSec: -0.2, language: .japanese)
-               == "0.2秒、不足")
-        assert(splitPhrase(state: .bank, perLapSec: 0.2, language: .japanese)
-               == "0.2秒、余裕")
-        assert(splitPhrase(state: .need, perLapSec: -0.04, language: .japanese)
-               == "ペースちょうど")
-        assert(splitPhrase(state: .onTarget, perLapSec: 0, language: .japanese)
-               == "ペースちょうど")
-        assert(splitPhrase(state: .onTarget, perLapSec: 0, language: .english)
-               == "on pace")
-        assert(splitPhrase(state: .need, perLapSec: .infinity, language: .english) == nil)
+        func phrase(_ state: RaceMetrics.SplitState,
+                    _ perLapSec: TimeInterval,
+                    _ language: LapAnnouncerLanguage,
+                    remaining: Int = 3) -> String? {
+            splitPhrase(state: state,
+                        perLapSec: perLapSec,
+                        remainingTargetLaps: remaining,
+                        language: language)
+        }
+        assert(phrase(.need, -0.24, .english) == "need 0.2 seconds per lap")
+        assert(phrase(.bank, 0.26, .english) == "bank 0.3 seconds per lap")
+        assert(phrase(.need, -0.04, .english) == "on pace")
+        assert(phrase(.need, -0.2, .japanese) == "0.2秒、不足")
+        assert(phrase(.bank, 0.2, .japanese) == "0.2秒、余裕")
+        assert(phrase(.need, -0.04, .japanese) == "ペースちょうど")
+        assert(phrase(.onTarget, 0, .japanese) == "ペースちょうど")
+        assert(phrase(.onTarget, 0, .english) == "on pace")
+        assert(phrase(.need, .infinity, .english) == nil)
+        assert(phrase(.need, .nan, .japanese) == nil)
+        // Target lap count reached — `perLapSec` is the whole diff by then.
+        assert(phrase(.bank, 15.05, .english, remaining: 0) == nil)
+        assert(phrase(.need, -0.2, .japanese, remaining: -2) == nil)
     }
     #endif
 
     private func phrase(for lap: Lap,
                         isBest: Bool,
-                        splitPhrase: String?,
+                        splitSuffix: String?,
                         language: LapAnnouncerLanguage) -> String {
         // Two decimals matches what most pilots can act on — milliseconds
         // are too granular to parse by ear in the half-second the operator
@@ -1255,22 +1308,24 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         // "twelve point three four" (en) / "12てん34" (ja). Truncated (not
         // rounded) so the spoken time agrees with the on-screen display.
         let timeStr = truncatedSecondsString(lap.time)
-        let suffix = splitPhrase.map { ", \($0)" } ?? ""
+        let base: String
+        let separator: String
         switch language {
         case .english:
-            let base = isBest
+            base = isBest
                 ? "Lap \(lap.id), \(timeStr), best lap"
                 : "Lap \(lap.id), \(timeStr)"
-            return base + suffix
+            separator = ", "
         case .japanese:
             // Idiomatic FPV-racing phrasing in Japanese: "ラップN" matches
             // the on-screen counter, "ベストラップ" is the standard call for
             // a new fastest lap on circuit race broadcasts.
-            let base = isBest
+            base = isBest
                 ? "ラップ\(lap.id)、\(timeStr)、ベストラップ"
                 : "ラップ\(lap.id)、\(timeStr)"
-            return base + (splitPhrase.map { "、\($0)" } ?? "")
+            separator = "、"
         }
+        return base + (splitSuffix.map { separator + $0 } ?? "")
     }
 }
 

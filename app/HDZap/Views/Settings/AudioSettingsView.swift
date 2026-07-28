@@ -434,7 +434,12 @@ struct AudioSettingsView: View {
         // from a prior route (or with the master toggle flipped off) would
         // render an audio screenshot with no voice controls at all.
         lapTTSEnabled = true
-        announceSplit = true
+        // Pin the Need/Bank toggle to its shipped default the same way
+        // `countdownEnabled` is pinned below: the manual documents it as
+        // "off by default", so a screenshot showing it ON contradicts the
+        // prose right next to it. The row renders either way, which is all
+        // the manual needs from this capture.
+        announceSplit = LapAnnouncerDefaults.defaultAnnounceSplit
         switch route {
         case .audio:
             // Ensure a clean System-engine screenshot — the simulator's
