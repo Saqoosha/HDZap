@@ -404,7 +404,7 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             ? metrics.flatMap {
                 Self.splitPhrase(state: $0.splitState,
                                  perLapSec: $0.perLapSec,
-                                 remainingTargetLaps: $0.targetLapCount - $0.lapCount,
+                                 remainingTargetLaps: $0.remainingTargetLaps,
                                  language: language)
             }
             : nil
@@ -1273,28 +1273,42 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
 
     #if DEBUG
     private static func assertSplitPhraseFormatting() {
-        func phrase(_ state: RaceMetrics.SplitState,
+        // One checker rather than a message on each `assert`: a failure here
+        // needs the inputs and the actual string to be actionable, and
+        // threading `#line` through keeps the report pointing at the case
+        // that failed rather than at this helper.
+        func expect(_ state: RaceMetrics.SplitState,
                     _ perLapSec: TimeInterval,
                     _ language: LapAnnouncerLanguage,
-                    remaining: Int = 3) -> String? {
-            splitPhrase(state: state,
-                        perLapSec: perLapSec,
-                        remainingTargetLaps: remaining,
-                        language: language)
+                    remaining: Int = 3,
+                    is expected: String?,
+                    line: UInt = #line) {
+            let actual = splitPhrase(state: state,
+                                     perLapSec: perLapSec,
+                                     remainingTargetLaps: remaining,
+                                     language: language)
+            assert(actual == expected,
+                   """
+                   splitPhrase(state: \(state), perLapSec: \(perLapSec), \
+                   remainingTargetLaps: \(remaining), language: \(language)) \
+                   returned \(actual.map { "\"\($0)\"" } ?? "nil"), \
+                   expected \(expected.map { "\"\($0)\"" } ?? "nil")
+                   """,
+                   line: line)
         }
-        assert(phrase(.need, -0.24, .english) == "need 0.2 seconds per lap")
-        assert(phrase(.bank, 0.26, .english) == "bank 0.3 seconds per lap")
-        assert(phrase(.need, -0.04, .english) == "on pace")
-        assert(phrase(.need, -0.2, .japanese) == "0.2秒、不足")
-        assert(phrase(.bank, 0.2, .japanese) == "0.2秒、余裕")
-        assert(phrase(.need, -0.04, .japanese) == "ペースちょうど")
-        assert(phrase(.onTarget, 0, .japanese) == "ペースちょうど")
-        assert(phrase(.onTarget, 0, .english) == "on pace")
-        assert(phrase(.need, .infinity, .english) == nil)
-        assert(phrase(.need, .nan, .japanese) == nil)
+        expect(.need, -0.24, .english, is: "need 0.2 seconds per lap")
+        expect(.bank, 0.26, .english, is: "bank 0.3 seconds per lap")
+        expect(.need, -0.04, .english, is: "on pace")
+        expect(.need, -0.2, .japanese, is: "0.2秒、不足")
+        expect(.bank, 0.2, .japanese, is: "0.2秒、余裕")
+        expect(.need, -0.04, .japanese, is: "ペースちょうど")
+        expect(.onTarget, 0, .japanese, is: "ペースちょうど")
+        expect(.onTarget, 0, .english, is: "on pace")
+        expect(.need, .infinity, .english, is: nil)
+        expect(.need, .nan, .japanese, is: nil)
         // Target lap count reached — `perLapSec` is the whole diff by then.
-        assert(phrase(.bank, 15.05, .english, remaining: 0) == nil)
-        assert(phrase(.need, -0.2, .japanese, remaining: -2) == nil)
+        expect(.bank, 15.05, .english, remaining: 0, is: nil)
+        expect(.need, -0.2, .japanese, remaining: -2, is: nil)
     }
     #endif
 
