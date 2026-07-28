@@ -61,6 +61,7 @@ struct HDZapApp: App {
                                       forKey: RaceMetrics.targetLapCountStorageKey)
         }
         _oklchSanityCheck()
+        _raceMetricsRemainingLapsSanityCheck()
         #endif
     }
 

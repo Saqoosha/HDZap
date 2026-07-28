@@ -641,10 +641,11 @@ final class PremiumSpeechSynthesizer: NSObject {
     /// returns false and the caller can decide to drop the announce or fall back.
     ///
     /// Does NOT participate in `pendingOnEnd` / `notifyEnd` / `isPlaying` —
-    /// overlap utterances are fire-and-forget. The primary path's volume-mute on
-    /// LAP ensures countdown numbers stop sounding while LAP speaks; new overlap
-    /// calls during LAP inherit the muted node volume and stay silent until
-    /// `notifyEnd` restores it.
+    /// overlap utterances are fire-and-forget. Countdown numbers still give way
+    /// to LAP: `speakAsync` calls `stopOverlapPlayback()` to cut whatever is
+    /// sounding, and the `isPlaying` check below drops new ones until
+    /// `notifyEnd`. So the pool overlaps numbers with each other, not with a
+    /// LAP call — Premium is no more immune to dropped digits than System is.
     @discardableResult
     func speakOverlap(text: String, lang: String, voice: PremiumVoiceOption) -> Bool {
         // LAP / Start / FINAL announces hard-stop the overlap pool on speakAsync

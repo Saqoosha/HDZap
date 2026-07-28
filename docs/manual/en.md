@@ -544,7 +544,7 @@ What each field means:
 - **TIME LEFT**: seconds remaining
 - **LAP N**: latest lap number and time, in seconds
 - **AVG / PACE**: average so far, and how many laps you'll finish at the current pace
-- **D±x BANK / NEED / ON TARGET**: gap to the target pace. BANK = ahead, NEED = behind, ON TARGET = on target. `/L` is the per-lap delta.
+- **D±x BANK / NEED / ON TARGET**: gap to the target pace. BANK = ahead, NEED = behind, ON TARGET = on target. `/L` is the per-lap delta — it spreads the gap over the target laps you have left, so it drops off the row once you reach the target lap count and only the `D±x` total remains. The phone's Need / Bank column goes to `Split —` at the same moment, and also once the race ends — a correction spread over laps you can no longer fly isn't advice.
 
 ### Tips while flying
 
@@ -797,7 +797,7 @@ Announcement section — applies to both engines:
 - **Announce lap times**: on / off. Also triggers a "Last lap!" voice cue at the moment the session timer hits zero (or "ファイナルラップです" when the language is set to Japanese).
 - **Say "best lap" on new best**: append "best lap" to the announcement when a lap sets a new fastest
 - **Announce need / bank**: off by default. When enabled, each lap call adds the one-decimal pace correction or time in hand per remaining target lap (for example, "need 0.2 seconds per lap" or "bank 0.2 seconds per lap"). When the pace is on target — or the per-lap correction rounds to 0.0 — the call says "on pace" instead. Japanese calls use the shorter "0.2秒、不足" / "0.2秒、余裕" wording, and "ペースちょうど" when on target. Nothing is added once you reach the target lap count: there are no remaining laps left to spread the correction over, so the per-lap figure would be meaningless.
-- **Count down final seconds**: off by default. When on, the announcer counts down the closing seconds of the session window using the selected voice ("ten, nine, ..." in English, "じゅう、きゅう..." in Japanese).
+- **Count down final seconds**: off by default. When on, the announcer counts down the closing seconds of the session window using the selected voice ("ten, nine, ..." in English, "じゅう、きゅう..." in Japanese). A countdown number is skipped rather than queued when a lap call is still being spoken, so it never drifts out of sync with the clock. Turning **Announce need / bank** on makes each lap call longer, so a few more numbers get dropped late in the race. This applies to Premium voices too: they can overlap one countdown number with the next, but a lap call still cuts off whatever is sounding and suppresses numbers until it finishes.
 - **Start at**: 5–15 s — when the countdown begins. Default 10. Only shown when **Count down final seconds** is on.
 
 <p align="center">

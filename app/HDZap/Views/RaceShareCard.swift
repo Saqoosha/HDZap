@@ -202,9 +202,13 @@ struct RaceShareCard: View {
             SummaryColumn(label: "Diff",
                           value: metrics?.diffDisplay ?? "—",
                           highlight: metrics?.splitState == .need, isFirst: false, isLast: false)
+            // Matches TimerView's summary band: the highlight retires with
+            // the per-lap value once the target lap count is reached.
             SummaryColumn(label: metrics?.splitLabel ?? "Need",
                           value: metrics?.splitValue ?? "—",
-                          highlight: metrics?.splitState == .need, isFirst: false, isLast: true)
+                          highlight: metrics?.splitState == .need
+                              && metrics?.hasRemainingTargetLaps == true,
+                          isFirst: false, isLast: true)
         }
         .padding(.vertical, 10)
         .padding(.trailing, 8)
