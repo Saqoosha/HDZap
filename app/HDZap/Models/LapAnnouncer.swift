@@ -18,6 +18,7 @@ enum LapAnnouncerDefaults {
     static let rateKey = "lapTTSRate"
     static let pitchKey = "lapTTSPitch"
     static let announceBestKey = "lapTTSAnnounceBest"
+    static let announceSplitKey = "lapTTSAnnounceSplit"
     static let countdownEnabledKey = "lapTTSCountdownEnabled"
     static let countdownStartSecondsKey = "lapTTSCountdownStartSeconds"
 
@@ -65,6 +66,9 @@ enum LapAnnouncerDefaults {
     /// "best lap" callout default — on. Cheap, useful, and only fires
     /// at the moments that warrant a callout.
     static let defaultAnnounceBest = true
+    /// Need / Bank callout default — off. The extra pace context is useful,
+    /// but lengthens every applicable lap announcement, so it is opt-in.
+    static let defaultAnnounceSplit = false
     /// Final-seconds countdown ("10", "9", "8", ...) default — off.
     /// Opt-in like the master toggle: silent until the operator asks
     /// for it.
@@ -339,6 +343,9 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         // `AVSpeechUtteranceDefaultSpeechRate` in a future SDK.
         assert(LapAnnouncerDefaults.defaultRate == AVSpeechUtteranceDefaultSpeechRate,
                "LapAnnouncerDefaults.defaultRate (\(LapAnnouncerDefaults.defaultRate)) drifted from AVSpeechUtteranceDefaultSpeechRate (\(AVSpeechUtteranceDefaultSpeechRate)) — re-verify and update.")
+        #if DEBUG
+        Self.assertSplitPhraseFormatting()
+        #endif
         // Voice dump runs off the main actor so app launch isn't blocked
         // by `speechVoices()` on a device with hundreds of installed voices.
         Task.detached(priority: .background) {
@@ -376,10 +383,23 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         prewarmFixedPhrases()
     }
 
-    func announceLap(_ lap: Lap, isBest: Bool) {
+    func announceLap(_ lap: Lap, isBest: Bool, metrics: RaceMetrics?) {
         let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool
             ?? LapAnnouncerDefaults.defaultAnnounceBest
-        speak(phrase(for: lap, isBest: isBest && announceBest))
+        let announceSplit = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceSplitKey) as? Bool
+            ?? LapAnnouncerDefaults.defaultAnnounceSplit
+        let language = currentLanguage()
+        let split = announceSplit
+            ? metrics.flatMap {
+                Self.splitPhrase(state: $0.splitState,
+                                 perLapSec: $0.perLapSec,
+                                 language: language)
+            }
+            : nil
+        speak(phrase(for: lap,
+                     isBest: isBest && announceBest,
+                     splitPhrase: split,
+                     language: language))
     }
 
     /// Used by the Settings "Test voice" button so the user can preview the
@@ -389,7 +409,16 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// suffix) — independent of the `announceBest` toggle.
     func announceTest() {
         let sample = Lap(id: 3, time: 12.34)
-        speak(phrase(for: sample, isBest: true))
+        let language = currentLanguage()
+        let announceSplit = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceSplitKey) as? Bool
+            ?? LapAnnouncerDefaults.defaultAnnounceSplit
+        let split = announceSplit
+            ? Self.splitPhrase(state: .need, perLapSec: -0.2, language: language)
+            : nil
+        speak(phrase(for: sample,
+                     isBest: true,
+                     splitPhrase: split,
+                     language: language))
     }
 
     /// Announces the race-over summary: optional last lap + total lap
@@ -1170,25 +1199,62 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         return (minutes, "\(s).\(String(format: "%02d", frac))")
     }
 
-    private func phrase(for lap: Lap, isBest: Bool) -> String {
+    private static func splitPhrase(state: RaceMetrics.SplitState,
+                                    perLapSec: TimeInterval,
+                                    language: LapAnnouncerLanguage) -> String? {
+        guard perLapSec.isFinite, state != .onTarget else { return nil }
+        let value = RaceMetrics.seconds(abs(perLapSec), decimals: 1)
+        switch (language, state) {
+        case (.english, .need): return "need \(value) seconds per lap"
+        case (.english, .bank): return "bank \(value) seconds per lap"
+        case (.japanese, .need): return "\(value)秒不足"
+        case (.japanese, .bank): return "\(value)秒余裕"
+        case (_, .onTarget): return nil
+        }
+    }
+
+    #if DEBUG
+    private static func assertSplitPhraseFormatting() {
+        assert(splitPhrase(state: .need, perLapSec: -0.24, language: .english)
+               == "need 0.2 seconds per lap")
+        assert(splitPhrase(state: .bank, perLapSec: 0.26, language: .english)
+               == "bank 0.3 seconds per lap")
+        assert(splitPhrase(state: .need, perLapSec: -0.04, language: .english)
+               == "need 0.0 seconds per lap")
+        assert(splitPhrase(state: .need, perLapSec: -0.2, language: .japanese)
+               == "0.2秒不足")
+        assert(splitPhrase(state: .bank, perLapSec: 0.2, language: .japanese)
+               == "0.2秒余裕")
+        assert(splitPhrase(state: .onTarget, perLapSec: 0, language: .japanese) == nil)
+        assert(splitPhrase(state: .need, perLapSec: .infinity, language: .english) == nil)
+    }
+    #endif
+
+    private func phrase(for lap: Lap,
+                        isBest: Bool,
+                        splitPhrase: String?,
+                        language: LapAnnouncerLanguage) -> String {
         // Two decimals matches what most pilots can act on — milliseconds
         // are too granular to parse by ear in the half-second the operator
         // has between laps. AVSpeechSynthesizer reads "12.34" naturally as
         // "twelve point three four" (en) / "12てん34" (ja). Truncated (not
         // rounded) so the spoken time agrees with the on-screen display.
         let timeStr = truncatedSecondsString(lap.time)
-        switch currentLanguage() {
+        let suffix = splitPhrase.map { ", \($0)" } ?? ""
+        switch language {
         case .english:
-            return isBest
+            let base = isBest
                 ? "Lap \(lap.id), \(timeStr), best lap"
                 : "Lap \(lap.id), \(timeStr)"
+            return base + suffix
         case .japanese:
             // Idiomatic FPV-racing phrasing in Japanese: "ラップN" matches
             // the on-screen counter, "ベストラップ" is the standard call for
             // a new fastest lap on circuit race broadcasts.
-            return isBest
+            let base = isBest
                 ? "ラップ\(lap.id)、\(timeStr)、ベストラップ"
                 : "ラップ\(lap.id)、\(timeStr)"
+            return base + (splitPhrase.map { "、\($0)" } ?? "")
         }
     }
 }

@@ -1446,7 +1446,7 @@ struct TimerView: View {
             // unearned victory call.
             let isBest = lapTimer.laps.count > 1
                 && lapTimer.bestLapIndex == lapTimer.laps.count - 1
-            announcer.announceLap(lap, isBest: isBest)
+            announcer.announceLap(lap, isBest: isBest, metrics: metricsSnapshot)
         }
         return lap
     }

@@ -1834,6 +1834,17 @@
         }
       }
     },
+    "Announce need / bank" : {
+      "comment" : "Toggle: append the per-remaining-lap Need or Bank pace delta to each lap announcement.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need / Bank を読み上げる"
+          }
+        }
+      }
+    },
     "Say \"best lap\" on new best" : {
       "comment" : "Toggle: append \"best lap\" suffix to the announcement when a new fastest lap is recorded.",
       "extractionState" : "stale",

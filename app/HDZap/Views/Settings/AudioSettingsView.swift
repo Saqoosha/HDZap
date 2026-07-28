@@ -34,6 +34,8 @@ struct AudioSettingsView: View {
         = LapAnnouncerDefaults.defaultLanguageRaw
     @AppStorage(LapAnnouncerDefaults.announceBestKey) private var announceBest
         = LapAnnouncerDefaults.defaultAnnounceBest
+    @AppStorage(LapAnnouncerDefaults.announceSplitKey) private var announceSplit
+        = LapAnnouncerDefaults.defaultAnnounceSplit
     @AppStorage(LapAnnouncerDefaults.voiceIdentifierKey) private var voiceIdentifier
         = LapAnnouncerDefaults.defaultVoiceIdentifier
     @AppStorage(LapAnnouncerDefaults.rateKey) private var ttsRate: Double
@@ -88,6 +90,8 @@ struct AudioSettingsView: View {
 
                 if lapTTSEnabled {
                     Toggle("Say \"best lap\" on new best", isOn: $announceBest)
+
+                    Toggle("Announce need / bank", isOn: $announceSplit)
 
                     Toggle("Count down final seconds", isOn: $countdownEnabled)
 
@@ -430,6 +434,7 @@ struct AudioSettingsView: View {
         // from a prior route (or with the master toggle flipped off) would
         // render an audio screenshot with no voice controls at all.
         lapTTSEnabled = true
+        announceSplit = true
         switch route {
         case .audio:
             // Ensure a clean System-engine screenshot — the simulator's

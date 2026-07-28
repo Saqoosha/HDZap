@@ -796,6 +796,7 @@ Announcement section — applies to both engines:
 
 - **Announce lap times**: on / off. Also triggers a "Last lap!" voice cue at the moment the session timer hits zero (or "ファイナルラップです" when the language is set to Japanese).
 - **Say "best lap" on new best**: prefix the announcement with "best lap" when a lap sets a new fastest
+- **Announce need / bank**: off by default. When enabled, each applicable lap call adds the one-decimal pace correction or time in hand per remaining target lap (for example, “need 0.2 seconds per lap” or “bank 0.2 seconds per lap”). Nothing is added when the pace is on target. Japanese calls use the shorter “0.2秒不足” / “0.2秒余裕” wording.
 - **Count down final seconds**: off by default. When on, the announcer counts down the closing seconds of the session window using the selected voice ("ten, nine, ..." in English, "じゅう、きゅう..." in Japanese).
 - **Start at**: 5–15 s — when the countdown begins. Default 10. Only shown when **Count down final seconds** is on.
 
