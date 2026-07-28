@@ -52,10 +52,22 @@ struct TimerView: View {
     /// projection/diff doesn't tick as the in-flight lap consumes the
     /// remaining window. Cleared on START and RESET.
     @State private var metricsSnapshot: RaceMetrics?
-    /// Set when the user taps STOP with at least one recorded lap so the
-    /// view flips to the result/done summary. STOP with no laps just pauses
-    /// the timer — no point showing an empty results screen. Cleared by RESET.
-    @State private var manuallyEnded = false
+    /// Latches true the moment a race worth recording finishes: the FINAL
+    /// lap in `primaryAction()`, or a STOP with at least one recorded lap.
+    /// (STOP with no laps just pauses the timer — no point showing an empty
+    /// results screen.)
+    ///
+    /// A finished race is a fact, not a predicate. Deriving it from
+    /// `timeUp` alone lets it go *backwards*: the Race Time slider isn't
+    /// gated on run state, so raising it after the race made
+    /// `elapsedTime >= sessionLimit` false again, reverting the DONE layout
+    /// to the running one and re-offering a per-lap correction for a race
+    /// nobody will fly another lap of.
+    ///
+    /// Cleared by RESET only. START can't be reached while it's set —
+    /// `primaryDisabled` is `sessionEnded`, and `primaryAction()` returns
+    /// early on it — so the operator always passes through RESET.
+    @State private var raceFinished = false
     /// True iff the most recently recorded lap took the FINAL branch in
     /// `primaryAction()`. Captured at action time so the haptic closure
     /// doesn't depend on SwiftUI's body re-eval order relative to
@@ -105,8 +117,12 @@ struct TimerView: View {
     @State private var lastLapAnnounced = false
 
     private var timeUp: Bool { lapTimer.elapsedTime >= sessionLimit }
+    /// `raceFinished` is the durable half. The second term covers the one
+    /// state it deliberately doesn't latch — stopped after the buzzer
+    /// without ever recording a lap. There's no race to preserve there, and
+    /// letting a longer Race Time re-open it is how the operator resumes.
     private var sessionEnded: Bool {
-        manuallyEnded || (!lapTimer.isRunning && timeUp)
+        raceFinished || (!lapTimer.isRunning && timeUp)
     }
     private var remaining: TimeInterval { max(0, sessionLimit - lapTimer.elapsedTime) }
     private var progress: Double { min(1, lapTimer.elapsedTime / sessionLimit) }
@@ -229,18 +245,19 @@ struct TimerView: View {
             // Race time is part of the metric inputs (target pace,
             // remaining-window pace projection). When the operator
             // bumps it after laps already exist, the displayed Diff/
-            // Need/Bank and the pre-rendered OSD lines must be
-            // recomputed against the new window — otherwise the
-            // goggle and the iPhone disagree on the same race.
-            refreshMetricsSnapshot()
-            sendMetricRows()
+            // Need/Bank must be recomputed against the new window.
+            // Whether the goggle is repainted from here is
+            // `handleMetricInputsChanged()`'s call — in practice this
+            // fires from the Settings sheet, so the repaint is the
+            // dismiss flush's job.
+            handleMetricInputsChanged()
         }
         // Refresh just the goggle's TIME LEFT row once a second while a
         // session is in flight. The bottom three rows are sent only on
         // lap record (and on session-limit change), so a tick costs one
         // BLE write and a 2-packet ESP-NOW cycle (writeString + draw).
         // Skip while the Settings sheet is up — explicit operator
-        // actions there (Test OSD, Clear OSD, Reset Laps) shouldn't
+        // actions there (Test OSD, Clear OSD, Reset layout) shouldn't
         // be immediately overwritten by a stale TIME LEFT.
         .onReceive(osdTick) { _ in
             guard lapTimer.isRunning && !sessionEnded && bluetooth.isReady else { return }
@@ -272,10 +289,11 @@ struct TimerView: View {
             announcer.stopWarmKeeper()
         }
         // Persist the race once it transitions to ended. `sessionEnded`
-        // flips false→true via either the FINAL-lap path or manual STOP
-        // with laps. `savedRaceID` guards against accidental double saves
-        // if anything else re-evaluates the body while still in the ended
-        // state.
+        // flips false→true via the FINAL-lap path, a manual STOP with laps,
+        // or — for a lapless session — the `timeUp` term alone. `savedRaceID`
+        // guards against accidental double saves if anything else
+        // re-evaluates the body while still in the ended state; the lapless
+        // case is additionally a no-op inside both calls below.
         .onChange(of: sessionEnded) { _, ended in
             if ended {
                 // Re-snapshot first: `raceEnded` is an input to the metrics,
@@ -284,15 +302,11 @@ struct TimerView: View {
                 // it still reads as a live race and keeps offering a
                 // per-lap correction for a race that just finished.
                 //
-                // `paceOverride` for the same reason the STOP path passes
-                // it: the race is over, so the achieved count is the
-                // truthful pace and the projection formula must not get a
-                // second chance to inflate it. A no-op on the FINAL-lap
-                // path (no session time left to project into), load-bearing
-                // on a manual STOP before the buzzer — without it this
-                // re-snapshot would undo the freeze STOP just applied.
-                refreshMetricsSnapshot(paceOverride: lapTimer.laps.count,
-                                       raceEnded: ended)
+                // Passing `raceEnded` is what freezes the pace: see
+                // `refreshMetricsSnapshot`, which derives `paceOverride`
+                // from it so the projection formula can't get a second
+                // chance to inflate the achieved count.
+                refreshMetricsSnapshot(raceEnded: ended)
                 saveRaceIfNeeded()
                 sendResultOSD()
             }
@@ -1133,6 +1147,9 @@ struct TimerView: View {
             // (see `announceFinalIfNeeded(lastLap:)`).
             let finalLap = recordLap(announce: false)
             lapTimer.stop()
+            // Latch the end here rather than leaving it to `timeUp`, which
+            // a later Race Time edit can take back. See `raceFinished`.
+            raceFinished = true
             // Stop the countdown machinery so a queued "1" can't fire
             // after the FINAL summary starts speaking — the summary's
             // `speak()` would cancel it mid-numeral anyway, but resetting
@@ -1254,10 +1271,14 @@ struct TimerView: View {
             // view to the result summary instead of leaving the user in
             // a "paused mid-run" state.
             if !lapTimer.laps.isEmpty {
-                manuallyEnded = true
+                raceFinished = true
                 // Stale projection from the in-flight lap would otherwise
-                // outlive the run. The achieved count is the truthful pace.
-                refreshMetricsSnapshot(paceOverride: lapTimer.laps.count)
+                // outlive the run. The achieved count is the truthful pace,
+                // and `raceEnded` is what tells `refreshMetricsSnapshot` to
+                // use it — passed explicitly rather than read back out of
+                // the `raceFinished` write above, per that function's
+                // `raceEnded` parameter doc.
+                refreshMetricsSnapshot(raceEnded: true)
                 announceFinalIfNeeded()
             }
             // Race is over from the operator's standpoint — let the
@@ -1309,7 +1330,7 @@ struct TimerView: View {
             announcer.stopWarmKeeper()
             lapTimer.reset()
             metricsSnapshot = nil
-            manuallyEnded = false
+            raceFinished = false
             lastLapWasFinal = false
             readyShown = false
             savedRaceID = nil
@@ -1507,8 +1528,9 @@ struct TimerView: View {
     }
 
     /// Push the bottom three semantic rows (LAP / AVG / DIFF) when a lap
-    /// is recorded, the session limit changes, or the target lap count
-    /// changes. Each row is routed to its current buffer slot — hidden
+    /// is recorded, or when a metric input changes somewhere
+    /// `handleMetricInputsChanged()`'s guard lets through. Each row is
+    /// routed to its current buffer slot — hidden
     /// rows are dropped (their slot is owned by another visible row or
     /// a leading blank, both of which sendTimeLeftRow / the layout
     /// flush already handle).
@@ -1632,22 +1654,56 @@ struct TimerView: View {
             targetLapCount = clamped
             return
         }
+        handleMetricInputsChanged()
+    }
+
+    /// A metric input (target lap count / race time) changed. Always
+    /// re-derive the numbers for the phone, then push the running rows to
+    /// the goggle *only* when the running frame is what belongs on it.
+    ///
+    /// `!showSettings` is the clause that actually fires today: both
+    /// controls live in the Settings sheet (`SettingsView.raceSection`), so
+    /// every operator-driven change arrives with the sheet up, and the
+    /// operator's own OSD actions there (Test OSD, Clear OSD, Reset layout)
+    /// own the display until it closes — `osdTick` carries the same guard.
+    /// The repaint is then the dismiss handler's `flushCurrentRaceFrame()`,
+    /// which draws the frame the current state calls for, or
+    /// `.onChange(of: bluetooth.isReady)` if BLE was down at dismiss time.
+    ///
+    /// `!sessionEnded` is the issue-#90 clause and is currently unreachable
+    /// behind the first — it states the invariant for the day a metric
+    /// input gains a control outside the sheet. After the race the goggle
+    /// holds the DONE result frame (or, for a lapless session, the last
+    /// TIME LEFT), and stamping live LAP / AVG / DIFF into semantic rows
+    /// 1-3 would leave a frame describing no state the race was ever in.
+    private func handleMetricInputsChanged() {
         refreshMetricsSnapshot()
+        guard !showSettings, !sessionEnded else { return }
         sendMetricRows()
     }
 
     /// - Parameter raceEnded: pass the value the caller already has when it
-    ///   is mid-transition. `sessionEnded` derives from `@State` this
-    ///   handler may have just written, and a stale `false` read here fails
-    ///   silently — the metrics simply keep describing a live race.
+    ///   is mid-transition. `sessionEnded` derives from `@State` the caller
+    ///   may have just written, and SwiftUI doesn't promise that write is
+    ///   visible to a read back in the same event handler. A stale `false`
+    ///   read fails silently — the metrics simply keep describing a live
+    ///   race — so the transition value is handed in rather than re-derived.
     @discardableResult
-    private func refreshMetricsSnapshot(paceOverride: Int? = nil,
-                                        raceEnded: Bool? = nil) -> RaceMetrics? {
+    private func refreshMetricsSnapshot(raceEnded: Bool? = nil) -> RaceMetrics? {
+        let ended = raceEnded ?? sessionEnded
+        // Nobody will fly another lap of a finished race, so the achieved
+        // count *is* its pace — however much of the session window went
+        // unused (a STOP before the buzzer leaves plenty). Deriving the
+        // freeze from `ended` here rather than at each call site makes it
+        // one rule: every re-snapshot after the race — including a Race
+        // Time edit recomputing against a wider window — gets it, and no
+        // caller can forget and hand the projection formula a remainder to
+        // inflate the pace with.
         let metrics = RaceMetrics(laps: lapTimer.laps,
                                   targetLapCount: clampedTargetLapCount,
                                   sessionLimit: sessionLimit,
-                                  paceOverride: paceOverride,
-                                  raceEnded: raceEnded ?? sessionEnded)
+                                  paceOverride: ended ? lapTimer.laps.count : nil,
+                                  raceEnded: ended)
         metricsSnapshot = metrics
         return metrics
     }
