@@ -544,7 +544,7 @@ What each field means:
 - **TIME LEFT**: seconds remaining
 - **LAP N**: latest lap number and time, in seconds
 - **AVG / PACE**: average so far, and how many laps you'll finish at the current pace
-- **D±x BANK / NEED / ON TARGET**: gap to the target pace. BANK = ahead, NEED = behind, ON TARGET = on target. `/L` is the per-lap delta — it spreads the gap over the target laps you have left, so it drops off the row once you reach the target lap count and only the `D±x` total remains. The phone's Need / Bank column goes to `Split —` at the same moment.
+- **D±x BANK / NEED / ON TARGET**: gap to the target pace. BANK = ahead, NEED = behind, ON TARGET = on target. `/L` is the per-lap delta — it spreads the gap over the target laps you have left, so it drops off the row once you reach the target lap count and only the `D±x` total remains. The phone's Need / Bank column goes to `Split —` at the same moment, and also once the race ends — a correction spread over laps you can no longer fly isn't advice.
 
 ### Tips while flying
 

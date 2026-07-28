@@ -46,9 +46,11 @@ struct TimerView: View {
     @State private var savedRaceID: UUID?
     /// CRSF flight-pack battery samples for the in-memory session.
     @State private var raceFlightBatterySamples: [RaceFlightBatterySample] = []
-    /// Captured once at the moment a lap is recorded. Kept stable so the
-    /// displayed projection/diff doesn't tick every frame as the in-flight
-    /// lap consumes the remaining window. Cleared on START and RESET.
+    /// Recaptured only at the points where the numbers actually change —
+    /// a recorded lap, a manual STOP, the race ending, and a target-lap /
+    /// session-limit edit — never per frame, so the displayed
+    /// projection/diff doesn't tick as the in-flight lap consumes the
+    /// remaining window. Cleared on START and RESET.
     @State private var metricsSnapshot: RaceMetrics?
     /// Set when the user taps STOP with at least one recorded lap so the
     /// view flips to the result/done summary. STOP with no laps just pauses
@@ -277,11 +279,20 @@ struct TimerView: View {
         .onChange(of: sessionEnded) { _, ended in
             if ended {
                 // Re-snapshot first: `raceEnded` is an input to the metrics,
-                // and the snapshot taken while the race was still live is
-                // the one the summary band is showing. Without this the
-                // Need / Bank column keeps offering a per-lap correction
-                // for a race that just finished.
-                refreshMetricsSnapshot()
+                // and on the FINAL-lap path the only snapshot so far was
+                // taken inside `recordLap()` — before `lapTimer.stop()`, so
+                // it still reads as a live race and keeps offering a
+                // per-lap correction for a race that just finished.
+                //
+                // `paceOverride` for the same reason the STOP path passes
+                // it: the race is over, so the achieved count is the
+                // truthful pace and the projection formula must not get a
+                // second chance to inflate it. A no-op on the FINAL-lap
+                // path (no session time left to project into), load-bearing
+                // on a manual STOP before the buzzer — without it this
+                // re-snapshot would undo the freeze STOP just applied.
+                refreshMetricsSnapshot(paceOverride: lapTimer.laps.count,
+                                       raceEnded: ended)
                 saveRaceIfNeeded()
                 sendResultOSD()
             }
@@ -1625,13 +1636,18 @@ struct TimerView: View {
         sendMetricRows()
     }
 
+    /// - Parameter raceEnded: pass the value the caller already has when it
+    ///   is mid-transition. `sessionEnded` derives from `@State` this
+    ///   handler may have just written, and a stale `false` read here fails
+    ///   silently — the metrics simply keep describing a live race.
     @discardableResult
-    private func refreshMetricsSnapshot(paceOverride: Int? = nil) -> RaceMetrics? {
+    private func refreshMetricsSnapshot(paceOverride: Int? = nil,
+                                        raceEnded: Bool? = nil) -> RaceMetrics? {
         let metrics = RaceMetrics(laps: lapTimer.laps,
                                   targetLapCount: clampedTargetLapCount,
                                   sessionLimit: sessionLimit,
                                   paceOverride: paceOverride,
-                                  raceEnded: sessionEnded)
+                                  raceEnded: raceEnded ?? sessionEnded)
         metricsSnapshot = metrics
         return metrics
     }

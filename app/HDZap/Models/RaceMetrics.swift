@@ -48,7 +48,10 @@ struct RaceMetrics: Equatable {
     let perLapSec: TimeInterval
 
     /// Whether a per-remaining-lap figure still means anything — **the one
-    /// place this rule is written down**; other sites point here.
+    /// place this rule is written down for display**; the other display
+    /// sites point here. The voice path gates on `remainingTargetLaps`
+    /// directly instead: it only ever speaks mid-race, so case 2 below
+    /// can't arise there and it never sees these metrics.
     ///
     /// Two ways for it to stop meaning something:
     ///
