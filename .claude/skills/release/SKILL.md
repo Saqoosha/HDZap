@@ -84,6 +84,29 @@ The script:
 11. **Fill TestFlight "What to Test"** for both en-US and ja locales via the App Store Connect API — see the TestFlight "What to Test" section below.
 12. **Fast-forward** local `develop` to `main` so the next cycle starts in sync.
 
+### 3.5 Known defects in `scripts/release.sh` (issue #94)
+
+Both were hit on real releases. Until #94 is fixed, expect to finish the tail by hand.
+
+**The failure trap restores `project.yml` but not `project.pbxproj`.** By the time most failures happen, `build.sh` has run `xcodegen generate`, which rewrites the pbxproj with the bumped versions. The trap leaves it dirty, and the *next* attempt dies in pre-flight with `Error: working tree is not clean` pointing at a file the operator never touched. Fix before retrying:
+
+```sh
+git checkout -- app/HDZap.xcodeproj/project.pbxproj
+```
+
+**Step 9's `gh run rerun` aborts the rest of the script.** `gh pr merge` has just pushed to `main`, so that workflow run is still queued/in-progress and the re-run is refused (`cannot be rerun; This workflow is already running`). Under `set -e` the script exits 1 there, silently skipping **step 10 (GitHub Release) and step 11 (fast-forward develop)** — while the TestFlight upload, the PR merge and the tag push have all already succeeded. A release therefore *looks* failed while being 90% done. Finish by hand: wait for the in-flight run, re-run it, create the Release, then `jj bookmark set develop -r main@origin` + push.
+
+**Do not judge progress from the script's log — it is buffered.** A tail that still shows `altool --upload-app` can be minutes stale; on one run the PR had already been merged and the tag pushed while the log showed the upload step. Check the actual artefacts instead:
+
+```sh
+git tag --list "v<version>"                 # tag created?
+git rev-parse --short origin/main            # main moved?
+gh pr list --repo <owner/repo> --state merged --limit 3
+gh release view "v<version>" --repo <owner/repo>
+```
+
+This matters because killing the script mid-flight to change the version number only helps if it hasn't reached the PR/tag steps.
+
 ### 4. Re-run main CI after the tag push (cosmetic, but matters)
 
 The `gh pr merge` push and the tag push race against CI. The merge commit lands on `main` and triggers the Web Flasher workflow before `git push origin <tag>` finishes, so the first CI run on `main` builds firmware against a tree where `git describe --tags` still resolves to the *previous* tag (`v<prev>-N-g<sha>`) instead of the new one. The deployed firmware on <https://saqoosha.github.io/HDZap/flash/> shows the dev-style string until the next CI run.
@@ -129,6 +152,27 @@ locales = {
 - The build ID comes from the `altool --upload-app` response (`Delivery UUID`), or from `GET /v1/builds?filter[app]=<app_id>&sort=-uploadedDate`.
 - Draft the notes by looking at the user-facing diff — skip docs/infra/CI/internal changes.
 - Write both locales in parallel; create if missing, update if the locale already exists on the build.
+
+## Submitting to the App Store
+
+`release.sh` stops at TestFlight. Promoting the same build to the App Store is a separate, entirely ASC-API flow (no web session needed — mint the JWT from the same `.p8`, see `docs/testflight-setup.md` and the `asc-api-review-gotchas` memory).
+
+1. `POST /v1/appStoreVersions` — `{platform: IOS, versionString, releaseType: MANUAL}`, related to the app. **`MANUAL` is the house default**: the build does not go live the moment Apple approves it, so the operator picks the moment. 1.1.0 / 1.2.0 / 1.3.0 all shipped this way.
+2. Apple auto-creates the `appStoreVersionLocalizations` (en-US + ja) and **inherits the previous version's screenshots**, so no re-upload is needed for a release that doesn't change the UI enough to reshoot. Set `whatsNew` per locale with `PATCH`.
+3. **Rewrite the review notes. This is the step that gets skipped and causes rejections.** Apple copies `appStoreReviewDetail` forward to the new version, so the previous release's notes arrive verbatim — including sentences like "belongs to THIS build (1.1.0, build 20)" or "WHAT IS NEW IN 1.2.0". A reviewer reading last release's notes against this release's binary is exactly how 1.1.0 drew its 2.1(b) rejection. `PATCH /appStoreReviewDetails/{id}` every time.
+   What has worked (approved on 1.2.0 unchanged): lead with **"NO HARDWARE IS NEEDED TO REVIEW THIS BUILD"** and say the timer / history / voice all run on the iPhone alone with the goggle bridge optional — otherwise the reviewer sees an app that appears to need an ESP32 and HDZero goggles. Then no-login/no-demo-account, a short "what is new", a line that the subscription is unchanged since 1.1.0, and numbered steps to reach the new feature.
+4. `PATCH /v1/appStoreVersions/{id}/relationships/build` with the build id (from `GET /v1/builds?filter[app]=…&sort=-uploadedDate`; the same id `altool` printed as the Delivery UUID).
+5. Submit via the review-submission API — the older `appStoreVersionSubmissions` endpoint is superseded:
+   ```
+   POST /v1/reviewSubmissions            {platform: IOS} → app
+   POST /v1/reviewSubmissionItems        → {reviewSubmission, appStoreVersion}
+   PATCH /v1/reviewSubmissions/{id}      {submitted: true}
+   ```
+   A successful submit flips the version to `WAITING_FOR_REVIEW`.
+
+Before submitting, confirm the version reports `PREPARE_FOR_SUBMISSION`, the attached build is `VALID`, and each locale has its screenshot sets (3 × `APP_IPHONE_67` is the current set).
+
+Note that `itunes.apple.com/lookup` lags — it kept reporting 1.1.0 for hours after 1.2.0 reached `READY_FOR_SALE`. Trust `appStoreState` from the API, not the lookup endpoint.
 
 ## Build-only release (no MARKETING_VERSION bump)
 

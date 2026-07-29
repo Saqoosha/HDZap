@@ -23,7 +23,15 @@ scripts/                  build / upload-testflight / release helpers
 - `develop` = default branch; CI deploys staging to <https://saqoosha.github.io/HDZap/dev/> (`/dev/flash/`, `/dev/ja/`).
 - `main` = release branch, protected (PR-only merge, no force push, no delete, admin bypass enabled). CI deploys production at the canonical paths (`/`, `/flash/`, `/ja/`).
 - Pages is one site per repo, so the workflow checks out **both** branches on every push, builds firmware for each, and composes a single `_site/` with main at the root and develop mirrored under `/dev/`. Pushing to either branch refreshes its slice without touching the other.
-- Releases promote develop → main through a release PR (script-driven). Direct push to `main` is rejected.
+- Releases promote develop → main through a release PR (script-driven). Direct push to `main` is rejected. See [the release skill](.claude/skills/release/SKILL.md) — including its known-defects section, because the script reliably stops two steps short of done.
+- **`manifest.json` is not the firmware version.** CI stamps it `<branch>-<short sha>` (`main-7aed8e5`), which says nothing about which tag the firmware was built from. The version the goggle bridge actually advertises over BLE is injected into the binary by `firmware/scripts/inject_version.py` from `git describe --tags`. To check what production is really serving:
+
+  ```sh
+  curl -so /tmp/fw.bin https://saqoosha.github.io/HDZap/flash/firmware/hdzap.bin
+  strings /tmp/fw.bin | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | sort -u
+  ```
+
+  (`/flash/hdzap.bin` is a 404 that saves the GitHub 404 page — the binaries live under `/flash/firmware/`.) The tag-push-vs-CI race described in the release skill is real and has been observed on consecutive releases: the first deploy after a release serves the *previous* tag's string, and only the manual CI re-run corrects it. Verify with the command above rather than assuming the re-run worked.
 
 ## Build Commands
 
