@@ -32,6 +32,8 @@ struct AudioSettingsView: View {
         = LapAnnouncerDefaults.defaultEnabled
     @AppStorage(LapAnnouncerDefaults.languageKey) private var ttsLanguageRaw
         = LapAnnouncerDefaults.defaultLanguageRaw
+    @AppStorage(LapAnnouncerDefaults.announceLapTimeKey) private var announceLapTime
+        = LapAnnouncerDefaults.defaultAnnounceLapTime
     @AppStorage(LapAnnouncerDefaults.announceBestKey) private var announceBest
         = LapAnnouncerDefaults.defaultAnnounceBest
     @AppStorage(LapAnnouncerDefaults.announceSplitKey) private var announceSplit
@@ -86,9 +88,18 @@ struct AudioSettingsView: View {
         let hasPremium = voices.contains(where: { $0.quality == .premium })
         return List {
             Section {
-                Toggle("Announce lap times", isOn: $lapTTSEnabled)
+                // Master switch for every spoken cue — lap callouts, the
+                // countdown, and the race summary. It used to be labelled
+                // "Announce lap times" and doubled as the lap-time switch,
+                // which made "pace only, no lap times" impossible to ask
+                // for: turning lap times off took the countdown and the
+                // summary with them. The lap-time part is its own toggle
+                // below now.
+                Toggle("Voice announcements", isOn: $lapTTSEnabled)
 
                 if lapTTSEnabled {
+                    Toggle("Announce lap times", isOn: $announceLapTime)
+
                     Toggle("Say \"best lap\" on new best", isOn: $announceBest)
 
                     Toggle("Announce need / bank", isOn: $announceSplit)
@@ -119,6 +130,17 @@ struct AudioSettingsView: View {
                 }
             } header: {
                 Text("Announcement")
+            } footer: {
+                // The pace-only setup has a hole the operator can't see from
+                // the toggles: `splitPhrase` goes silent once there are no
+                // remaining target laps, and with the lap time off there is
+                // nothing left to say, so the announcer stops for the rest of
+                // the race. That reads as a fault from the cockpit. Say so
+                // here rather than only in the manual, and only when the
+                // combination that hits it is actually selected.
+                if lapTTSEnabled && !announceLapTime && announceSplit {
+                    Text("Need / bank stops once you reach the target lap count, so with lap times off those laps are silent.")
+                }
             }
 
             if lapTTSEnabled {
@@ -440,6 +462,9 @@ struct AudioSettingsView: View {
         // prose right next to it. The row renders either way, which is all
         // the manual needs from this capture.
         announceSplit = LapAnnouncerDefaults.defaultAnnounceSplit
+        // Same reasoning for the lap-time toggle — the manual documents it as
+        // on by default, and a persisted simulator could have it off.
+        announceLapTime = LapAnnouncerDefaults.defaultAnnounceLapTime
         switch route {
         case .audio:
             // Ensure a clean System-engine screenshot — the simulator's

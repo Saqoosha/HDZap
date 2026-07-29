@@ -1231,6 +1231,15 @@ struct TimerView: View {
             // `announceStart()` itself runs ~100 ms later inside the
             // Task below, after the HAL has had time to ramp up
             // through the warm-keeper.
+            //
+            // Gated on the master toggle alone, deliberately. Since the
+            // per-lap parts each got their own switch it is possible to have
+            // the voice on with every per-lap part off, and then the hold
+            // ducks other apps for a whole race to deliver only the start
+            // cue, the countdown and the summary. Those are exactly the cues
+            // that most need a hot HAL — they land after long idle gaps —
+            // so narrowing the gate would trade a real hitch for a
+            // theoretical courtesy.
             if lapTTSEnabled {
                 announcer.sessionHoldActive = true
                 announcer.startWarmKeeper()
