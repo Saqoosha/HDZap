@@ -19,6 +19,7 @@ struct HDZapApp: App {
             LapAnnouncerDefaults.enabledKey: LapAnnouncerDefaults.defaultEnabled,
             LapAnnouncerDefaults.languageKey: LapAnnouncerDefaults.defaultLanguageRaw,
             LapAnnouncerDefaults.announceBestKey: LapAnnouncerDefaults.defaultAnnounceBest,
+            LapAnnouncerDefaults.announceLapTimeKey: LapAnnouncerDefaults.defaultAnnounceLapTime,
             LapAnnouncerDefaults.announceSplitKey: LapAnnouncerDefaults.defaultAnnounceSplit,
             LapAnnouncerDefaults.rateKey: Double(LapAnnouncerDefaults.defaultRate),
             LapAnnouncerDefaults.pitchKey: Double(LapAnnouncerDefaults.defaultPitch),

@@ -548,7 +548,7 @@ What each field means:
 
 ### Tips while flying
 
-- **Voice announcements**: turn it on in Settings and the iPhone reads each lap time aloud.
+- **Voice**: turn **Voice announcements** on in Settings and the iPhone reads each lap aloud — the time, and optionally how you are doing against your target pace.
 - **Haptics**: the iPhone vibrates on Start / Lap, so you can confirm the tap registered without looking at the screen.
 - **Best lap**: highlighted automatically (star + accent color).
 
@@ -794,11 +794,18 @@ Live editor for the goggle OSD with a 4-row preview at the top. Adjustments push
 
 Announcement section — applies to both engines:
 
-- **Announce lap times**: on / off. Also triggers a "Last lap!" voice cue at the moment the session timer hits zero (or "ファイナルラップです" when the language is set to Japanese).
-- **Say "best lap" on new best**: append "best lap" to the announcement when a lap sets a new fastest
+- **Voice announcements**: the master switch for everything spoken — the start cue, lap calls, the countdown, the "Last lap!" cue that fires the moment the session timer hits zero (or "ファイナルラップです" when the language is set to Japanese), and the race summary. Off means silence.
+- **Announce lap times**: on by default. Reads the lap number and time after each lap ("Lap 3, 12.34"). Turn it off to keep the voice for the pace, best-lap and countdown cues without it — the lap time is already on screen, and dropping it makes each call much shorter.
+- **Say "best lap" on new best**: append "best lap" to the announcement when a lap sets a new fastest. Independent of the setting above, so it still fires with lap times switched off.
 - **Announce need / bank**: off by default. When enabled, each lap call adds the one-decimal pace correction or time in hand per remaining target lap (for example, "need 0.2 seconds per lap" or "bank 0.2 seconds per lap"). When the pace is on target — or the per-lap correction rounds to 0.0 — the call says "on pace" instead. Japanese calls use the shorter "0.2秒、不足" / "0.2秒、余裕" wording, and "ペースちょうど" when on target. Nothing is added once you reach the target lap count: there are no remaining laps left to spread the correction over, so the per-lap figure would be meaningless.
 - **Count down final seconds**: off by default. When on, the announcer counts down the closing seconds of the session window using the selected voice ("ten, nine, ..." in English, "じゅう、きゅう..." in Japanese). A countdown number is skipped rather than queued when a lap call is still being spoken, so it never drifts out of sync with the clock. Turning **Announce need / bank** on makes each lap call longer, so a few more numbers get dropped late in the race. This applies to Premium voices too: they can overlap one countdown number with the next, but a lap call still cuts off whatever is sounding and suppresses numbers until it finishes.
 - **Start at**: 5–15 s — when the countdown begins. Default 10. Only shown when **Count down final seconds** is on.
+
+The three per-lap switches — **Announce lap times**, **Say "best lap" on new best** and **Announce need / bank** — combine freely. Turning lap times off and need / bank on is the minimal-chatter setup: each lap you hear "need 0.2 seconds per lap" and, on a new fastest lap, "best lap" in front of it. Switch the best-lap call off too and the pace figure is all that is left.
+
+One caveat for that setup: the pace figure is a correction spread over the target laps you have left, so it stops once you reach the target lap count — and with lap times off there is nothing else to say, so those laps are silent. If you regularly out-run your target, either raise **Target laps** or leave lap times on.
+
+With all three per-lap switches off the voice stays quiet between laps; the start cue, the countdown, the "Last lap!" call and the race summary all still play.
 
 <p align="center">
   <img src="images/audio-announcement-countdown.png" alt="Count down final seconds toggled ON, with the Start at stepper revealed" width="360" />

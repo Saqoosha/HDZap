@@ -386,7 +386,7 @@
       }
     },
     "Announce lap times" : {
-      "comment" : "Toggle that turns on TTS announcements after each lap.",
+      "comment" : "Toggle: read the lap number and time aloud after each lap. Sits under the \"Voice announcements\" master toggle, which is what it used to be before the two were split.",
       "extractionState" : "stale",
       "localizations" : {
         "ja" : {
@@ -1300,6 +1300,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前"
+          }
+        }
+      }
+    },
+    "Need / bank stops once you reach the target lap count, so with lap times off those laps are silent." : {
+      "comment" : "Announcement section footer, shown only when lap times are off and need / bank is on. Warns that this combination produces no audio at all once there are no remaining target laps.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目標ラップ数に到達すると目標ペースとの差は読み上げられなくなるため、ラップタイムが OFF だとそれ以降のラップは無音になります。"
           }
         }
       }
@@ -2286,6 +2297,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "音声"
+          }
+        }
+      }
+    },
+    "Voice announcements" : {
+      "comment" : "Audio section master toggle. Gates every spoken cue — lap callouts, the final-seconds countdown, and the race summary. The lap-number-and-time callout it used to double as now has its own row (\"Announce lap times\") underneath.",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声読み上げ"
           }
         }
       }
