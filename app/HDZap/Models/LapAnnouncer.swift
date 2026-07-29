@@ -18,6 +18,7 @@ enum LapAnnouncerDefaults {
     static let rateKey = "lapTTSRate"
     static let pitchKey = "lapTTSPitch"
     static let announceBestKey = "lapTTSAnnounceBest"
+    static let announceLapTimeKey = "lapTTSAnnounceLapTime"
     static let announceSplitKey = "lapTTSAnnounceSplit"
     static let countdownEnabledKey = "lapTTSCountdownEnabled"
     static let countdownStartSecondsKey = "lapTTSCountdownStartSeconds"
@@ -61,8 +62,17 @@ enum LapAnnouncerDefaults {
     static let defaultRate: Float = 0.5
     static let defaultPitch: Float = 1.0
     /// Master toggle default — off, so the app stays silent until the
-    /// operator explicitly opts in to TTS announcements.
+    /// operator explicitly opts in to TTS announcements. Gates everything
+    /// this app speaks; as of writing that is the race-start cue, the
+    /// per-lap callout, the final-seconds countdown, the "Last lap!" cue
+    /// and the race summary (all gated in `TimerView`).
     static let defaultEnabled = false
+    /// Lap-number-and-time callout default — on: this is the callout the
+    /// old combined toggle produced, so existing users keep the same audio
+    /// after the split. Its own switch now, so a pilot can keep the voice
+    /// for the pace, best-lap and countdown cues while dropping the per-lap
+    /// time they can already read off the screen.
+    static let defaultAnnounceLapTime = true
     /// "best lap" callout default — on. Cheap, useful, and only fires
     /// at the moments that warrant a callout.
     static let defaultAnnounceBest = true
@@ -163,9 +173,10 @@ enum LapAnnouncerLanguage: String, CaseIterable, Identifiable {
 ///
 /// AudioSettingsView is the writer for voice / rate / pitch / language;
 /// this class is the reader. Both reach for the same
-/// `LapAnnouncerDefaults.*` keys, and every setting is read fresh inside
-/// `speak()` so Settings edits apply on the next lap with no explicit
-/// wiring.
+/// `LapAnnouncerDefaults.*` keys, and every setting is read fresh per call —
+/// voice / rate / pitch inside `speak()`, the what-to-say toggles inside
+/// `announceLap` / `announceTest` — so Settings edits apply on the next lap
+/// with no explicit wiring.
 @MainActor
 @Observable
 final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
@@ -346,6 +357,7 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                "LapAnnouncerDefaults.defaultRate (\(LapAnnouncerDefaults.defaultRate)) drifted from AVSpeechUtteranceDefaultSpeechRate (\(AVSpeechUtteranceDefaultSpeechRate)) — re-verify and update.")
         #if DEBUG
         Self.assertSplitPhraseFormatting()
+        assertPhraseAssembly()
         #endif
         // Voice dump runs off the main actor so app launch isn't blocked
         // by `speechVoices()` on a device with hundreds of installed voices.
@@ -392,13 +404,23 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             ?? LapAnnouncerDefaults.defaultAnnounceSplit
     }
 
+    /// Same read-fresh contract as `announceSplitEnabled`.
+    private var announceLapTimeEnabled: Bool {
+        UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceLapTimeKey) as? Bool
+            ?? LapAnnouncerDefaults.defaultAnnounceLapTime
+    }
+
+    /// Same read-fresh contract as `announceSplitEnabled`.
+    private var announceBestEnabled: Bool {
+        UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool
+            ?? LapAnnouncerDefaults.defaultAnnounceBest
+    }
+
     /// - Parameter metrics: snapshot of the race state **including** `lap` —
     ///   `perLapSec` is meaningless if the snapshot predates the lap being
     ///   announced, and the mistake is silent (the call just reads one lap
     ///   stale). Refresh before calling, as `TimerView.recordLap()` does.
     func announceLap(_ lap: Lap, isBest: Bool, metrics: RaceMetrics?) {
-        let announceBest = UserDefaults.standard.object(forKey: LapAnnouncerDefaults.announceBestKey) as? Bool
-            ?? LapAnnouncerDefaults.defaultAnnounceBest
         let language = currentLanguage()
         let split = announceSplitEnabled
             ? metrics.flatMap {
@@ -408,22 +430,63 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                                  language: language)
             }
             : nil
-        speak(phrase(for: lap,
-                     isBest: isBest && announceBest,
-                     splitSuffix: split,
-                     language: language))
+        let text = phrase(for: lap,
+                          includeLapTime: announceLapTimeEnabled,
+                          isBest: isBest && announceBestEnabled,
+                          splitSuffix: split,
+                          language: language)
+        guard !text.isEmpty else {
+            // Two very different states land here and the phrase alone can't
+            // tell them apart, so log which one it was. Speaking "" is not an
+            // option either way: `speak` defaults to `cancelInflight: true`,
+            // so a zero-length utterance would cut off a countdown number
+            // that is mid-word, and on the Premium engine it would fire an
+            // empty Worker request. Outside a race it would also activate
+            // the audio session and duck other apps for nothing.
+            //
+            // The pace-only setup is the one that looks broken from the
+            // cockpit. `splitPhrase` returns nil once `remainingTargetLaps`
+            // hits 0 — there is no target left to pace against — so a pilot
+            // who runs past the target lap count hears nothing at all from
+            // there to the flag, which is indistinguishable from the audio
+            // having died.
+            //
+            // Staying silent there is a decision, not an oversight. Past the
+            // target the pace figure has nothing left to mean, which is
+            // exactly what `RaceMetrics.hasRemainingTargetLaps` retires it
+            // for; announcing the accumulated total instead would reverse
+            // that and change what every existing need/bank user hears. So
+            // the silence stands, and the cost is paid where it can actually
+            // be seen: the Announcement section shows a footer whenever this
+            // combination is selected, the manual says to raise Target laps
+            // or leave lap times on, and this log line gives a field report
+            // something to correlate against.
+            if announceSplitEnabled && !announceLapTimeEnabled {
+                log.info("""
+                    announceLap: nothing to speak for lap \(lap.id, privacy: .public) — \
+                    need/bank is on but produced no phrase \
+                    (metrics \(metrics == nil ? "nil" : "present", privacy: .public), \
+                    remainingTargetLaps \(metrics?.remainingTargetLaps ?? .min, privacy: .public))
+                    """)
+            } else {
+                log.debug("announceLap: every per-lap part is off — silent for lap \(lap.id, privacy: .public)")
+            }
+            return
+        }
+        speak(text)
     }
 
     /// Used by the Settings "Test voice" button so the user can preview the
     /// current voice/rate/pitch combo and confirm the phone isn't muted
     /// before relying on it during a race. Always passes `isBest: true` so
-    /// the preview exercises the lap number, time, and best-lap suffix —
-    /// independent of the `announceBest` toggle. The Need/Bank phrase is the
-    /// one piece that *does* follow its toggle: it sits right above this
-    /// button, so honouring it makes the preview the way to hear what the
-    /// toggle changes. `.need` at -0.2 s is the shape a pilot hears most —
-    /// behind target, one decimal, negative `perLapSec` per the sign
-    /// convention in `RaceMetrics`.
+    /// the preview exercises the longest phrase shape the operator will
+    /// hear — independent of the `announceBest` toggle, and the reason this
+    /// phrase can never come back empty.
+    /// The lap-time and Need/Bank parts *do* follow their toggles: they sit
+    /// right above this button, so honouring them makes the preview the way
+    /// to hear what those switches change. `.need` at -0.2 s is the shape a
+    /// pilot hears most — behind target, one decimal, negative `perLapSec`
+    /// per the sign convention in `RaceMetrics`.
     func announceTest() {
         let sample = Lap(id: 3, time: 12.34)
         let language = currentLanguage()
@@ -433,7 +496,14 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                                remainingTargetLaps: 3,
                                language: language)
             : nil
+        // `isBest: true` is unconditional above and the best-lap part is
+        // never empty, so this always has at least one part — the button
+        // cannot go silent however the per-lap toggles are set. Stated as an
+        // invariant rather than defended with a fallback: falling back to the
+        // lap-time phrase would speak the very part the operator switched
+        // off, which is the opposite of what this preview is for.
         speak(phrase(for: sample,
+                     includeLapTime: announceLapTimeEnabled,
                      isBest: true,
                      splitSuffix: split,
                      language: language))
@@ -1139,6 +1209,12 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         return phrases
     }
 
+    /// Deliberately ignores `announceLapTime`: the race summary is a
+    /// once-per-race cue, not per-lap chatter, and the FINAL-lap time it
+    /// reads is the one the pilot never got a callout for (the FINAL path
+    /// suppresses that callout and folds the lap into this phrase). Someone
+    /// who switched the per-lap time off to cut chatter still wants the
+    /// result read out; only the master toggle silences this.
     private func finalPhrase(lastLap: Lap?,
                              lapCount: Int,
                              totalTime: TimeInterval,
@@ -1314,9 +1390,85 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         expect(.bank, 15.05, .english, remaining: 0, is: nil)
         expect(.need, -0.2, .japanese, remaining: -2, is: nil)
     }
+
+    /// Pins all eight combinations of the three independently-toggled parts,
+    /// in both languages where the separator differs. The cases above the
+    /// "Lap time off" marker are the strings shipped before the lap-time part
+    /// got its own switch — they must not drift, because the master toggle
+    /// used to produce them and existing users still have that shape.
+    private func assertPhraseAssembly() {
+        let lap = Lap(id: 3, time: 12.34)
+        func expect(_ label: String,
+                    lapTime: Bool,
+                    best: Bool,
+                    split: String?,
+                    _ language: LapAnnouncerLanguage,
+                    is expected: String,
+                    file: StaticString = #file,
+                    line: UInt = #line) {
+            let actual = phrase(for: lap,
+                                includeLapTime: lapTime,
+                                isBest: best,
+                                splitSuffix: split,
+                                language: language)
+            assert(actual == expected,
+                   """
+                   phrase(\(label)) returned "\(actual)", expected "\(expected)"
+                   """,
+                   file: file,
+                   line: line)
+        }
+
+        // Unchanged from before the split-out.
+        expect("en lap only", lapTime: true, best: false, split: nil, .english,
+               is: "Lap 3, 12.34")
+        expect("en lap+best", lapTime: true, best: true, split: nil, .english,
+               is: "Lap 3, 12.34, best lap")
+        expect("ja lap only", lapTime: true, best: false, split: nil, .japanese,
+               is: "ラップ3、12.34")
+        expect("ja lap+best+split", lapTime: true, best: true, split: "0.2秒、不足", .japanese,
+               is: "ラップ3、12.34、ベストラップ、0.2秒、不足")
+        // The commonest shape once need/bank is on: a lap that isn't a new best.
+        expect("en lap+split", lapTime: true, best: false,
+               split: "need 0.2 seconds per lap", .english,
+               is: "Lap 3, 12.34, need 0.2 seconds per lap")
+
+        // Lap time off — the shape this switch exists for.
+        expect("en split only", lapTime: false, best: false,
+               split: "need 0.2 seconds per lap", .english,
+               is: "need 0.2 seconds per lap")
+        expect("ja split only", lapTime: false, best: false, split: "0.2秒、不足", .japanese,
+               is: "0.2秒、不足")
+        // `announceBest` is its own toggle, so it survives the lap time going away.
+        expect("ja best+split", lapTime: false, best: true, split: "0.2秒、不足", .japanese,
+               is: "ベストラップ、0.2秒、不足")
+        expect("en best+split", lapTime: false, best: true,
+               split: "need 0.2 seconds per lap", .english,
+               is: "best lap, need 0.2 seconds per lap")
+        expect("ja best only", lapTime: false, best: true, split: nil, .japanese,
+               is: "ベストラップ")
+        // Reachable two ways: the operator switched every part off, OR
+        // need/bank is on and `splitPhrase` returned nil (target lap count
+        // reached, or a nil metrics snapshot). `announceLap` must speak
+        // neither — it logs which one it was instead.
+        expect("no parts", lapTime: false, best: false, split: nil, .english, is: "")
+    }
     #endif
 
+    /// Assembles the per-lap utterance from up to three independent parts —
+    /// the lap number and time, the best-lap callout, and the pace split —
+    /// each gated by its own Settings toggle *and* its own applicability
+    /// (best needs an actual new best; split needs remaining target laps).
+    /// Built as a parts list rather than string concatenation because every
+    /// combination has to read naturally, including the ones with no lap time
+    /// in front: on a lap that isn't a new best, a pilot who only wants pace
+    /// hears "need 0.2 seconds per lap" on its own.
+    ///
+    /// Returns "" when nothing applies. Callers must not speak that:
+    /// `announceLap` early-returns on it, and `announceTest` can't produce it
+    /// because it hardcodes `isBest: true`.
     private func phrase(for lap: Lap,
+                        includeLapTime: Bool,
                         isBest: Bool,
                         splitSuffix: String?,
                         language: LapAnnouncerLanguage) -> String {
@@ -1326,24 +1478,30 @@ final class LapAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         // "twelve point three four" (en) / "12てん34" (ja). Truncated (not
         // rounded) so the spoken time agrees with the on-screen display.
         let timeStr = truncatedSecondsString(lap.time)
-        let base: String
+        let lapTimePart: String
+        let bestPart: String
         let separator: String
         switch language {
         case .english:
-            base = isBest
-                ? "Lap \(lap.id), \(timeStr), best lap"
-                : "Lap \(lap.id), \(timeStr)"
+            lapTimePart = "Lap \(lap.id), \(timeStr)"
+            bestPart = "best lap"
             separator = ", "
         case .japanese:
             // Idiomatic FPV-racing phrasing in Japanese: "ラップN" matches
             // the on-screen counter, "ベストラップ" is the standard call for
             // a new fastest lap on circuit race broadcasts.
-            base = isBest
-                ? "ラップ\(lap.id)、\(timeStr)、ベストラップ"
-                : "ラップ\(lap.id)、\(timeStr)"
+            lapTimePart = "ラップ\(lap.id)、\(timeStr)"
+            bestPart = "ベストラップ"
             separator = "、"
         }
-        return base + (splitSuffix.map { separator + $0 } ?? "")
+        var parts: [String] = []
+        if includeLapTime { parts.append(lapTimePart) }
+        // Deliberately not folded into the lap-time part: `announceBest` is
+        // its own toggle, so a new fastest lap is still worth calling out
+        // for a pilot who has the lap time switched off.
+        if isBest { parts.append(bestPart) }
+        if let splitSuffix { parts.append(splitSuffix) }
+        return parts.joined(separator: separator)
     }
 }
 
