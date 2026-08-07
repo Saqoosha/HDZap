@@ -131,7 +131,7 @@ This step uses the **Web Flasher** — a tool that runs entirely in your browser
 
 2. Plug the **M5StickS3** into your computer with a USB-C data cable.
 
-3. Set the **"Erase everything"** checkbox before you connect (it starts unchecked):
+3. Set the **"Erase everything"** checkbox before you click **Connect & flash** (it starts unchecked):
    - **First-time flash: tick it.** This wipes the M5StickS3's flash memory before writing.
    - **Updating an existing install: leave it unchecked.** This preserves the UID stored in NVS (the Goggle pairing).
 
@@ -140,7 +140,7 @@ This step uses the **Web Flasher** — a tool that runs entirely in your browser
 5. **If it can't connect — enter DFU mode manually:**
    If the browser hangs on `Connecting to bootloader…` or shows an error, **press and hold the small power button on the left side of the M5StickS3 for about 2 seconds**. The green LED starts blinking — that's DFU mode. Click **Connect & flash** again.
 
-6. There is no separate Write step — flashing begins as soon as the port is picked. The progress bar runs for about 30 seconds to a minute.
+6. There is no separate Write step — that one click carries you through connect, download, optional erase, and write with nothing else to press. The whole run takes about 30–90 seconds.
 
 7. **When the flash finishes**, press the **small power button on the left side of the M5StickS3 once** to reboot. If the LCD lights up with a status display, you're done.
 
