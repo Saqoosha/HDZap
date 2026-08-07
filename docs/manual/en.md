@@ -140,7 +140,7 @@ This step uses the **Web Flasher** — a tool that runs entirely in your browser
 5. **If it can't connect — enter DFU mode manually:**
    If the browser hangs on `Connecting to bootloader…` or shows an error, **press and hold the small power button on the left side of the M5StickS3 for about 2 seconds**. The green LED starts blinking — that's DFU mode. Click **Connect & flash** again.
 
-6. There is no separate Write step — that one click carries you through connect, download, optional erase, and write with nothing else to press. The whole run takes about 30–90 seconds.
+6. Wait for the progress bar to finish — about 30–90 seconds. That one click runs connect, download, optional erase, and write in sequence, so there is no separate Write button to look for.
 
 7. **When the flash finishes**, press the **small power button on the left side of the M5StickS3 once** to reboot. If the LCD lights up with a status display, you're done.
 
