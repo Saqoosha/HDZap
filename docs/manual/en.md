@@ -131,16 +131,16 @@ This step uses the **Web Flasher** — a tool that runs entirely in your browser
 
 2. Plug the **M5StickS3** into your computer with a USB-C data cable.
 
-3. Click **Connect** in the browser. A serial-port picker appears — choose the port whose name starts with something like `USB JTAG/serial debug unit` or `USB Serial`. In most cases esptool will put the M5StickS3 into bootloader mode automatically and start flashing.
+3. Set the **"Erase everything"** checkbox before you connect (it starts unchecked):
+   - **First-time flash: tick it.** This wipes the M5StickS3's flash memory before writing.
+   - **Updating an existing install: leave it unchecked.** This preserves the UID stored in NVS (the Goggle pairing).
 
-4. **If it can't connect — enter DFU mode manually:**
-   If the browser hangs on `Connecting to bootloader…` or shows an error, **press and hold the small power button on the left side of the M5StickS3 for about 2 seconds**. The green LED starts blinking — that's DFU mode. Click **Connect** again.
+4. Click **Connect & flash** in the browser. A serial-port picker appears — choose the port whose name starts with something like `USB JTAG/serial debug unit` or `USB Serial`. In most cases esptool will put the M5StickS3 into bootloader mode automatically and start flashing.
 
-5. The **"Erase everything"** checkbox:
-   - **First-time flash: leave it checked.** This wipes the M5StickS3's flash memory before writing.
-   - **Updating an existing install: uncheck it.** This preserves the UID stored in NVS (the Goggle pairing).
+5. **If it can't connect — enter DFU mode manually:**
+   If the browser hangs on `Connecting to bootloader…` or shows an error, **press and hold the small power button on the left side of the M5StickS3 for about 2 seconds**. The green LED starts blinking — that's DFU mode. Click **Connect & flash** again.
 
-6. Click **Write**. The progress bar runs for about 30 seconds to a minute.
+6. There is no separate Write step — flashing begins as soon as the port is picked. The progress bar runs for about 30 seconds to a minute.
 
 7. **When the flash finishes**, press the **small power button on the left side of the M5StickS3 once** to reboot. If the LCD lights up with a status display, you're done.
 
@@ -149,7 +149,7 @@ This step uses the **Web Flasher** — a tool that runs entirely in your browser
 ### When things go wrong
 
 - **`ESP_TOO_MUCH_DATA` error:** Update Chrome to the latest version.
-- **Port doesn't appear / can't be selected:** Try a different cable (it might be charge-only). Still no luck → enter DFU mode manually (hold power button 2 seconds) and click Connect again.
+- **Port doesn't appear / can't be selected:** Try a different cable (it might be charge-only). Still no luck → enter DFU mode manually (hold power button 2 seconds) and click **Connect & flash** again.
 - **Allow dialog never appears:** Close the browser and reopen the URL.
 
 ---
